@@ -99,10 +99,10 @@ onMounted(load)
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div>
           <p class="text-sm font-black tracking-[0.22em] text-sky-600">生图定价</p>
-          <h1 class="mt-2 text-4xl font-black tracking-tight text-slate-950">OpenAI 模型与价格</h1>
+          <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">OpenAI 模型与价格</h1>
           <p class="mt-3 text-sm font-medium text-slate-500">配置每个图像规格的 API Key、模型参数和用户扣费价格。</p>
         </div>
-        <button class="h-12 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:border-sky-200 hover:bg-sky-50" @click="load">
+        <button class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:border-sky-200 hover:bg-sky-50 sm:w-auto" @click="load">
           刷新配置
         </button>
       </div>
@@ -114,11 +114,11 @@ onMounted(load)
         正在读取配置
       </div>
 
-      <div v-else class="mt-8 grid gap-5 xl:grid-cols-3">
+      <div v-else class="mt-6 grid gap-5 sm:mt-8 xl:grid-cols-3">
         <section
           v-for="config in configs"
           :key="config.id"
-          class="rounded-[28px] border border-white/80 bg-white/86 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-2xl transition duration-300 hover:-translate-y-1 hover:shadow-[0_28px_90px_rgba(14,165,233,0.14)]"
+          class="rounded-[24px] border border-white/80 bg-white/86 p-4 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-2xl transition duration-300 hover:-translate-y-1 hover:shadow-[0_28px_90px_rgba(14,165,233,0.14)] sm:rounded-[28px] sm:p-5"
         >
           <div class="flex items-start justify-between gap-3">
             <div>

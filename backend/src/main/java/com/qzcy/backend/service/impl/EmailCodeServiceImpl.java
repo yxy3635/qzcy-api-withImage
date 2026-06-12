@@ -1,34 +1,26 @@
 package com.qzcy.backend.service.impl;
 
+import com.qzcy.backend.entity.MailConfig;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.service.EmailCodeService;
+import com.qzcy.backend.service.MailConfigService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
 public class EmailCodeServiceImpl implements EmailCodeService {
     private static final SecureRandom RANDOM = new SecureRandom();
-    private final ObjectProvider<JavaMailSender> mailSenderProvider;
+    private final MailConfigService mailConfigService;
     private final Map<String, CodeEntry> codes = new ConcurrentHashMap<>();
-
-    @Value("${spring.mail.host:}")
-    private String mailHost;
-
-    @Value("${app.mail.from:}")
-    private String mailFrom;
-
-    @Value("${app.mail.dev-return-code:true}")
-    private boolean devReturnCode;
 
     @Override
     public Map<String, Object> sendCode(String email, String scene) {
@@ -37,17 +29,18 @@ public class EmailCodeServiceImpl implements EmailCodeService {
         String code = String.valueOf(100000 + RANDOM.nextInt(900000));
         codes.put(key(normalizedEmail, normalizedScene), new CodeEntry(code, LocalDateTime.now().plusMinutes(10)));
 
-        JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
-        if (mailHost != null && !mailHost.isBlank() && mailSender != null) {
+        MailConfig config = mailConfigService.current();
+        if (Boolean.TRUE.equals(config.getEnabled()) && config.getHost() != null && !config.getHost().isBlank()) {
+            JavaMailSenderImpl mailSender = mailSender(config);
             SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(mailFrom == null || mailFrom.isBlank() ? null : mailFrom);
+            message.setFrom(config.getFromAddress() == null || config.getFromAddress().isBlank() ? config.getUsername() : config.getFromAddress());
             message.setTo(normalizedEmail);
             message.setSubject("imageCreater 邮箱验证码");
             message.setText("你的验证码是：" + code + "，10分钟内有效。");
             mailSender.send(message);
         }
 
-        if (devReturnCode || mailHost == null || mailHost.isBlank()) {
+        if (Boolean.TRUE.equals(config.getDevReturnCode()) || !Boolean.TRUE.equals(config.getEnabled())) {
             return Map.of("sent", true, "devCode", code);
         }
         return Map.of("sent", true);
@@ -82,6 +75,23 @@ public class EmailCodeServiceImpl implements EmailCodeService {
 
     private String key(String email, String scene) {
         return scene + ":" + email;
+    }
+
+    private JavaMailSenderImpl mailSender(MailConfig config) {
+        JavaMailSenderImpl sender = new JavaMailSenderImpl();
+        sender.setHost(config.getHost());
+        sender.setPort(config.getPort() == null ? 587 : config.getPort());
+        sender.setUsername(config.getUsername());
+        sender.setPassword(config.getPassword());
+        sender.setDefaultEncoding("UTF-8");
+        Properties properties = sender.getJavaMailProperties();
+        properties.put("mail.smtp.auth", "true");
+        properties.put("mail.smtp.ssl.enable", String.valueOf(Boolean.TRUE.equals(config.getSslEnabled())));
+        properties.put("mail.smtp.starttls.enable", String.valueOf(Boolean.TRUE.equals(config.getStarttlsEnabled())));
+        properties.put("mail.smtp.connectiontimeout", "10000");
+        properties.put("mail.smtp.timeout", "10000");
+        properties.put("mail.smtp.writetimeout", "10000");
+        return sender;
     }
 
     private record CodeEntry(String code, LocalDateTime expireAt) {

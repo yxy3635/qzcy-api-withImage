@@ -4,11 +4,9 @@ server:
 spring:
   application:
     name: imageCreater-backend
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/image_creator?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
-    username: root
-    password: root
+  # 默认使用 dev 环境，线上启动时通过 --spring.profiles.active=prod 覆盖
+  profiles:
+    active: dev
   mail:
     host: ${MAIL_HOST:}
     port: ${MAIL_PORT:587}

@@ -14,6 +14,7 @@ const nav = computed(() =>
         { to: '/admin/dashboard', label: '仪表盘', desc: '运营总览' },
         { to: '/admin/users', label: '用户管理', desc: '账号权限' },
         { to: '/admin/pricing', label: '生图定价', desc: '模型价格' },
+        { to: '/admin/mail', label: '邮箱配置', desc: '发信SMTP' },
         { to: '/admin/logs', label: '系统日志', desc: '运行记录' }
       ]
     : [
@@ -59,18 +60,29 @@ function logout() {
     </aside>
     <div class="md:pl-72">
       <header class="sticky top-0 z-20 border-b border-white/80 bg-white/76 backdrop-blur-2xl">
-        <div class="flex h-16 items-center justify-between px-4 md:px-8">
-          <div>
+        <div class="flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 py-3 md:h-16 md:flex-nowrap md:px-8 md:py-0">
+          <div class="min-w-0">
             <p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">{{ admin ? '管理员后台' : '用户后台' }}</p>
             <p class="text-sm font-semibold text-slate-600">{{ route.meta.admin ? '运营与权限管理' : '创作资产与余额管理' }}</p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex shrink-0 items-center gap-2">
             <RouterLink v-if="!admin" class="btn-primary rounded-full px-5" to="/create">开始创作</RouterLink>
             <button class="btn-secondary rounded-full" @click="logout">退出</button>
           </div>
         </div>
+        <nav class="flex gap-2 overflow-x-auto border-t border-slate-100 px-4 py-2 md:hidden">
+          <RouterLink
+            v-for="item in nav"
+            :key="item.to"
+            :to="item.to"
+            class="shrink-0 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600"
+            active-class="!border-sky-200 !bg-sky-50 !text-sky-700"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </nav>
       </header>
-      <main class="mx-auto max-w-7xl px-4 py-8 md:px-8">
+      <main class="mx-auto max-w-7xl px-3 py-5 sm:px-4 md:px-8 md:py-8">
         <div class="page-enter">
           <slot />
         </div>

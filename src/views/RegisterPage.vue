@@ -70,7 +70,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="relative min-h-screen flex items-center justify-center bg-[#F8FAFC] font-sans selection:bg-blue-500 selection:text-white overflow-hidden">
+  <div class="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-[#F8FAFC] px-3 py-8 font-sans selection:bg-blue-500 selection:text-white sm:px-0">
     <!-- Abstract Background Elements -->
     <div class="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
       <div class="absolute -bottom-[20%] -left-[10%] w-[60%] h-[60%] rounded-full bg-cyan-400/10 blur-[120px]"></div>
@@ -80,18 +80,18 @@ async function submit() {
 
     <!-- Main Container -->
     <div 
-      class="relative z-10 w-full max-w-md px-6 transition-all duration-1000 transform"
+      class="relative z-10 w-full max-w-md px-0 transition-all duration-1000 sm:px-6"
       :class="isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'"
     >
       <!-- Logo & Header -->
-      <div class="text-center mb-10">
+      <div class="mb-6 text-center sm:mb-10">
         <h1 class="text-3xl font-black tracking-tight text-slate-900 mb-2 cursor-pointer hover:opacity-80 transition-opacity" @click="router.push('/')">imageCreater</h1>
         <p class="text-slate-500 font-medium">注册以开始</p>
       </div>
 
       <!-- Glassmorphism Form Panel -->
       <form 
-        class="bg-white/80 backdrop-blur-xl border border-white/60 p-8 rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)]"
+        class="rounded-3xl border border-white/60 bg-white/80 p-5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] backdrop-blur-xl sm:p-8"
         @submit.prevent="submit"
       >
         <div class="space-y-5">
@@ -125,7 +125,7 @@ async function submit() {
           <!-- Email Code Input -->
           <div class="space-y-2">
             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">邮箱验证码</label>
-            <div class="flex gap-3">
+            <div class="grid gap-3 sm:flex">
               <input 
                 v-model="code" 
                 class="min-w-0 flex-1 bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"

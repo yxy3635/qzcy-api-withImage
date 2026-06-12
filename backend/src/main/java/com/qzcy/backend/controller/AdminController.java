@@ -7,10 +7,13 @@ import com.qzcy.backend.dto.ApiResponse;
 import com.qzcy.backend.dto.DashboardStats;
 import com.qzcy.backend.dto.ImageGenerationConfigDto;
 import com.qzcy.backend.dto.ImageGenerationConfigUpdateDto;
+import com.qzcy.backend.dto.MailConfigDto;
+import com.qzcy.backend.dto.MailConfigUpdateDto;
 import com.qzcy.backend.dto.RoleUpdateDto;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.service.AdminService;
 import com.qzcy.backend.service.ImageGenerationConfigService;
+import com.qzcy.backend.service.MailConfigService;
 import com.qzcy.backend.util.SecurityUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -28,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminController {
     private final AdminService adminService;
     private final ImageGenerationConfigService imageGenerationConfigService;
+    private final MailConfigService mailConfigService;
 
     @GetMapping("/dashboard")
     public ApiResponse<DashboardStats> dashboard() {
@@ -58,6 +62,16 @@ public class AdminController {
     public ApiResponse<ImageGenerationConfigDto> updateImageConfig(@PathVariable Long id,
                                                                    @RequestBody ImageGenerationConfigUpdateDto dto) {
         return ApiResponse.success(imageGenerationConfigService.update(id, dto));
+    }
+
+    @GetMapping("/mail-config")
+    public ApiResponse<MailConfigDto> mailConfig() {
+        return ApiResponse.success(mailConfigService.adminDetail());
+    }
+
+    @PutMapping("/mail-config")
+    public ApiResponse<MailConfigDto> updateMailConfig(@RequestBody MailConfigUpdateDto dto) {
+        return ApiResponse.success(mailConfigService.update(dto));
     }
 
     @PutMapping("/users/{id}/role")

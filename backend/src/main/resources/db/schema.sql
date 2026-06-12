@@ -68,3 +68,23 @@ CREATE TABLE IF NOT EXISTS image_generation_metric (
     INDEX idx_metric_created (created_at),
     INDEX idx_metric_user_created (user_id, created_at)
 );
+
+CREATE TABLE IF NOT EXISTS mail_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    host VARCHAR(120) NOT NULL DEFAULT '',
+    port INT NOT NULL DEFAULT 587,
+    username VARCHAR(160) NOT NULL DEFAULT '',
+    password VARCHAR(255) NOT NULL DEFAULT '',
+    from_address VARCHAR(160) NOT NULL DEFAULT '',
+    ssl_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    starttls_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    enabled TINYINT(1) NOT NULL DEFAULT 0,
+    dev_return_code TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+);
+
+INSERT INTO mail_config
+    (id, host, port, username, password, from_address, ssl_enabled, starttls_enabled, enabled, dev_return_code, created_at, updated_at)
+SELECT 1, '', 587, '', '', '', 0, 1, 0, 1, NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM mail_config);

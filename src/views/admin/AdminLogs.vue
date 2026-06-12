@@ -44,10 +44,10 @@ onMounted(() => load())
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <p class="text-sm font-bold uppercase tracking-[0.22em] text-sky-600">生成日志</p>
-        <h1 class="mt-2 text-3xl font-black">用户生图列表</h1>
+        <h1 class="mt-2 text-2xl font-black sm:text-3xl">用户生图列表</h1>
         <p class="mt-2 text-sm text-slate-500">查看所有用户的生成结果、提示词、状态和生成时间。</p>
       </div>
-      <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:w-auto">
         <p class="text-xs font-semibold text-slate-500">记录总数</p>
         <p class="mt-1 text-2xl font-black">{{ total }}</p>
       </div>
@@ -83,7 +83,7 @@ onMounted(() => load())
           v-for="record in records"
           v-else
           :key="record.id"
-          class="grid gap-4 px-5 py-4 text-sm transition hover:bg-sky-50/70 xl:grid-cols-[120px_1fr_110px_110px_180px_120px] xl:items-center"
+          class="grid gap-3 px-4 py-4 text-sm transition hover:bg-sky-50/70 sm:gap-4 sm:px-5 xl:grid-cols-[120px_1fr_110px_110px_180px_120px] xl:items-center"
         >
           <div>
             <p class="font-black text-slate-900">{{ record.username || '未知用户' }}</p>

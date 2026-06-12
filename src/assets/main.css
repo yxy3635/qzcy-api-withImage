@@ -17,6 +17,7 @@ body {
   min-height: 100vh;
   margin: 0;
   text-rendering: geometricPrecision;
+  overflow-x: hidden;
 }
 
 html {
@@ -184,4 +185,20 @@ select {
 .zoom-fade-leave-to {
   opacity: 0;
   transform: scale(0.98);
+}
+
+@media (max-width: 640px) {
+  h1 {
+    overflow-wrap: anywhere;
+  }
+
+  .page-shell {
+    overflow-x: hidden;
+  }
+
+  .soft-card,
+  .panel,
+  .glass-panel {
+    border-radius: 20px;
+  }
 }

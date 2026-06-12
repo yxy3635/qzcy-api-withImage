@@ -41,10 +41,10 @@ onMounted(() => load())
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <p class="text-sm font-bold uppercase tracking-[0.22em] text-sky-600">生成历史</p>
-        <h1 class="mt-2 text-4xl font-black tracking-tight">图像资产库</h1>
+        <h1 class="mt-2 text-3xl font-black tracking-tight sm:text-4xl">图像资产库</h1>
         <p class="mt-2 text-sm text-slate-500">查看提示词、状态、生成时间和本地保存图像。</p>
       </div>
-      <RouterLink class="rounded-full bg-sky-500 px-5 py-3 text-sm font-black text-white shadow-[0_18px_50px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5 hover:bg-sky-600" to="/create">继续创作</RouterLink>
+      <RouterLink class="w-full rounded-full bg-sky-500 px-5 py-3 text-center text-sm font-black text-white shadow-[0_18px_50px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5 hover:bg-sky-600 sm:w-auto" to="/create">继续创作</RouterLink>
     </div>
 
     <p v-if="message" class="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ message }}</p>
@@ -55,11 +55,11 @@ onMounted(() => load())
         <span>提示词</span><span>状态</span><span>创建时间</span><span>操作</span>
       </div>
       <div class="divide-y divide-slate-100">
-        <div v-for="record in records" :key="record.id" class="interactive-row grid gap-4 px-5 py-4 text-sm md:grid-cols-[1fr_120px_180px_180px] md:items-center">
+        <div v-for="record in records" :key="record.id" class="interactive-row grid gap-4 px-4 py-4 text-sm md:grid-cols-[1fr_120px_180px_180px] md:items-center md:px-5">
           <p class="leading-6 text-slate-700">{{ record.prompt }}</p>
           <span class="w-fit rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-bold text-sky-700">{{ record.status }}</span>
           <span class="text-slate-500">{{ record.createdAt }}</span>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <button v-if="record.generatedImageUrl" class="group overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-sm" @click="preview = record.generatedImageUrl || ''">
               <img :src="record.generatedImageUrl" class="h-16 w-24 rounded-lg object-cover transition duration-300 group-hover:scale-105" alt="生成缩略图" />
             </button>

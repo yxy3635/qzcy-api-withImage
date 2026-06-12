@@ -46,6 +46,19 @@ export interface ImageEstimate {
   sampleCount: number
 }
 
+export interface MailConfig {
+  id: number
+  host: string
+  port: number
+  username: string
+  fromAddress: string
+  sslEnabled: boolean
+  starttlsEnabled: boolean
+  enabled: boolean
+  devReturnCode: boolean
+  passwordConfigured: boolean
+}
+
 export interface AdminImageRecord extends ImageRecord {
   username?: string
 }

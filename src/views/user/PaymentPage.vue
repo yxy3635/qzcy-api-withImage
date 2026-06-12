@@ -37,7 +37,7 @@ onMounted(loadHistory)
       <div class="space-y-4">
         <div>
           <p class="text-sm font-bold uppercase tracking-[0.22em] text-sky-600">余额中心</p>
-          <h1 class="mt-2 text-4xl font-black tracking-tight">充值与支付</h1>
+          <h1 class="mt-2 text-3xl font-black tracking-tight sm:text-4xl">充值与支付</h1>
           <p class="mt-2 text-sm text-slate-500">管理创作余额和模拟支付记录。</p>
         </div>
         <BalanceCard :balance="auth.userInfo?.balance || 0" />
@@ -64,7 +64,7 @@ onMounted(loadHistory)
           <p class="mt-1 text-sm text-slate-500">模拟充值会即时增加余额，第三方支付为预留占位。</p>
         </div>
         <div class="divide-y divide-slate-100">
-          <div v-for="record in records" :key="record.id" class="interactive-row grid gap-2 p-5 text-sm md:grid-cols-[120px_1fr_120px_180px]">
+          <div v-for="record in records" :key="record.id" class="interactive-row grid gap-2 p-4 text-sm md:grid-cols-[120px_1fr_120px_180px] md:p-5">
             <span class="font-black text-slate-950">￥{{ Number(record.amount).toFixed(2) }}</span>
             <span class="text-slate-600">{{ record.type }}</span>
             <span class="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{{ record.status }}</span>

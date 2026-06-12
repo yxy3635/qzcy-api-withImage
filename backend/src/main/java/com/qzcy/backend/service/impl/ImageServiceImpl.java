@@ -12,6 +12,7 @@ import com.qzcy.backend.mapper.ImageRecordMapper;
 import com.qzcy.backend.service.ImageGenerationConfigService;
 import com.qzcy.backend.service.ImageService;
 import com.qzcy.backend.service.PaymentService;
+import com.qzcy.backend.util.UploadPathUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -348,7 +349,7 @@ public class ImageServiceImpl implements ImageService {
     }
 
     private String saveImageBytes(String username, byte[] bytes) throws Exception {
-        Path userDir = Path.of(imagePath, username).toAbsolutePath().normalize();
+        Path userDir = UploadPathUtil.resolveImageRoot(imagePath, ImageServiceImpl.class).resolve(username).normalize();
         Files.createDirectories(userDir);
         String fileName = UUID.randomUUID() + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now()) + ".png";
         Files.write(userDir.resolve(fileName), bytes, StandardOpenOption.CREATE_NEW);
@@ -371,7 +372,7 @@ public class ImageServiceImpl implements ImageService {
         }
         try {
             String relative = imageUrl.substring("/api/images/".length());
-            Path root = Path.of(imagePath).toAbsolutePath().normalize();
+            Path root = UploadPathUtil.resolveImageRoot(imagePath, ImageServiceImpl.class);
             Path target = root.resolve(relative).normalize();
             if (target.startsWith(root)) {
                 Files.deleteIfExists(target);

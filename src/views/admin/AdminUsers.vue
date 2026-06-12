@@ -97,10 +97,10 @@ onMounted(load)
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div>
           <p class="text-sm font-black tracking-[0.22em] text-sky-600">用户管理</p>
-          <h1 class="mt-2 text-4xl font-black tracking-tight text-slate-950">账号、资料与余额</h1>
+          <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">账号、资料与余额</h1>
           <p class="mt-3 text-sm font-medium text-slate-500">维护用户邮箱、权限、余额，并为用户重置登录密码。</p>
         </div>
-        <div class="flex w-full gap-3 sm:w-auto">
+        <div class="grid w-full gap-3 sm:flex sm:w-auto">
           <label class="relative min-w-0 flex-1 sm:w-80">
             <svg class="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" />
@@ -120,7 +120,7 @@ onMounted(load)
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
       <section class="mt-7 overflow-hidden rounded-[28px] border border-white/80 bg-white/78 shadow-[0_28px_90px_rgba(15,23,42,0.08)] backdrop-blur-2xl">
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-5 sm:px-6">
           <div>
             <p class="text-lg font-black text-slate-950">用户资产列表</p>
             <p class="mt-1 text-xs font-semibold text-slate-500">当前页 {{ users.length }} 位用户，可直接编辑后保存。</p>
@@ -140,7 +140,7 @@ onMounted(load)
           <span class="text-right">操作</span>
         </div>
 
-        <div class="space-y-3 bg-gradient-to-b from-white to-sky-50/50 p-4">
+        <div class="space-y-3 bg-gradient-to-b from-white to-sky-50/50 p-3 sm:p-4">
           <article
             v-for="user in users"
             :key="user.id"
@@ -190,7 +190,7 @@ onMounted(load)
               <p class="text-sm font-bold leading-relaxed text-slate-600">{{ formatDate(user.createdAt) }}</p>
             </div>
 
-            <div class="flex items-center justify-end gap-2">
+            <div class="flex flex-wrap items-center justify-end gap-2">
               <button
                 class="inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-950 px-4 text-xs font-black text-white shadow-[0_12px_32px_rgba(15,23,42,0.16)] transition hover:-translate-y-0.5 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
                 :disabled="savingId === user.id"
@@ -215,7 +215,7 @@ onMounted(load)
           </div>
         </div>
 
-        <div class="border-t border-slate-100 bg-white px-6 py-5">
+        <div class="border-t border-slate-100 bg-white px-4 py-5 sm:px-6">
           <Pagination :current="current" :pages="pages" @change="load" />
         </div>
       </section>

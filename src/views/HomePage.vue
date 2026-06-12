@@ -73,8 +73,8 @@ const setBentoItemRef = (el: any) => {
   <div class="relative w-full min-h-screen bg-[#F8FAFC] text-slate-900 overflow-x-hidden font-sans selection:bg-blue-500 selection:text-white">
     
     <!-- Floating Minimalist Navigation -->
-    <nav class="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-between px-6 py-3 bg-white/70 backdrop-blur-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.04)] rounded-full w-[90%] max-w-5xl transition-all hover:bg-white/90">
-      <div class="flex items-center gap-2 font-black text-xl tracking-tight cursor-pointer text-slate-900" @click="router.push('/')">
+    <nav class="fixed left-1/2 top-3 z-50 flex w-[calc(100%-24px)] max-w-5xl -translate-x-1/2 items-center justify-between rounded-full border border-white/40 bg-white/70 px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.04)] backdrop-blur-xl transition-all hover:bg-white/90 sm:top-6 sm:w-[90%] sm:px-6">
+      <div class="flex cursor-pointer items-center gap-2 text-lg font-black tracking-tight text-slate-900 sm:text-xl" @click="router.push('/')">
         imageCreater
       </div>
       
@@ -85,7 +85,7 @@ const setBentoItemRef = (el: any) => {
       </div>
 
       <button 
-        class="bg-slate-900 text-white text-sm font-semibold px-5 py-2 rounded-full hover:bg-blue-600 transition-colors shadow-md hover:shadow-blue-500/30"
+        class="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-md transition-colors hover:bg-blue-600 hover:shadow-blue-500/30 sm:px-5 sm:text-sm"
         @click="router.push(primaryTarget)"
       >
         进入控制台
@@ -93,17 +93,17 @@ const setBentoItemRef = (el: any) => {
     </nav>
 
     <!-- Hero Section -->
-    <section class="relative w-full h-screen flex flex-col items-center justify-center overflow-hidden">
+    <section class="relative flex min-h-[760px] w-full flex-col items-center justify-center overflow-hidden sm:h-screen sm:min-h-[680px]">
       <!-- 3D Particle Wave Background -->
       <div class="absolute inset-0 z-0 bg-gradient-to-b from-white via-transparent to-[#F8FAFC]">
         <ThreeBackground />
       </div>
 
       <!-- Hero Content -->
-      <div ref="heroRef" class="relative z-10 text-center px-6 flex flex-col items-center mt-20">
+      <div ref="heroRef" class="relative z-10 mt-20 flex flex-col items-center px-4 text-center sm:px-6">
         
         <h1 
-          class="text-5xl md:text-7xl lg:text-8xl font-black tracking-tight text-slate-900 leading-[1.2] max-w-5xl transition-all duration-1000 delay-150 transform"
+          class="max-w-5xl text-4xl font-black leading-[1.15] tracking-tight text-slate-900 transition-all delay-150 duration-1000 sm:text-5xl md:text-7xl lg:text-8xl"
           :class="heroVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'"
         >
           想象力，<br class="md:hidden" />
@@ -113,7 +113,7 @@ const setBentoItemRef = (el: any) => {
         </h1>
         
         <p 
-          class="mt-8 text-lg md:text-xl text-slate-500 max-w-2xl font-medium leading-relaxed transition-all duration-1000 delay-300 transform"
+          class="mt-6 max-w-2xl text-base font-medium leading-relaxed text-slate-500 transition-all delay-300 duration-1000 sm:mt-8 md:text-xl"
           :class="heroVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'"
         >
           下一代 AI 视觉合成引擎。无需繁琐调试，将您的文本灵感在毫秒间转化为超写实摄影、概念艺术与商业级视觉资产。
@@ -154,12 +154,12 @@ const setBentoItemRef = (el: any) => {
     </section>
 
     <!-- Bento Box Gallery Section -->
-    <section id="bento-gallery" class="relative z-20 bg-[#F8FAFC] py-32 px-6">
+    <section id="bento-gallery" class="relative z-20 bg-[#F8FAFC] px-4 py-20 sm:px-6 md:py-32">
       <div class="max-w-7xl mx-auto">
         
-        <div ref="galleryHeaderRef" class="mb-16 md:text-center">
+        <div ref="galleryHeaderRef" class="mb-10 md:mb-16 md:text-center">
           <h2 
-            class="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 mb-6 transition-all duration-1000 transform"
+            class="mb-4 text-3xl font-black tracking-tight text-slate-900 transition-all duration-1000 sm:text-4xl md:mb-6 md:text-5xl lg:text-6xl"
             :class="galleryHeaderVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'"
           >多维视觉矩阵</h2>
           <p 
@@ -171,12 +171,12 @@ const setBentoItemRef = (el: any) => {
         </div>
 
         <!-- Bento Grid Layout -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 md:auto-rows-[300px]">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-4 md:auto-rows-[300px]">
           
           <!-- Image 1: Large Feature (2x2) -->
           <div 
             :ref="setBentoItemRef"
-            class="group relative md:col-span-2 md:row-span-2 rounded-3xl overflow-hidden bg-white shadow-sm hover:shadow-2xl transition-all duration-700 transform"
+            class="group relative h-80 overflow-hidden rounded-3xl bg-white shadow-sm transition-all duration-700 hover:shadow-2xl md:col-span-2 md:row-span-2 md:h-auto"
             :class="bentoItemsVisible[0] ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-16 scale-95'"
           >
             <img :src="gallery0.src" :alt="gallery0.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
@@ -191,7 +191,7 @@ const setBentoItemRef = (el: any) => {
           <!-- Image 2: Standard (1x1) -->
           <div 
             :ref="setBentoItemRef"
-            class="group relative md:col-span-1 md:row-span-1 rounded-3xl overflow-hidden bg-white shadow-sm hover:shadow-xl transition-all duration-700 transform"
+            class="group relative h-64 overflow-hidden rounded-3xl bg-white shadow-sm transition-all duration-700 hover:shadow-xl md:col-span-1 md:row-span-1 md:h-auto"
             :class="bentoItemsVisible[1] ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-16 scale-95'"
           >
             <img :src="gallery1.src" :alt="gallery1.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
@@ -205,7 +205,7 @@ const setBentoItemRef = (el: any) => {
           <!-- Image 3: Standard (1x1) -->
           <div 
             :ref="setBentoItemRef"
-            class="group relative md:col-span-1 md:row-span-1 rounded-3xl overflow-hidden bg-white shadow-sm hover:shadow-xl transition-all duration-700 transform"
+            class="group relative h-64 overflow-hidden rounded-3xl bg-white shadow-sm transition-all duration-700 hover:shadow-xl md:col-span-1 md:row-span-1 md:h-auto"
             :class="bentoItemsVisible[2] ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-16 scale-95'"
           >
             <img :src="gallery2.src" :alt="gallery2.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
@@ -219,7 +219,7 @@ const setBentoItemRef = (el: any) => {
           <!-- Image 4: Wide (2x1) -->
           <div 
             :ref="setBentoItemRef"
-            class="group relative md:col-span-2 md:row-span-1 rounded-3xl overflow-hidden bg-white shadow-sm hover:shadow-xl transition-all duration-700 transform"
+            class="group relative h-64 overflow-hidden rounded-3xl bg-white shadow-sm transition-all duration-700 hover:shadow-xl md:col-span-2 md:row-span-1 md:h-auto"
             :class="bentoItemsVisible[3] ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-16 scale-95'"
           >
             <img :src="gallery3.src" :alt="gallery3.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
@@ -233,7 +233,7 @@ const setBentoItemRef = (el: any) => {
           <!-- Image 5: Wide (2x1) -->
           <div 
             :ref="setBentoItemRef"
-            class="group relative md:col-span-2 md:row-span-1 rounded-3xl overflow-hidden bg-white shadow-sm hover:shadow-xl transition-all duration-700 transform"
+            class="group relative h-64 overflow-hidden rounded-3xl bg-white shadow-sm transition-all duration-700 hover:shadow-xl md:col-span-2 md:row-span-1 md:h-auto"
             :class="bentoItemsVisible[4] ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-16 scale-95'"
           >
             <img :src="gallery4.src" :alt="gallery4.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
@@ -247,7 +247,7 @@ const setBentoItemRef = (el: any) => {
           <!-- Image 6: Wide (2x1) -->
           <div 
             :ref="setBentoItemRef"
-            class="group relative md:col-span-2 md:row-span-1 rounded-3xl overflow-hidden bg-white shadow-sm hover:shadow-xl transition-all duration-700 transform"
+            class="group relative h-64 overflow-hidden rounded-3xl bg-white shadow-sm transition-all duration-700 hover:shadow-xl md:col-span-2 md:row-span-1 md:h-auto"
             :class="bentoItemsVisible[5] ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-16 scale-95'"
           >
             <img :src="gallery5.src" :alt="gallery5.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
