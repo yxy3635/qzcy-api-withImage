@@ -11,12 +11,11 @@ import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.AuthService;
 import com.qzcy.backend.service.EmailCodeService;
+import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.math.BigDecimal;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +24,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final EmailCodeService emailCodeService;
+    private final PaymentConfigService paymentConfigService;
 
     @Override
     public AuthUser register(RegisterDto dto) {
@@ -50,7 +50,7 @@ public class AuthServiceImpl implements AuthService {
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(dto.getPassword()));
         user.setRole("USER");
-        user.setBalance(BigDecimal.ZERO);
+        user.setBalance(paymentConfigService.registerGiftAmount());
         user.setVersion(0);
         userMapper.insert(user);
         return toAuthUser(user);

@@ -34,6 +34,25 @@ CREATE TABLE IF NOT EXISTS payment_record (
     INDEX idx_payment_user_created (user_id, created_at)
 );
 
+CREATE TABLE IF NOT EXISTS payment_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    api_url VARCHAR(255) NOT NULL DEFAULT '',
+    merchant_id VARCHAR(120) NOT NULL DEFAULT '',
+    merchant_secret VARCHAR(255) NOT NULL DEFAULT '',
+    register_gift_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    enabled TINYINT(1) NOT NULL DEFAULT 0,
+    alipay_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    wxpay_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    qqpay_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+);
+
+INSERT INTO payment_config
+    (id, api_url, merchant_id, merchant_secret, register_gift_amount, enabled, alipay_enabled, wxpay_enabled, qqpay_enabled, created_at, updated_at)
+SELECT 1, '', '', '', 0.00, 0, 1, 1, 0, NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM payment_config);
+
 CREATE TABLE IF NOT EXISTS image_generation_config (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     code VARCHAR(20) NOT NULL UNIQUE,

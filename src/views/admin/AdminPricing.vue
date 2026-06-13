@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import { adminApi } from '@/api/adminApi'
@@ -158,7 +158,7 @@ onMounted(load)
                 <span class="text-xs font-black text-slate-500">图像路径</span>
                 <select v-model="draftOf(config).endpointPath" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-semibold outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100">
                   <option value="/v1/images/generations">/v1/images/generations</option>
-                  <option value="/v1/images/edits">/v1/images/edits</option>
+                  <option value="/v1/responses">/v1/responses</option>
                 </select>
               </label>
             </div>

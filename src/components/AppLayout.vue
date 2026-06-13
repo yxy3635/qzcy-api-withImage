@@ -14,11 +14,11 @@ const nav = computed(() =>
         { to: '/admin/dashboard', label: '仪表盘', desc: '运营总览' },
         { to: '/admin/users', label: '用户管理', desc: '账号权限' },
         { to: '/admin/pricing', label: '生图定价', desc: '模型价格' },
+        { to: '/admin/payment', label: '支付管理', desc: '充值接入' },
         { to: '/admin/mail', label: '邮箱配置', desc: '发信SMTP' },
         { to: '/admin/logs', label: '系统日志', desc: '运行记录' }
       ]
     : [
-        { to: '/create', label: '前台创作', desc: '提示词生成' },
         { to: '/user/dashboard', label: '资产概览', desc: '创作总览' },
         { to: '/user/history', label: '生成历史', desc: '图像资产' },
         { to: '/user/payment', label: '余额支付', desc: '充值记录' },
@@ -30,13 +30,18 @@ function logout() {
   auth.logout()
   router.push('/login')
 }
+
+const title = "imageCreater"
 </script>
 
 <template>
   <div class="page-shell">
     <div class="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_12%_10%,rgba(14,165,233,0.12),transparent_28%),radial-gradient(circle_at_88%_18%,rgba(45,212,191,0.11),transparent_30%),linear-gradient(180deg,#ffffff,#f6f9fd)]" />
     <aside class="fixed inset-y-0 left-0 hidden w-72 border-r border-white/80 bg-white/76 px-5 py-6 shadow-[20px_0_70px_rgba(21,32,51,0.06)] backdrop-blur-2xl md:block">
-      <RouterLink to="/" class="block text-xl font-black tracking-tight text-ink">imageCreater</RouterLink>
+      <RouterLink to="/" class="block text-xl font-black tracking-tight text-ink">
+        <span style="color:green">{{ title.slice(0,5) }}</span>
+        <span>{{ title.slice(5) }}</span>
+      </RouterLink>
       <div class="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-sky-50 p-4 shadow-sm">
         <p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">{{ admin ? '管理员空间' : '创作者空间' }}</p>
         <p class="mt-3 truncate text-lg font-black">{{ auth.userInfo?.username }}</p>

@@ -76,12 +76,13 @@ public class ImageServiceImpl implements ImageService {
     }
 
     @Override
-    public ImageRecord submit(Long userId, String username, String prompt, String qualityCode) {
+    public ImageRecord submit(Long userId, String username, String prompt, String qualityCode, String size) {
         if (prompt == null || prompt.trim().isEmpty()) {
             throw new BusinessException(400, "提示词不能为空");
         }
 
         ImageGenerationConfig config = configService.requireEnabled(qualityCode);
+        String resolvedSize = normalizeRequestedSize(size, config.getSize());
         ImageRecord record = new ImageRecord();
         record.setUserId(userId);
         record.setPrompt(prompt.trim());
@@ -92,9 +93,9 @@ public class ImageServiceImpl implements ImageService {
 
         try {
             log.info("图像生成任务提交，recordId={}, userId={}, configCode={}, model={}, size={}, quality={}",
-                    record.getId(), userId, config.getCode(), config.getModel(), config.getSize(), config.getQuality());
+                    record.getId(), userId, config.getCode(), config.getModel(), resolvedSize, config.getQuality());
             paymentService.deductBalance(userId, config.getPrice());
-            imageGenerationExecutor.execute(() -> runGeneration(record.getId(), username, prompt.trim(), config));
+            imageGenerationExecutor.execute(() -> runGeneration(record.getId(), username, prompt.trim(), config, resolvedSize));
             return record;
         } catch (BusinessException ex) {
             record.setStatus("failed");
@@ -150,7 +151,7 @@ public class ImageServiceImpl implements ImageService {
         imageRecordMapper.deleteById(imageRecordId);
     }
 
-    private void runGeneration(Long recordId, String username, String prompt, ImageGenerationConfig config) {
+    private void runGeneration(Long recordId, String username, String prompt, ImageGenerationConfig config, String size) {
         long startedAt = System.currentTimeMillis();
         log.info("图像生成任务开始执行，recordId={}, thread={}", recordId, Thread.currentThread().getName());
         ImageRecord record = imageRecordMapper.selectById(recordId);
@@ -160,7 +161,7 @@ public class ImageServiceImpl implements ImageService {
         }
 
         try {
-            String relativePath = requestAndSaveImage(username, prompt, config);
+            String relativePath = requestAndSaveImage(username, prompt, config, size);
             record.setGeneratedImageUrl(relativePath);
             record.setStatus("success");
             imageRecordMapper.updateById(record);
@@ -172,12 +173,12 @@ public class ImageServiceImpl implements ImageService {
         }
     }
 
-    private String requestAndSaveImage(String username, String prompt, ImageGenerationConfig config) throws Exception {
+    private String requestAndSaveImage(String username, String prompt, ImageGenerationConfig config, String size) throws Exception {
         HashMap<String, Object> body = new HashMap<>();
         body.put("model", config.getModel());
         body.put("prompt", prompt);
         body.put("n", 1);
-        body.put("size", config.getSize());
+        body.put("size", size);
         String effectiveQuality = effectiveQuality(config);
         if (effectiveQuality != null) {
             body.put("quality", effectiveQuality);
@@ -186,7 +187,7 @@ public class ImageServiceImpl implements ImageService {
         String requestUrl = imageApiUrl(config);
         long requestStartedAt = System.currentTimeMillis();
         log.info("开始请求OpenAI图像接口，url={}, model={}, size={}, quality={}, effectiveQuality={}",
-                requestUrl, config.getModel(), config.getSize(), config.getQuality(), effectiveQuality);
+                requestUrl, config.getModel(), size, config.getQuality(), effectiveQuality);
 
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
@@ -245,6 +246,27 @@ public class ImageServiceImpl implements ImageService {
             return "auto";
         }
         return quality.isBlank() ? null : quality;
+    }
+
+    private String normalizeRequestedSize(String requestedSize, String fallbackSize) {
+        String fallback = fallbackSize == null || fallbackSize.isBlank() ? "1024x1024" : fallbackSize.trim();
+        if (requestedSize == null || requestedSize.isBlank()) {
+            return fallback;
+        }
+        String size = requestedSize.trim().toLowerCase();
+        if ("auto".equals(size)) {
+            return size;
+        }
+        if (!size.matches("^\\d{3,5}x\\d{3,5}$")) {
+            throw new BusinessException(400, "尺寸格式应为 auto 或 1024x1024");
+        }
+        String[] parts = size.split("x");
+        int width = Integer.parseInt(parts[0]);
+        int height = Integer.parseInt(parts[1]);
+        if (width < 256 || height < 256 || width > 8192 || height > 8192) {
+            throw new BusinessException(400, "尺寸范围应在 256 到 8192 像素之间");
+        }
+        return width + "x" + height;
     }
 
     private String readJsonBodyUntilComplete(InputStream inputStream, long requestStartedAt, String requestUrl) throws Exception {

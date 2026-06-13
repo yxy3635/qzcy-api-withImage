@@ -1,5 +1,5 @@
 import http from './http'
-import type { AdminImageRecord, AdminStats, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, UserInfo } from '@/types'
+import type { AdminImageRecord, AdminStats, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, UserInfo } from '@/types'
 
 export const adminApi = {
   dashboard() {
@@ -24,6 +24,12 @@ export const adminApi = {
   },
   updateMailConfig(payload: Partial<Omit<MailConfig, 'id' | 'passwordConfigured'>> & { password?: string }) {
     return http.put<ApiResponse<MailConfig>>('/admin/mail-config', payload)
+  },
+  paymentConfig() {
+    return http.get<ApiResponse<PaymentConfig>>('/admin/payment-config')
+  },
+  updatePaymentConfig(payload: Partial<Omit<PaymentConfig, 'id' | 'merchantSecretConfigured'>> & { merchantSecret?: string }) {
+    return http.put<ApiResponse<PaymentConfig>>('/admin/payment-config', payload)
   },
   updateRole(id: number, role: 'USER' | 'ADMIN') {
     return http.put<ApiResponse<void>>(`/admin/users/${id}/role`, { role })

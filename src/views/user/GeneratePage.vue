@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import { imageApi } from '@/api/imageApi'
@@ -20,13 +20,23 @@ const galleryFilter = ref('all')
 const specOpen = ref(false)
 const filterOpen = ref(false)
 const formatOpen = ref(false)
+const sizeModalOpen = ref(false)
 const mobilePanelOpen = ref(false)
 const imageFormat = ref('PNG')
 const elapsedSeconds = ref(0)
 const estimatedSeconds = ref(45)
+const fileInput = ref<HTMLInputElement | null>(null)
+const uploadedImages = ref<Array<{ name: string; url: string }>>([])
+const sizeMode = ref<'auto' | 'ratio' | 'custom'>('auto')
+const selectedRatio = ref('1:1')
+const customRatioActive = ref(false)
+const customRatio = ref('16:9')
+const customWidth = ref(1280)
+const customHeight = ref(720)
 let timer: number | undefined
 let activePollId = 0
 const POLL_INTERVAL_MS = 2000
+const unsupportedUploadMessage = '当前模型 gpt-image-2 不支持上传参考图，请切换其他模型后再上传。'
 
 const promptPresets = [
   '未来主义建筑，清晨薄雾，广角镜头，超写实',
@@ -42,14 +52,63 @@ const filterOptions = [
 ]
 
 const formatOptions = ['PNG']
+const sizeScales = [
+  { value: '1k', label: '1K', longSide: 1280, square: 1024 },
+  { value: '2k', label: '2K', longSide: 2560, square: 2048 },
+  { value: '4k', label: '4K', longSide: 3840, square: 4096 }
+] as const
+const ratioOptions = ['1:1', '3:2', '2:3', '16:9', '9:16', '4:3', '3:4', '21:9']
 
 const selectedConfig = computed(() => configs.value.find((item) => item.code === selectedQuality.value))
 const selectedFilterLabel = computed(() => filterOptions.find((item) => item.value === galleryFilter.value)?.label || '全部')
+const uploadDisabled = computed(() => (selectedConfig.value?.model || '').trim().toLowerCase() === 'gpt-image-2')
+const selectedSizeScale = computed(() => {
+  const code = (selectedConfig.value?.code || selectedQuality.value).toLowerCase()
+  if (code.includes('4k')) return sizeScales[2]
+  if (code.includes('2k')) return sizeScales[1]
+  return sizeScales[0]
+})
+const selectedImageSize = computed(() => {
+  if (sizeMode.value === 'auto') return 'auto'
+  if (sizeMode.value === 'custom') return `${customWidth.value}x${customHeight.value}`
+  return sizeFromRatio(customRatioActive.value ? customRatio.value : selectedRatio.value)
+})
+const sizeButtonLabel = computed(() => (sizeMode.value === 'auto' ? '自动' : selectedImageSize.value))
 const galleryRecords = computed(() => {
   const list = result.value ? [result.value, ...recent.value.filter((item) => item.id !== result.value?.id)] : recent.value
   const filtered = galleryFilter.value === 'all' ? list : list.filter((item) => item.status === galleryFilter.value)
   return filtered.slice(0, 12)
 })
+
+function roundToStep(value: number, step = 8) {
+  return Math.max(step, Math.round(value / step) * step)
+}
+
+function sizeFromRatio(ratio: string) {
+  const [ratioWidth, ratioHeight] = ratio.split(':').map(Number)
+  if (!ratioWidth || !ratioHeight) return '1024x1024'
+  const scale = selectedSizeScale.value
+  if (ratioWidth === ratioHeight) {
+    return `${scale.square}x${scale.square}`
+  }
+  if (ratioWidth > ratioHeight) {
+    return `${scale.longSide}x${roundToStep((scale.longSide * ratioHeight) / ratioWidth)}`
+  }
+  return `${roundToStep((scale.longSide * ratioWidth) / ratioHeight)}x${scale.longSide}`
+}
+
+function ratioIconStyle(ratio: string) {
+  const [ratioWidth, ratioHeight] = ratio.split(':').map(Number)
+  if (!ratioWidth || !ratioHeight) return { width: '24px', height: '24px' }
+  if (ratioWidth >= ratioHeight) {
+    return { width: '28px', height: `${Math.max(12, Math.round((28 * ratioHeight) / ratioWidth))}px` }
+  }
+  return { width: `${Math.max(12, Math.round((28 * ratioWidth) / ratioHeight))}px`, height: '28px' }
+}
+
+function clampDimension(value: number) {
+  return Math.min(8192, Math.max(256, roundToStep(Number(value) || 256)))
+}
 
 async function loadRecent() {
   const { data } = await imageApi.history(1, 12)
@@ -83,8 +142,10 @@ async function generate() {
   }, 1000)
   loading.value = true
   const pollId = ++activePollId
+  const submittedPrompt = prompt.value
+  prompt.value = ''
   try {
-    const { data } = await imageApi.generate(prompt.value, selectedQuality.value)
+    const { data } = await imageApi.generate(submittedPrompt, selectedQuality.value, selectedImageSize.value)
     result.value = data.data
     recent.value = [data.data, ...recent.value.filter((item) => item.id !== data.data.id)]
     const completed = await waitForGeneration(data.data.id, pollId)
@@ -148,6 +209,31 @@ function selectSpec(code: string) {
   specOpen.value = false
 }
 
+function openUpload() {
+  if (uploadDisabled.value) {
+    window.alert(unsupportedUploadMessage)
+    return
+  }
+  fileInput.value?.click()
+}
+
+function handleUpload(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  if (!files.length) return
+  uploadedImages.value.forEach((item) => URL.revokeObjectURL(item.url))
+  uploadedImages.value = files
+    .filter((file) => file.type.startsWith('image/'))
+    .slice(0, 4)
+    .map((file) => ({ name: file.name, url: URL.createObjectURL(file) }))
+  input.value = ''
+}
+
+function clearUploads() {
+  uploadedImages.value.forEach((item) => URL.revokeObjectURL(item.url))
+  uploadedImages.value = []
+}
+
 function selectFilter(value: string) {
   galleryFilter.value = value
   filterOpen.value = false
@@ -156,6 +242,30 @@ function selectFilter(value: string) {
 function selectFormat(value: string) {
   imageFormat.value = value
   formatOpen.value = false
+}
+
+function openSizeModal() {
+  sizeModalOpen.value = true
+}
+
+function selectRatio(value: string) {
+  selectedRatio.value = value
+  customRatioActive.value = false
+  sizeMode.value = 'ratio'
+}
+
+function applyCustomRatio() {
+  const [ratioWidth, ratioHeight] = customRatio.value.split(':').map(Number)
+  if (!ratioWidth || !ratioHeight) return
+  sizeMode.value = 'ratio'
+  customRatio.value = `${ratioWidth}:${ratioHeight}`
+  customRatioActive.value = true
+}
+
+function applyCustomSize() {
+  customWidth.value = clampDimension(customWidth.value)
+  customHeight.value = clampDimension(customHeight.value)
+  sizeMode.value = 'custom'
 }
 
 function logout() {
@@ -167,9 +277,17 @@ onMounted(() => {
   void Promise.all([auth.refreshUser(), loadRecent(), loadConfigs(), loadEstimate()])
 })
 
+watch(uploadDisabled, (disabled) => {
+  if (disabled && uploadedImages.value.length) {
+    clearUploads()
+    window.alert(unsupportedUploadMessage)
+  }
+})
+
 onBeforeUnmount(() => {
   activePollId += 1
   window.clearInterval(timer)
+  clearUploads()
 })
 </script>
 
@@ -193,7 +311,21 @@ onBeforeUnmount(() => {
     </header>
 
     <main class="mx-auto max-w-7xl px-3 py-4 sm:px-4 md:px-8 md:py-7">
-      <section class="fixed inset-x-3 bottom-3 z-40 mx-auto rounded-[24px] border border-slate-200 bg-white/94 p-3 shadow-[0_18px_60px_rgba(15,23,42,0.16)] backdrop-blur-2xl md:inset-x-0 md:bottom-6 md:w-[min(860px,calc(100%-32px))] md:overflow-visible md:rounded-[28px] md:p-4">
+      <section class="fixed inset-x-3 bottom-3 z-40 mx-auto rounded-[24px] border border-slate-200 bg-white/94 p-3 shadow-[0_18px_60px_rgba(15,23,42,0.16)] backdrop-blur-2xl md:inset-x-0 md:bottom-6 md:w-[min(960px,calc(100%-32px))] md:overflow-visible md:rounded-[28px] md:p-4">
+        <div v-if="uploadedImages.length" class="mb-3 flex items-center gap-3 overflow-x-auto pb-1">
+          <div v-for="(image, index) in uploadedImages" :key="image.url" class="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm">
+            <img :src="image.url" :alt="image.name" class="h-full w-full object-cover" />
+            <span class="absolute bottom-1 left-1 grid h-5 min-w-5 place-items-center rounded-full bg-slate-950/75 px-1 text-[10px] font-black text-white">{{ index + 1 }}</span>
+          </div>
+          <button class="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-500" type="button" title="清空上传图片" @click="clearUploads">
+            <span class="text-center text-xs font-black">
+              <svg class="mx-auto mb-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5h6v2m-7 3v8m4-8v8m4-8v8M8 7l1 13h6l1-13" />
+              </svg>
+              清空
+            </span>
+          </button>
+        </div>
         <div class="flex items-center gap-3">
           <input
             v-model="prompt"
@@ -201,7 +333,15 @@ onBeforeUnmount(() => {
             placeholder="描述你想生成的图像..."
             @keyup.enter="generate"
           />
-          <button class="hidden h-12 w-12 place-items-center rounded-2xl border border-slate-200 bg-slate-100 text-slate-500 transition hover:bg-slate-200 sm:grid" title="附件">
+          <input ref="fileInput" class="hidden" type="file" accept="image/*" multiple @change="handleUpload" />
+          <button
+            class="grid h-12 w-12 place-items-center rounded-2xl border transition disabled:cursor-not-allowed disabled:opacity-60"
+            :class="uploadDisabled ? 'border-rose-100 bg-rose-50 text-rose-400 hover:bg-rose-100' : 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200'"
+            :disabled="loading"
+            :title="uploadDisabled ? unsupportedUploadMessage : '上传参考图'"
+            type="button"
+            @click="openUpload"
+          >
             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 8.5-9.6 9.6a5 5 0 0 1-7.1-7.1l9.2-9.2a3.5 3.5 0 1 1 5 5l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" /></svg>
           </button>
           <button class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white shadow-[0_14px_34px_rgba(37,99,235,0.26)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="loading || configs.length === 0" @click="generate">
@@ -213,10 +353,10 @@ onBeforeUnmount(() => {
             {{ mobilePanelOpen ? '收起参数' : '参数' }}
           </button>
           <div class="min-w-0 truncate text-xs font-bold text-slate-500">
-            {{ selectedConfig?.name || '选择规格' }} / {{ imageFormat }} / ￥{{ Number(selectedConfig?.price || 0).toFixed(2) }}
+            {{ selectedConfig?.name || '选择规格' }} / {{ sizeButtonLabel }} / {{ imageFormat }} / ￥{{ Number(selectedConfig?.price || 0).toFixed(2) }}
           </div>
         </div>
-        <div class="mt-3 grid gap-2 text-xs font-bold text-slate-500 md:grid md:grid-cols-[2fr_0.8fr_0.8fr_1fr] md:gap-3" :class="mobilePanelOpen ? 'grid' : 'hidden'">
+        <div class="mt-3 grid gap-2 text-xs font-bold text-slate-500 md:grid md:grid-cols-[2fr_0.9fr_0.8fr_0.8fr_1fr] md:gap-3" :class="mobilePanelOpen ? 'grid' : 'hidden'">
           <div class="relative">
             <span class="block">生成规格</span>
             <button
@@ -226,7 +366,7 @@ onBeforeUnmount(() => {
             >
               <span class="min-w-0 truncate">
                 {{ selectedConfig?.name || '选择规格' }}
-                <span class="font-semibold text-slate-400">/ {{ selectedConfig?.size || '-' }} / ￥{{ Number(selectedConfig?.price || 0).toFixed(2) }}</span>
+                <span class="font-semibold text-slate-400">/ {{ selectedConfig?.quality || '-' }} / ￥{{ Number(selectedConfig?.price || 0).toFixed(2) }}</span>
               </span>
               <svg class="h-4 w-4 shrink-0 text-slate-400 transition duration-300" :class="specOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6" />
@@ -244,12 +384,25 @@ onBeforeUnmount(() => {
                 >
                   <span class="min-w-0">
                     <span class="block truncate text-sm font-black">{{ config.name }}</span>
-                    <span class="mt-1 block truncate text-xs font-semibold text-slate-400">{{ config.size }} / {{ config.quality }}</span>
+                    <span class="mt-1 block truncate text-xs font-semibold text-slate-400">{{ config.model }} / {{ config.quality }}</span>
                   </span>
                   <span class="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs font-black">￥{{ Number(config.price).toFixed(2) }}</span>
                 </button>
               </div>
             </Transition>
+          </div>
+          <div>
+            <span class="block">图像尺寸</span>
+            <button
+              class="mt-1 flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 font-black text-slate-700 outline-none transition duration-300 hover:border-sky-200 hover:bg-sky-50/40 focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+              type="button"
+              @click="openSizeModal"
+            >
+              <span class="truncate">{{ sizeButtonLabel }}</span>
+              <svg class="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
           </div>
           <div class="relative">
             <span class="block">格式</span>
@@ -286,7 +439,7 @@ onBeforeUnmount(() => {
             <span class="block">本次生成</span>
             <div class="mt-1 flex items-center justify-between gap-2 text-slate-700">
               <span>￥{{ Number(selectedConfig?.price || 0).toFixed(2) }}</span>
-              <span>约 {{ estimatedSeconds }}s</span>
+              <span>{{ selectedImageSize }} / 约 {{ estimatedSeconds }}s</span>
             </div>
           </div>
         </div>
@@ -385,6 +538,111 @@ onBeforeUnmount(() => {
 
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
     </main>
+
+    <div v-if="sizeModalOpen" class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-4 backdrop-blur-sm sm:py-6" @click.self="sizeModalOpen = false">
+      <section class="flex max-h-[calc(100vh-32px)] w-full max-w-xl flex-col overflow-hidden rounded-[28px] bg-white text-slate-950 shadow-[0_28px_90px_rgba(15,23,42,0.24)] sm:max-h-[calc(100vh-48px)]">
+        <div class="flex shrink-0 items-start justify-between gap-4 px-5 pb-4 pt-5 sm:px-7 sm:pt-7">
+          <div>
+            <h2 class="text-xl font-black tracking-tight">设置图像尺寸</h2>
+            <p class="mt-1 text-sm font-semibold text-slate-400">当前规格：{{ selectedConfig?.name || selectedSizeScale.label }}</p>
+          </div>
+          <button class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" type="button" @click="sizeModalOpen = false">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto px-5 pb-4 sm:px-7">
+          <div class="grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm font-black text-slate-500">
+            <button class="h-11 rounded-xl transition" :class="sizeMode === 'auto' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-800'" type="button" @click="sizeMode = 'auto'">自动</button>
+            <button class="h-11 rounded-xl transition" :class="sizeMode === 'ratio' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-800'" type="button" @click="sizeMode = 'ratio'">按比例</button>
+            <button class="h-11 rounded-xl transition" :class="sizeMode === 'custom' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-800'" type="button" @click="sizeMode = 'custom'">自定义宽高</button>
+          </div>
+
+          <div v-if="sizeMode === 'auto'" class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <span class="text-sm font-black text-slate-400">自动尺寸</span>
+            <p class="mt-2 text-sm font-semibold leading-6 text-slate-500">将由当前模型或服务商根据提示词自动决定输出尺寸。</p>
+          </div>
+
+          <div v-if="sizeMode === 'ratio'" class="mt-5">
+            <span class="text-sm font-black text-slate-400">图像比例</span>
+            <div class="mt-2 grid grid-cols-4 gap-2">
+              <button
+                v-for="ratio in ratioOptions"
+                :key="ratio"
+                class="grid h-20 place-items-center rounded-2xl border text-sm font-black transition"
+                :class="!customRatioActive && selectedRatio === ratio ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-slate-200 text-slate-600 hover:border-sky-200 hover:bg-sky-50'"
+                type="button"
+                @click="selectRatio(ratio)"
+              >
+                <span class="grid h-8 place-items-center">
+                  <span class="block rounded border border-current" :style="ratioIconStyle(ratio)"></span>
+                </span>
+                <span>{{ ratio }}</span>
+              </button>
+            </div>
+
+            <div class="mt-4">
+              <button
+                class="h-12 w-full rounded-2xl border text-sm font-black transition"
+                :class="customRatioActive ? 'border-blue-500 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-200 bg-white text-slate-600 hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700'"
+                type="button"
+                @click="applyCustomRatio"
+              >
+                自定义比例
+              </button>
+              <label class="mt-4 block">
+                <span class="text-sm font-black text-slate-400">输入自定义比例</span>
+                <input
+                  v-model="customRatio"
+                  class="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                  placeholder="16:9"
+                  @blur="applyCustomRatio"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div v-if="sizeMode === 'custom'" class="mt-5 grid gap-3 sm:grid-cols-2">
+            <label>
+              <span class="text-sm font-black text-slate-400">宽度</span>
+              <input
+                v-model.number="customWidth"
+                class="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                min="256"
+                max="8192"
+                step="8"
+                type="number"
+                @blur="applyCustomSize"
+              />
+            </label>
+            <label>
+              <span class="text-sm font-black text-slate-400">高度</span>
+              <input
+                v-model.number="customHeight"
+                class="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                min="256"
+                max="8192"
+                step="8"
+                type="number"
+                @blur="applyCustomSize"
+              />
+            </label>
+          </div>
+
+          <div class="mt-5 rounded-2xl bg-slate-50 p-5">
+            <span class="text-sm font-black text-slate-400">将使用</span>
+            <p class="mt-2 text-2xl font-black tracking-tight">{{ selectedImageSize }}</p>
+          </div>
+        </div>
+
+        <div class="grid shrink-0 grid-cols-2 gap-3 border-t border-slate-100 bg-white px-5 py-4 sm:px-7">
+          <button class="h-12 rounded-2xl bg-slate-100 text-sm font-black text-slate-600 transition hover:bg-slate-200" type="button" @click="sizeModalOpen = false">取消</button>
+          <button class="h-12 rounded-2xl bg-blue-600 text-sm font-black text-white shadow-[0_14px_34px_rgba(37,99,235,0.24)] transition hover:bg-blue-700" type="button" @click="sizeModalOpen = false">确定</button>
+        </div>
+      </section>
+    </div>
 
     <ImagePreviewModal :record="previewRecord || undefined" :src="previewRecord?.generatedImageUrl" @close="previewRecord = null" @delete="remove" />
   </div>

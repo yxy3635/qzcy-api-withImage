@@ -59,6 +59,18 @@ export interface MailConfig {
   passwordConfigured: boolean
 }
 
+export interface PaymentConfig {
+  id: number
+  apiUrl: string
+  merchantId: string
+  registerGiftAmount: number
+  enabled: boolean
+  alipayEnabled: boolean
+  wxpayEnabled: boolean
+  qqpayEnabled: boolean
+  merchantSecretConfigured: boolean
+}
+
 export interface AdminImageRecord extends ImageRecord {
   username?: string
 }

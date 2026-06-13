@@ -67,6 +67,8 @@ const setBentoItemRef = (el: any) => {
     })
   }
 }
+
+const title = "imageCreater"
 </script>
 
 <template>
@@ -75,7 +77,7 @@ const setBentoItemRef = (el: any) => {
     <!-- Floating Minimalist Navigation -->
     <nav class="fixed left-1/2 top-3 z-50 flex w-[calc(100%-24px)] max-w-5xl -translate-x-1/2 items-center justify-between rounded-full border border-white/40 bg-white/70 px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.04)] backdrop-blur-xl transition-all hover:bg-white/90 sm:top-6 sm:w-[90%] sm:px-6">
       <div class="flex cursor-pointer items-center gap-2 text-lg font-black tracking-tight text-slate-900 sm:text-xl" @click="router.push('/')">
-        imageCreater
+        <span>{{ title }}</span>
       </div>
       
       <div class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-500">

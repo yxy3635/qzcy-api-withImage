@@ -9,11 +9,14 @@ import com.qzcy.backend.dto.ImageGenerationConfigDto;
 import com.qzcy.backend.dto.ImageGenerationConfigUpdateDto;
 import com.qzcy.backend.dto.MailConfigDto;
 import com.qzcy.backend.dto.MailConfigUpdateDto;
+import com.qzcy.backend.dto.PaymentConfigDto;
+import com.qzcy.backend.dto.PaymentConfigUpdateDto;
 import com.qzcy.backend.dto.RoleUpdateDto;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.service.AdminService;
 import com.qzcy.backend.service.ImageGenerationConfigService;
 import com.qzcy.backend.service.MailConfigService;
+import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.util.SecurityUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -32,6 +35,7 @@ public class AdminController {
     private final AdminService adminService;
     private final ImageGenerationConfigService imageGenerationConfigService;
     private final MailConfigService mailConfigService;
+    private final PaymentConfigService paymentConfigService;
 
     @GetMapping("/dashboard")
     public ApiResponse<DashboardStats> dashboard() {
@@ -72,6 +76,16 @@ public class AdminController {
     @PutMapping("/mail-config")
     public ApiResponse<MailConfigDto> updateMailConfig(@RequestBody MailConfigUpdateDto dto) {
         return ApiResponse.success(mailConfigService.update(dto));
+    }
+
+    @GetMapping("/payment-config")
+    public ApiResponse<PaymentConfigDto> paymentConfig() {
+        return ApiResponse.success(paymentConfigService.adminDetail());
+    }
+
+    @PutMapping("/payment-config")
+    public ApiResponse<PaymentConfigDto> updatePaymentConfig(@RequestBody PaymentConfigUpdateDto dto) {
+        return ApiResponse.success(paymentConfigService.update(dto));
     }
 
     @PutMapping("/users/{id}/role")

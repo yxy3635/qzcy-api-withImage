@@ -12,6 +12,7 @@ import AdminDashboard from '@/views/admin/AdminDashboard.vue'
 import AdminUsers from '@/views/admin/AdminUsers.vue'
 import AdminPricing from '@/views/admin/AdminPricing.vue'
 import AdminMail from '@/views/admin/AdminMail.vue'
+import AdminPayment from '@/views/admin/AdminPayment.vue'
 import AdminLogs from '@/views/admin/AdminLogs.vue'
 
 const router = createRouter({
@@ -29,6 +30,7 @@ const router = createRouter({
     { path: '/admin/dashboard', component: AdminDashboard, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/users', component: AdminUsers, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/pricing', component: AdminPricing, meta: { requiresAuth: true, admin: true } },
+    { path: '/admin/payment', component: AdminPayment, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/mail', component: AdminMail, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/logs', component: AdminLogs, meta: { requiresAuth: true, admin: true } }
   ]
