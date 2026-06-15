@@ -8,7 +8,7 @@ import showImage1 from '@/assets/images/showImage1.png'
 import showImage2 from '@/assets/images/showImage2.png'
 import showImage3 from '@/assets/images/showImage3.png'
 import showImage4 from '@/assets/images/showImage4.png'
-import showImage5 from '@/assets/images/showImage5.png'
+import showImage5 from '@/assets/images/showImage5.png'	
 import showImage6 from '@/assets/images/showImage6.png'
 
 const router = useRouter()
@@ -88,7 +88,11 @@ const routerToGithub = () => {
         <button class="hover:text-blue-600 transition-colors">中转站</button>
         <button class="hover:text-blue-600 transition-colors" @click="scrollToGallery">视觉矩阵</button>
         <button class="hover:text-blue-600 transition-colors">对接文档</button>
-		<button class="hover:text-blue-600 transition-colors" @click="routerToGithub">github</button>
+		<button class="hover:text-blue-600 transition-colors" 
+			style="color: aqua;"
+			@click="routerToGithub">
+			github
+		</button>
       </div>
 
       <button 

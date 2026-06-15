@@ -85,6 +85,8 @@ async function resetPwd() {
     resetting.value = false
   }
 }
+
+const title = 'imageCreater'
 </script>
 
 <template>
@@ -103,7 +105,10 @@ async function resetPwd() {
     >
       <!-- Logo & Header -->
       <div class="mb-6 text-center sm:mb-10">
-        <h1 class="text-3xl font-black tracking-tight text-slate-900 mb-2 cursor-pointer hover:opacity-80 transition-opacity" @click="router.push('/')">imageCreater</h1>
+        <h1 class="text-3xl font-black tracking-tight text-slate-900 mb-2 cursor-pointer hover:opacity-80 transition-opacity" @click="router.push('/')">
+			<span style="color:aqua">{{ title.slice(0 , 5) }}</span>
+			<span>{{ title.slice(5) }}</span>
+			</h1>
       </div>
 
       <!-- Glassmorphism Form Panel -->
