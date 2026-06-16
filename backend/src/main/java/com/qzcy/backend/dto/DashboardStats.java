@@ -17,6 +17,16 @@ public class DashboardStats {
     private BigDecimal relaySiteCost;
     private BigDecimal relayUpstreamCost;
     private BigDecimal relayProfit;
+    private Long todayRelayRequests;
+    private Long yesterdayRelayRequests;
+    private Long todayRelayTokens;
+    private Long yesterdayRelayTokens;
+    private BigDecimal todayRelayCost;
+    private BigDecimal yesterdayRelayCost;
+    private BigDecimal todayRelayUpstreamCost;
+    private BigDecimal yesterdayRelayUpstreamCost;
+    private BigDecimal todayRelayProfit;
+    private BigDecimal yesterdayRelayProfit;
     private List<RelayChannelProfitDto> relayChannelProfits;
     private List<Map<String, Object>> recentRegistrations;
     private List<Map<String, Object>> generationTrend;

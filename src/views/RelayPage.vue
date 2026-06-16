@@ -2,8 +2,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
+import { noticeApi } from '@/api/noticeApi'
 import { relayApi } from '@/api/relayApi'
-import type { RelayUserOverview } from '@/types'
+import { paymentApi } from '@/api/paymentApi'
+import type { Announcement, PaymentRecord, RelayUserOverview } from '@/types'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -12,18 +14,33 @@ const overview = ref<RelayUserOverview | null>(null)
 const activeMenu = ref('dashboard')
 const loading = ref(false)
 const copied = ref('')
+const toastMessage = ref('')
 const creatingKey = ref(false)
 const showKeyDialog = ref(false)
-const newKeyPlain = ref('')
 const syncingStatus = ref(false)
 const keySearch = ref('')
 const keyGroupFilter = ref('')
 const keyStatusFilter = ref('')
 const activeChartIndex = ref<number | null>(null)
+const rechargeAmount = ref(10)
+const rechargePreset = ref<number | 'custom'>(10)
+const rechargeType = ref('alipay')
+const rechargeLoading = ref(false)
+const rechargeMessage = ref('')
+const rechargeError = ref('')
+const paymentRecords = ref<PaymentRecord[]>([])
+const announcements = ref<Announcement[]>([])
+const selectedAnnouncement = ref<Announcement | null>(null)
+const paymentOptions = ref([
+  { value: 'alipay', label: '支付宝', desc: '推荐使用支付宝扫码支付', enabled: true },
+  { value: 'wxpay', label: '微信支付', desc: '使用微信完成余额充值', enabled: true },
+  { value: 'qqpay', label: 'QQ钱包', desc: '使用 QQ 钱包支付', enabled: false }
+])
+const rechargePresets = [1, 5, 10, 100]
+const ccSwitchDownloadUrl = 'https://image.qzcy3.top/CC-Switch-v3.16.3-Windows.msi'
 const keyForm = reactive({
   name: '',
   group: 'default',
-  customKey: false,
   ipLimitEnabled: false,
   ipWhitelist: '',
   quota: 0,
@@ -46,6 +63,7 @@ const groups = computed(() => overview.value?.groups || [{ id: 0, code: 'default
 const trend = computed(() => overview.value?.trend || [])
 const modelUsage = computed(() => overview.value?.modelUsage || [])
 const activeTokens = computed(() => tokens.value.filter((item) => item.enabled))
+const enabledPaymentOptions = computed(() => paymentOptions.value.filter((item) => item.enabled))
 const filteredTokens = computed(() => tokens.value.filter((item) => {
   const keyword = keySearch.value.trim().toLowerCase()
   const matchesKeyword = !keyword || item.name.toLowerCase().includes(keyword) || item.tokenPreview.toLowerCase().includes(keyword)
@@ -183,14 +201,90 @@ async function load() {
   }
 }
 
+async function loadPaymentConfig() {
+  const { data } = await paymentApi.config()
+  paymentOptions.value = paymentOptions.value.map((item) => ({
+    ...item,
+    enabled:
+      item.value === 'alipay'
+        ? Boolean(data.data.alipayEnabled)
+        : item.value === 'wxpay'
+          ? Boolean(data.data.wxpayEnabled)
+          : Boolean(data.data.qqpayEnabled)
+  }))
+  if (!enabledPaymentOptions.value.some((item) => item.value === rechargeType.value)) {
+    rechargeType.value = enabledPaymentOptions.value[0]?.value || 'alipay'
+  }
+}
+
+async function loadPaymentHistory() {
+  const { data } = await paymentApi.history(1, 8)
+  paymentRecords.value = data.data.records
+}
+
+async function loadAnnouncements() {
+  const { data } = await noticeApi.list()
+  announcements.value = data.data
+}
+
 function compact(value: number) {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(2)}K`
   return String(value || 0)
 }
 
 function money(value: number) {
   return `$${Number(value || 0).toFixed(6)}`
+}
+
+function yuan(value: number) {
+  return `￥${Number(value || 0).toFixed(2)}`
+}
+
+function selectRechargePreset(value: number | 'custom') {
+  rechargePreset.value = value
+  if (typeof value === 'number') {
+    rechargeAmount.value = value
+  }
+}
+
+function paymentTypeText(value: string) {
+  if (value === 'alipay') return '支付宝'
+  if (value === 'wxpay') return '微信支付'
+  if (value === 'qqpay') return 'QQ钱包'
+  return value || '-'
+}
+
+function paymentStatusText(value: string) {
+  if (value === 'completed') return '已完成'
+  if (value === 'pending') return '待支付'
+  if (value === 'failed') return '失败'
+  return value || '-'
+}
+
+async function createRechargeOrder() {
+  rechargeError.value = ''
+  rechargeMessage.value = ''
+  if (!Number.isFinite(Number(rechargeAmount.value)) || Number(rechargeAmount.value) <= 0) {
+    rechargeError.value = '充值金额必须大于 0'
+    return
+  }
+  rechargeLoading.value = true
+  try {
+    const { data } = await paymentApi.recharge(Number(rechargeAmount.value), rechargeType.value)
+    const paymentUrl = data.data.paymentUrl ? String(data.data.paymentUrl) : ''
+    if (paymentUrl) {
+      window.location.href = paymentUrl
+      return
+    }
+    rechargeMessage.value = String(data.data.message || '支付订单已创建')
+    await Promise.all([auth.refreshUser(), loadPaymentHistory(), load()])
+  } catch (err) {
+    rechargeError.value = err instanceof Error ? err.message : '创建支付订单失败'
+  } finally {
+    rechargeLoading.value = false
+  }
 }
 
 function localDateKey(offsetDays = 0) {
@@ -257,12 +351,6 @@ function toneTextClass(tone: string) {
   return classes[tone] || classes.slate
 }
 
-function todayTokenCost(tokenName: string) {
-  return logs.value
-    .filter((item) => item.tokenName === tokenName && item.createdAt?.startsWith(todayPrefix.value))
-    .reduce((sum, item) => sum + Number(item.cost || 0), 0)
-}
-
 async function copyText(value: string, key: string) {
   await window.navigator.clipboard?.writeText(value)
   copied.value = key
@@ -271,10 +359,16 @@ async function copyText(value: string, key: string) {
   }, 1200)
 }
 
+function toast(message: string) {
+  toastMessage.value = message
+  window.setTimeout(() => {
+    toastMessage.value = ''
+  }, 1800)
+}
+
 function openKeyDialog() {
   keyForm.name = ''
   keyForm.group = groups.value[0]?.code || 'default'
-  keyForm.customKey = false
   keyForm.ipLimitEnabled = false
   keyForm.ipWhitelist = ''
   keyForm.quota = 0
@@ -283,14 +377,13 @@ function openKeyDialog() {
   keyForm.quotaEnabled = false
   keyForm.speedLimitEnabled = false
   keyForm.expiresEnabled = false
-  newKeyPlain.value = ''
   showKeyDialog.value = true
 }
 
 async function createKey() {
   creatingKey.value = true
   try {
-    const { data } = await relayApi.createToken({
+    await relayApi.createToken({
       name: keyForm.name || '我的 API 密钥',
       groups: keyForm.group,
       quota: keyForm.quotaEnabled ? keyForm.quota : 0,
@@ -298,8 +391,9 @@ async function createKey() {
       tpmLimit: keyForm.speedLimitEnabled ? keyForm.tpmLimit : 0,
       ipWhitelist: keyForm.ipLimitEnabled ? keyForm.ipWhitelist : ''
     })
-    newKeyPlain.value = data.data.plainToken || ''
     await load()
+    showKeyDialog.value = false
+    toast('密钥创建成功')
   } finally {
     creatingKey.value = false
   }
@@ -336,7 +430,12 @@ function statusText(status: string) {
   return '未知'
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  if (auth.isAuthenticated) {
+    await Promise.all([loadPaymentConfig(), loadPaymentHistory(), loadAnnouncements()])
+  }
+})
 </script>
 
 <template>
@@ -399,6 +498,31 @@ onMounted(load)
               </div>
               <p class="mt-3 text-xs font-semibold text-slate-500">{{ card.sub }}</p>
             </article>
+          </section>
+
+          <section v-if="activeMenu === 'dashboard'" class="mt-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-sm font-bold uppercase tracking-[0.18em] text-emerald-600">公告</p>
+                <h2 class="mt-2 text-xl font-black text-slate-950">最新通知</h2>
+              </div>
+              <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{{ announcements.length }} 条</span>
+            </div>
+            <div class="mt-5 grid gap-3">
+              <button
+                v-for="item in announcements"
+                :key="item.id"
+                class="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-emerald-200 hover:bg-emerald-50/60"
+                @click="selectedAnnouncement = item"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-base font-black text-slate-950">{{ item.title }}</p>
+                  <span class="shrink-0 text-xs font-semibold text-slate-400">{{ (item.publishedAt || item.createdAt || '').slice(0, 16).replace('T', ' ') }}</span>
+                </div>
+                <p class="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-slate-600">{{ item.content }}</p>
+              </button>
+              <div v-if="!announcements.length" class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-black text-slate-500">暂无公告</div>
+            </div>
           </section>
 
           <section v-if="activeMenu === 'dashboard'" class="mt-6 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
@@ -565,6 +689,57 @@ onMounted(load)
               </button>
             </div>
 
+            <div class="grid gap-4 xl:grid-cols-[0.82fr_1.18fr]">
+              <section class="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+                <div class="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p class="text-sm font-bold text-emerald-600">软件下载</p>
+                    <h2 class="mt-1 text-xl font-black text-slate-950">CC Switch Windows 客户端</h2>
+                    <p class="mt-2 text-sm font-semibold text-slate-500">下载后安装客户端，将 API 地址和密钥填入即可开始使用。</p>
+                  </div>
+                  <a
+                    class="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm shadow-emerald-100 transition hover:bg-emerald-700"
+                    :href="ccSwitchDownloadUrl"
+                    download
+                  >
+                    下载软件
+                  </a>
+                </div>
+                <button class="mt-4 break-all rounded-xl bg-slate-50 px-3 py-2 text-left font-mono text-xs font-bold text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-700" @click="copyText(ccSwitchDownloadUrl, 'cc-switch-download')">
+                  {{ ccSwitchDownloadUrl }} {{ copied === 'cc-switch-download' ? '已复制' : '' }}
+                </button>
+              </section>
+
+              <section class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div class="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p class="text-sm font-bold text-slate-500">使用教程</p>
+                    <h2 class="mt-1 text-xl font-black text-slate-950">三步接入 API 中转站</h2>
+                  </div>
+                  <button class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700" @click="copyText(apiBase, 'tutorial-api-base')">
+                    {{ copied === 'tutorial-api-base' ? '已复制' : '复制 API 地址' }}
+                  </button>
+                </div>
+                <div class="mt-4 grid gap-3 md:grid-cols-3">
+                  <article class="rounded-xl bg-slate-50 p-4">
+                    <span class="grid h-8 w-8 place-items-center rounded-full bg-emerald-100 text-sm font-black text-emerald-700">1</span>
+                    <p class="mt-3 text-sm font-black text-slate-900">创建或复制密钥</p>
+                    <p class="mt-1 text-xs font-semibold text-slate-500">在下方列表点击“复制密钥”，复制当前账号的完整 API Key。</p>
+                  </article>
+                  <article class="rounded-xl bg-slate-50 p-4">
+                    <span class="grid h-8 w-8 place-items-center rounded-full bg-blue-100 text-sm font-black text-blue-700">2</span>
+                    <p class="mt-3 text-sm font-black text-slate-900">填写 API 地址</p>
+                    <p class="mt-1 break-all text-xs font-semibold text-slate-500">{{ apiBase }}</p>
+                  </article>
+                  <article class="rounded-xl bg-slate-50 p-4">
+                    <span class="grid h-8 w-8 place-items-center rounded-full bg-amber-100 text-sm font-black text-amber-700">3</span>
+                    <p class="mt-3 text-sm font-black text-slate-900">选择模型并使用</p>
+                    <p class="mt-1 text-xs font-semibold text-slate-500">客户端或兼容 OpenAI 的工具里选择可用模型，余额会按实际用量扣费。</p>
+                  </article>
+                </div>
+              </section>
+            </div>
+
             <div class="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
               <table class="w-full min-w-[1280px] text-left text-sm">
                 <thead class="bg-slate-50 text-xs font-black text-slate-500">
@@ -585,9 +760,12 @@ onMounted(load)
                   <tr v-for="item in filteredTokens" :key="item.id" class="font-semibold text-slate-700">
                     <td class="px-5 py-5 text-slate-950 font-black">{{ item.name }}</td>
                     <td>
-                      <button class="rounded bg-slate-50 px-2 py-1 font-mono text-xs font-black text-teal-600" @click="copyText(item.tokenPreview, `token-${item.id}`)">
-                        {{ item.tokenPreview }}
-                      </button>
+                      <div class="flex items-center gap-2">
+                        <span class="rounded bg-slate-50 px-2 py-1 font-mono text-xs font-black text-teal-600">{{ item.tokenPreview }}</span>
+                        <button class="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-black text-slate-500 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700" @click="copyText(item.plainToken || item.tokenPreview, `token-${item.id}`)">
+                          {{ copied === `token-${item.id}` ? '已复制' : '复制密钥' }}
+                        </button>
+                      </div>
                     </td>
                     <td>
                       <span class="inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-black text-emerald-700">
@@ -596,7 +774,7 @@ onMounted(load)
                       </span>
                     </td>
                     <td>
-                      <p>今日：{{ money(todayTokenCost(item.name)) }}</p>
+                      <p>今日：{{ money(Number(item.todayCost || 0)) }}</p>
                       <p class="text-slate-500">累计：{{ money(Number(item.usedQuota || 0)) }}</p>
                     </td>
                     <td>{{ item.rpmLimit || 0 }} RPM / {{ item.tpmLimit || 0 }} TPM</td>
@@ -606,7 +784,7 @@ onMounted(load)
                     <td>{{ item.createdAt ? item.createdAt.replace('T', ' ').slice(0, 19) : '-' }}</td>
                     <td class="pr-5">
                       <div class="flex justify-end gap-3 text-xs font-black text-slate-500">
-                        <button class="hover:text-teal-600" @click="copyText(item.tokenPreview, `token-use-${item.id}`)">使用密钥</button>
+                        <button class="hover:text-teal-600" @click="copyText(item.plainToken || item.tokenPreview, `token-use-${item.id}`)">{{ copied === `token-use-${item.id}` ? '已复制' : '使用密钥' }}</button>
                         <button class="hover:text-amber-600" @click="toggleKey(item)">{{ item.enabled ? '禁用' : '启用' }}</button>
                         <button class="hover:text-red-600" @click="deleteKey(item.id)">删除</button>
                       </div>
@@ -638,7 +816,7 @@ onMounted(load)
                     <td>{{ log.endpoint }}</td>
                     <td><span class="rounded bg-blue-50 px-2 py-1 text-xs font-black text-blue-600">{{ log.modelType }}</span></td>
                     <td>
-                      <p><span class="text-emerald-600">↓ {{ log.promptTokens }}</span> <span class="text-violet-600">↑ {{ log.completionTokens }}</span></p>
+                      <p><span class="text-emerald-600">↓ {{ compact(log.promptTokens || 0) }}</span> <span class="text-violet-600">↑ {{ compact(log.completionTokens || 0) }}</span></p>
                       <p class="text-xs text-cyan-600">缓存读 {{ compact(log.cachedTokens || 0) }} · 缓存建 {{ compact(log.cacheCreationTokens || 0) }}</p>
                     </td>
                     <td>
@@ -716,7 +894,95 @@ onMounted(load)
             </div>
           </section>
 
-          <section v-if="activeMenu === 'subscription' || activeMenu === 'orders' || activeMenu === 'billing' || activeMenu === 'profile'" class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <section v-if="activeMenu === 'billing'" class="grid gap-6 xl:grid-cols-[380px_1fr]">
+            <div class="space-y-5">
+              <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <p class="text-sm font-bold text-slate-500">当前余额</p>
+                <p class="mt-2 text-4xl font-black text-emerald-600">{{ yuan(balance) }}</p>
+                <p class="mt-2 text-xs font-semibold text-slate-500">充值余额与主站账户共享，可用于中转站 API 调用扣费。</p>
+              </div>
+
+              <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <h2 class="text-xl font-black">余额充值</h2>
+                <div class="mt-5">
+                  <p class="text-sm font-black text-slate-700">充值档位</p>
+                  <div class="mt-3 grid grid-cols-2 gap-3">
+                    <button
+                      v-for="preset in rechargePresets"
+                      :key="preset"
+                      class="h-14 rounded-2xl border text-lg font-black transition"
+                      :class="rechargePreset === preset ? 'border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50/60'"
+                      @click="selectRechargePreset(preset)"
+                    >
+                      ￥{{ preset }}
+                    </button>
+                    <button
+                      class="h-14 rounded-2xl border text-sm font-black transition"
+                      :class="rechargePreset === 'custom' ? 'border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50/60'"
+                      @click="selectRechargePreset('custom')"
+                    >
+                      自定义
+                    </button>
+                  </div>
+                  <input
+                    v-if="rechargePreset === 'custom'"
+                    v-model.number="rechargeAmount"
+                    class="mt-3 h-12 w-full rounded-xl border border-slate-200 px-4 text-sm font-semibold outline-none focus:border-emerald-300"
+                    min="0.01"
+                    step="0.01"
+                    type="number"
+                    placeholder="输入充值金额"
+                  />
+                </div>
+
+                <div class="mt-5">
+                  <p class="text-sm font-black text-slate-700">支付方式</p>
+                  <div class="mt-3 grid gap-2">
+                    <button
+                      v-for="option in enabledPaymentOptions"
+                      :key="option.value"
+                      class="flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition"
+                      :class="rechargeType === option.value ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50/60'"
+                      @click="rechargeType = option.value"
+                    >
+                      <span>
+                        <span class="block text-sm font-black">{{ option.label }}</span>
+                        <span class="mt-1 block text-xs font-semibold text-slate-500">{{ option.desc }}</span>
+                      </span>
+                      <span class="grid h-5 w-5 place-items-center rounded-full border" :class="rechargeType === option.value ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300'">
+                        <span v-if="rechargeType === option.value" class="h-2 w-2 rounded-full bg-white"></span>
+                      </span>
+                    </button>
+                    <p v-if="!enabledPaymentOptions.length" class="rounded-xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">暂无可用支付方式，请联系管理员。</p>
+                  </div>
+                </div>
+
+                <button class="mt-5 h-12 w-full rounded-2xl bg-emerald-600 text-sm font-black text-white shadow-sm shadow-emerald-100 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="rechargeLoading || !enabledPaymentOptions.length" @click="createRechargeOrder">
+                  {{ rechargeLoading ? '创建中' : `充值 ${yuan(rechargeAmount)}` }}
+                </button>
+                <p v-if="rechargeMessage" class="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{{ rechargeMessage }}</p>
+                <p v-if="rechargeError" class="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{{ rechargeError }}</p>
+              </div>
+            </div>
+
+            <div class="rounded-2xl border border-slate-100 bg-white shadow-sm">
+              <div class="border-b border-slate-100 p-5">
+                <h2 class="text-xl font-black">充值记录</h2>
+                <p class="mt-1 text-sm font-semibold text-slate-500">沿用当前账户支付记录，支付回调完成后余额自动入账。</p>
+              </div>
+              <div class="divide-y divide-slate-100">
+                <div v-for="record in paymentRecords" :key="record.id" class="grid gap-3 p-5 text-sm font-semibold text-slate-600 md:grid-cols-[120px_1fr_120px_180px] md:items-center">
+                  <span class="font-black text-slate-950">{{ yuan(record.amount) }}</span>
+                  <span>{{ paymentTypeText(record.type) }}</span>
+                  <span class="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{{ paymentStatusText(record.status) }}</span>
+                  <span class="text-slate-500">{{ record.createdAt }}</span>
+                </div>
+                <div v-if="!paymentRecords.length" class="p-10 text-center text-sm font-black text-slate-400">暂无充值记录</div>
+              </div>
+            </div>
+          </section>
+
+          <section v-if="activeMenu === 'subscription' || activeMenu === 'orders' || activeMenu === 'profile'" class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <h2 class="text-xl font-black">{{ menus.find((item) => item.id === activeMenu)?.label }}</h2>
             <p class="mt-3 text-sm font-semibold text-slate-500">这是中转站独立页面。账号、邮箱和余额与原项目互通；当前余额 ${{ balance.toFixed(2) }}。</p>
             <div v-if="activeMenu === 'profile'" class="mt-5 grid gap-3 text-sm font-semibold text-slate-600">
@@ -763,10 +1029,6 @@ onMounted(load)
 
           <div class="space-y-4">
             <label class="flex items-center justify-between text-sm font-black text-slate-700">
-              自定义密钥
-              <input v-model="keyForm.customKey" class="h-5 w-5 accent-teal-600" type="checkbox" />
-            </label>
-            <label class="flex items-center justify-between text-sm font-black text-slate-700">
               IP 限制
               <input v-model="keyForm.ipLimitEnabled" class="h-5 w-5 accent-teal-600" type="checkbox" />
             </label>
@@ -795,18 +1057,29 @@ onMounted(load)
               <input v-model="keyForm.expiresEnabled" class="h-5 w-5 accent-teal-600" type="checkbox" />
             </label>
           </div>
-
-          <div v-if="newKeyPlain" class="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
-            <p class="text-sm font-black text-emerald-800">密钥只显示一次，请立即保存。</p>
-            <p class="mt-2 break-all font-mono text-sm font-bold text-emerald-700">{{ newKeyPlain }}</p>
-            <button class="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-black text-white" @click="copyText(newKeyPlain, 'key')">{{ copied === 'key' ? '已复制' : '复制密钥' }}</button>
-          </div>
         </div>
         <div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
           <button class="h-12 rounded-xl border border-slate-200 bg-white px-6 text-sm font-black text-slate-700" @click="showKeyDialog = false">取消</button>
           <button class="h-12 rounded-xl bg-teal-600 px-6 text-sm font-black text-white shadow-sm shadow-teal-100 disabled:opacity-60" :disabled="creatingKey" @click="createKey">{{ creatingKey ? '创建中' : '创建' }}</button>
         </div>
       </div>
+    </div>
+
+    <div v-if="selectedAnnouncement" class="fixed inset-0 z-[55] grid place-items-center bg-slate-950/40 px-4 backdrop-blur-sm" @click.self="selectedAnnouncement = null">
+      <section class="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-[0_28px_90px_rgba(15,23,42,0.24)]">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-black text-slate-950">{{ selectedAnnouncement.title }}</h2>
+            <p class="mt-2 text-xs font-semibold text-slate-400">{{ (selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt || '').replace('T', ' ') }}</p>
+          </div>
+          <button class="rounded-xl px-3 py-2 text-xl font-black text-slate-400 hover:bg-slate-50" @click="selectedAnnouncement = null">×</button>
+        </div>
+        <div class="mt-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{{ selectedAnnouncement.content }}</div>
+      </section>
+    </div>
+
+    <div v-if="toastMessage" class="fixed right-6 top-24 z-[60] rounded-2xl border border-emerald-100 bg-white px-5 py-4 text-sm font-black text-emerald-700 shadow-2xl shadow-slate-200/80">
+      {{ toastMessage }}
     </div>
   </div>
 </template>

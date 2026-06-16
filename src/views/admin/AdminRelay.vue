@@ -40,6 +40,7 @@ interface GroupDraft {
   name: string
   ratio: number
   enabled: boolean
+  modelIds: number[]
 }
 
 const overview = ref<RelayAdminOverview | null>(null)
@@ -92,7 +93,8 @@ const newGroup = reactive<GroupDraft>({
   code: 'vip',
   name: 'VIP 分组',
   ratio: 1,
-  enabled: true
+  enabled: true,
+  modelIds: []
 })
 
 const tabs: Array<{ id: Tab; label: string }> = [
@@ -138,6 +140,14 @@ const editingModel = computed(() => {
   return models.value.find((model) => model.id === editingModelId.value) || null
 })
 
+function compactToken(value?: number) {
+  const amount = Number(value || 0)
+  if (amount >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(2)}B`
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(2)}M`
+  if (amount >= 1_000) return `${(amount / 1_000).toFixed(2)}K`
+  return String(amount)
+}
+
 function setChannelDraft(channel: RelayChannel) {
   channelDrafts[channel.id] = {
     name: channel.name,
@@ -176,7 +186,8 @@ function setGroupDraft(group: RelayGroup) {
     code: group.code,
     name: group.name,
     ratio: Number(group.ratio || 1),
-    enabled: group.enabled
+    enabled: group.enabled,
+    modelIds: [...(group.modelIds || [])]
   }
 }
 
@@ -213,6 +224,36 @@ function channelPayload(draft: ChannelDraft) {
   return payload
 }
 
+function groupPayload(draft: GroupDraft) {
+  return {
+    code: draft.code,
+    name: draft.name,
+    ratio: draft.ratio,
+    enabled: draft.enabled,
+    modelIds: draft.modelIds
+  }
+}
+
+function selectedGroupModelCount(draft: GroupDraft) {
+  return draft.modelIds.length
+}
+
+function isGroupModelSelected(draft: GroupDraft, modelId: number) {
+  return draft.modelIds.includes(modelId)
+}
+
+function toggleGroupModel(draft: GroupDraft, modelId: number) {
+  if (draft.modelIds.includes(modelId)) {
+    draft.modelIds = draft.modelIds.filter((id) => id !== modelId)
+  } else {
+    draft.modelIds = [...draft.modelIds, modelId]
+  }
+}
+
+function selectAllGroupModels(draft: GroupDraft) {
+  draft.modelIds = models.value.map((model) => model.id)
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -237,7 +278,8 @@ async function createGroup() {
   message.value = ''
   error.value = ''
   try {
-    await adminApi.createRelayGroup(newGroup)
+    if (!newGroup.modelIds.length) selectAllGroupModels(newGroup)
+    await adminApi.createRelayGroup(groupPayload(newGroup))
     message.value = `${newGroup.code} 分组已创建`
     await load()
   } catch (err) {
@@ -253,7 +295,7 @@ async function saveGroup(group: RelayGroup) {
   message.value = ''
   error.value = ''
   try {
-    await adminApi.updateRelayGroup(group.id, draft)
+    await adminApi.updateRelayGroup(group.id, groupPayload(draft))
     message.value = `${draft.code} 分组已保存`
     await load()
   } catch (err) {
@@ -502,7 +544,7 @@ onMounted(load)
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">启用渠道</p><p class="mt-2 text-3xl font-black">{{ stats?.activeChannels || 0 }}/{{ stats?.totalChannels || 0 }}</p></div>
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">启用令牌</p><p class="mt-2 text-3xl font-black">{{ stats?.activeTokens || 0 }}/{{ stats?.totalTokens || 0 }}</p></div>
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">总请求数</p><p class="mt-2 text-3xl font-black">{{ stats?.totalRequests || 0 }}</p></div>
-        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">总 Token</p><p class="mt-2 text-3xl font-black text-sky-600">{{ stats?.totalTokensUsed || 0 }}</p></div>
+        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">总 Token</p><p class="mt-2 text-3xl font-black text-sky-600">{{ compactToken(stats?.totalTokensUsed) }}</p></div>
       </section>
 
       <section v-if="activeTab === 'channels'" class="mt-6 grid gap-5 xl:grid-cols-[0.78fr_1.22fr]">
@@ -919,7 +961,7 @@ onMounted(load)
             <div><p class="font-black">{{ token.name }}</p><p class="text-xs font-semibold text-slate-500">{{ token.username }} · {{ token.tokenPreview }}</p></div>
             <p class="text-xs font-semibold text-slate-500">{{ token.allowedModels || '全部模型' }}</p>
             <p class="text-sm font-black">{{ token.requestCount || 0 }} 次</p>
-            <p class="text-sm font-black">{{ token.tokenCount || 0 }} tokens</p>
+            <p class="text-sm font-black">{{ compactToken(token.tokenCount) }} tokens</p>
             <p class="text-xs font-black" :class="token.enabled ? 'text-emerald-600' : 'text-slate-400'">{{ token.enabled ? '启用' : '停用' }}</p>
           </article>
           <div v-if="!tokens.length" class="rounded-2xl border border-dashed border-slate-200 p-10 text-center text-sm font-black text-slate-500">暂无令牌</div>
@@ -928,7 +970,7 @@ onMounted(load)
 
       <section v-if="activeTab === 'usage'" class="mt-6 grid gap-4 sm:grid-cols-3">
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">请求数</p><p class="mt-2 text-3xl font-black">{{ stats?.totalRequests || 0 }}</p></div>
-        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">Token 用量</p><p class="mt-2 text-3xl font-black">{{ stats?.totalTokensUsed || 0 }}</p></div>
+        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">Token 用量</p><p class="mt-2 text-3xl font-black">{{ compactToken(stats?.totalTokensUsed) }}</p></div>
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">成本</p><p class="mt-2 text-3xl font-black text-sky-600">￥{{ Number(stats?.totalCost || 0).toFixed(4) }}</p></div>
       </section>
 
@@ -946,6 +988,7 @@ onMounted(load)
                   <th class="px-4 py-3">名称</th>
                   <th class="px-4 py-3">倍率</th>
                   <th class="px-4 py-3">状态</th>
+                  <th class="px-4 py-3">模型范围</th>
                   <th class="px-4 py-3 text-right">操作</th>
                 </tr>
               </thead>
@@ -965,6 +1008,26 @@ onMounted(load)
                       <input v-model="groupDraftOf(group).enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
                       {{ groupDraftOf(group).enabled ? '启用' : '停用' }}
                     </label>
+                  </td>
+                  <td class="px-4 py-3">
+                    <div class="min-w-[280px]">
+                      <div class="mb-2 flex items-center justify-between gap-3">
+                        <span class="text-xs font-black text-slate-500">{{ selectedGroupModelCount(groupDraftOf(group)) }} / {{ models.length }}</span>
+                        <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="selectAllGroupModels(groupDraftOf(group))">全选</button>
+                      </div>
+                      <div class="flex max-h-28 flex-wrap gap-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-2">
+                        <button
+                          v-for="model in models"
+                          :key="model.id"
+                          class="rounded-md px-2 py-1 text-xs font-black transition"
+                          :class="isGroupModelSelected(groupDraftOf(group), model.id) ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:text-sky-700'"
+                          type="button"
+                          @click="toggleGroupModel(groupDraftOf(group), model.id)"
+                        >
+                          {{ model.model }}
+                        </button>
+                      </div>
+                    </div>
                   </td>
                   <td class="px-4 py-3">
                     <div class="flex justify-end gap-2">
@@ -1002,6 +1065,24 @@ onMounted(load)
                 <input v-model="newGroup.enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
                 创建后启用
               </label>
+              <div>
+                <div class="mb-2 flex items-center justify-between gap-3">
+                  <span class="text-xs font-black text-slate-700">模型范围 {{ selectedGroupModelCount(newGroup) }} / {{ models.length }}</span>
+                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="selectAllGroupModels(newGroup)">全选</button>
+                </div>
+                <div class="flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-2">
+                  <button
+                    v-for="model in models"
+                    :key="model.id"
+                    class="rounded-md px-2 py-1 text-xs font-black transition"
+                    :class="isGroupModelSelected(newGroup, model.id) ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:text-sky-700'"
+                    type="button"
+                    @click="toggleGroupModel(newGroup, model.id)"
+                  >
+                    {{ model.model }}
+                  </button>
+                </div>
+              </div>
               <button class="btn-primary h-11 w-full rounded-lg" :disabled="saving === 'group-new'" @click="createGroup">
                 {{ saving === 'group-new' ? '创建中' : '创建分组' }}
               </button>

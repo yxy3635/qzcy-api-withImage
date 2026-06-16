@@ -130,6 +130,11 @@ public class RelayServiceImpl implements RelayService {
         if (group.getRatio() == null) group.setRatio(BigDecimal.ONE);
         if (group.getEnabled() == null) group.setEnabled(true);
         groupMapper.insert(group);
+        if (dto.getModelIds() != null) {
+            replaceGroupModels(group.getId(), dto.getModelIds());
+        } else {
+            attachAllModelsToGroup(group.getId());
+        }
         return toGroupDto(groupMapper.selectById(group.getId()));
     }
 
@@ -142,6 +147,9 @@ public class RelayServiceImpl implements RelayService {
         if (isBlank(group.getName())) group.setName(group.getCode());
         if (group.getRatio() == null) group.setRatio(BigDecimal.ONE);
         groupMapper.updateById(group);
+        if (dto.getModelIds() != null) {
+            replaceGroupModels(group.getId(), dto.getModelIds());
+        }
         return toGroupDto(groupMapper.selectById(id));
     }
 
@@ -172,7 +180,7 @@ public class RelayServiceImpl implements RelayService {
         if (model.getEnabled() == null) model.setEnabled(true);
         if (model.getSortOrder() == null) model.setSortOrder(10);
         modelMapper.insert(model);
-        attachModelToDefaultGroup(model.getId());
+        attachModelToAllGroups(model.getId());
         return toModelDto(modelMapper.selectById(model.getId()));
     }
 
@@ -307,7 +315,7 @@ public class RelayServiceImpl implements RelayService {
         List<RelayTokenDto> tokens = tokenMapper.selectList(new QueryWrapper<RelayToken>()
                         .eq("user_id", userId)
                         .orderByDesc("created_at"))
-                .stream().map(this::toTokenDto).toList();
+                .stream().map(item -> toTokenDto(item, true)).toList();
         List<RelayChannelDto> channels = channelMapper.selectList(new QueryWrapper<RelayChannel>()
                         .eq("enabled", true)
                         .orderByAsc("priority")
@@ -395,8 +403,34 @@ public class RelayServiceImpl implements RelayService {
     private void attachModelToDefaultGroup(Long modelId) {
         RelayGroup defaultGroup = groupMapper.selectOne(new QueryWrapper<RelayGroup>().eq("code", "default"));
         if (defaultGroup == null) return;
+        attachModelToGroup(defaultGroup.getId(), modelId);
+    }
+
+    private void attachModelToAllGroups(Long modelId) {
+        groupMapper.selectList(new QueryWrapper<RelayGroup>())
+                .forEach(group -> attachModelToGroup(group.getId(), modelId));
+    }
+
+    private void attachAllModelsToGroup(Long groupId) {
+        modelMapper.selectList(new QueryWrapper<RelayModel>().eq("enabled", true))
+                .forEach(model -> attachModelToGroup(groupId, model.getId()));
+    }
+
+    private void replaceGroupModels(Long groupId, List<Long> modelIds) {
+        groupModelMapper.deleteByGroupId(groupId);
+        if (modelIds == null) return;
+        modelIds.stream()
+                .filter(id -> id != null && modelMapper.selectById(id) != null)
+                .distinct()
+                .forEach(modelId -> attachModelToGroup(groupId, modelId));
+    }
+
+    private void attachModelToGroup(Long groupId, Long modelId) {
+        if (groupId == null || modelId == null) return;
+        Long count = groupModelMapper.countGroupModel(groupId, modelId);
+        if (count != null && count > 0) return;
         RelayGroupModel item = new RelayGroupModel();
-        item.setGroupId(defaultGroup.getId());
+        item.setGroupId(groupId);
         item.setModelId(modelId);
         groupModelMapper.insert(item);
     }
@@ -435,14 +469,19 @@ public class RelayServiceImpl implements RelayService {
     }
 
     private RelayGroupDto toGroupDto(RelayGroup group) {
-        return new RelayGroupDto(group.getId(), group.getCode(), group.getName(), group.getRatio(), group.getEnabled());
+        return new RelayGroupDto(group.getId(), group.getCode(), group.getName(), group.getRatio(), group.getEnabled(),
+                groupModelMapper.modelIdsForGroup(group.getId()));
     }
 
     private RelayTokenDto toTokenDto(RelayToken item) {
+        return toTokenDto(item, false);
+    }
+
+    private RelayTokenDto toTokenDto(RelayToken item, boolean revealToken) {
         User user = item.getUserId() == null ? null : userMapper.selectById(item.getUserId());
         return new RelayTokenDto(item.getId(), item.getUserId(), user == null ? "" : user.getUsername(),
-                item.getName(), item.getTokenPreview(), "", item.getGroupNames(), item.getAllowedModels(),
-                item.getQuota(), item.getUsedQuota(), item.getRequestCount(), item.getTokenCount(),
+                item.getName(), item.getTokenPreview(), revealToken ? item.getToken() : "", item.getGroupNames(), item.getAllowedModels(),
+                item.getQuota(), item.getUsedQuota(), usageLogMapper.tokenTodayCost(item.getId()), item.getRequestCount(), item.getTokenCount(),
                 item.getRpmLimit(), item.getTpmLimit(), item.getIpWhitelist(), item.getEnabled(), item.getExpiresAt(),
                 item.getLastUsedAt(), item.getCreatedAt());
     }

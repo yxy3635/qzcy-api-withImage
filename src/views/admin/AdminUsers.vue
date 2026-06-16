@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import Pagination from '@/components/Pagination.vue'
 import { adminApi } from '@/api/adminApi'
-import type { Role, UserInfo } from '@/types'
+import type { RelayUserOverview, Role, UserInfo } from '@/types'
 
 interface UserDraft {
   email: string
@@ -17,9 +17,31 @@ const drafts = reactive<Record<number, UserDraft>>({})
 const keyword = ref('')
 const current = ref(1)
 const pages = ref(1)
+const total = ref(0)
 const message = ref('')
 const error = ref('')
 const savingId = ref<number | null>(null)
+const apiLoadingUserId = ref<number | null>(null)
+const selectedUser = ref<UserInfo | null>(null)
+const selectedOverview = ref<RelayUserOverview | null>(null)
+
+const activeUsers = computed(() => users.value.filter((user) => user.role === 'USER').length)
+const adminUsers = computed(() => users.value.filter((user) => user.role === 'ADMIN').length)
+const pageBalance = computed(() => users.value.reduce((sum, user) => sum + Number(user.balance || 0), 0))
+const tokens = computed(() => selectedOverview.value?.tokens || [])
+const logs = computed(() => selectedOverview.value?.logs || [])
+const models = computed(() => selectedOverview.value?.models || [])
+const modelUsage = computed(() => selectedOverview.value?.modelUsage || [])
+
+const apiCards = computed(() => {
+  const overview = selectedOverview.value
+  return [
+    { label: '今日消费', value: money(overview?.todayCost), sub: `累计 ${money(overview?.totalCost)}`, tone: 'emerald' },
+    { label: '今日请求', value: compact(overview?.todayRequests), sub: `累计 ${compact(overview?.totalRequests)}`, tone: 'blue' },
+    { label: '今日 Token', value: compact(overview?.todayTotalTokens), sub: `输入 ${compact(overview?.todayPromptTokens)} / 输出 ${compact(overview?.todayCompletionTokens)}`, tone: 'amber' },
+    { label: 'RPM / TPM', value: `${compact(overview?.currentRpm)} / ${compact(overview?.currentTpm)}`, sub: '最近 1 分钟', tone: 'violet' }
+  ]
+})
 
 function setDraft(user: UserInfo) {
   drafts[user.id] = {
@@ -42,6 +64,7 @@ async function load(page = 1) {
   users.value.forEach(setDraft)
   current.value = data.data.current
   pages.value = data.data.pages
+  total.value = data.data.total
 }
 
 async function saveUser(user: UserInfo) {
@@ -49,11 +72,11 @@ async function saveUser(user: UserInfo) {
   error.value = ''
   message.value = ''
   if (draft.balance < 0) {
-    error.value = '余额不能小于0'
+    error.value = '余额不能小于 0'
     return
   }
   if (draft.password && draft.password.length < 6) {
-    error.value = '新密码至少6位'
+    error.value = '新密码至少 6 位'
     return
   }
   savingId.value = user.id
@@ -62,7 +85,7 @@ async function saveUser(user: UserInfo) {
       email: draft.email.trim(),
       role: draft.role,
       balance: draft.balance,
-      password: draft.password.trim() || undefined
+      password: draft.password || undefined
     })
     draft.password = ''
     message.value = `用户 ${user.username} 已更新`
@@ -83,9 +106,58 @@ async function remove(user: UserInfo) {
   await load(current.value)
 }
 
+async function openApiUsage(user: UserInfo) {
+  selectedUser.value = user
+  selectedOverview.value = null
+  apiLoadingUserId.value = user.id
+  error.value = ''
+  try {
+    const { data } = await adminApi.userRelayOverview(user.id)
+    selectedOverview.value = data.data
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '查询 API 使用失败'
+    selectedUser.value = null
+  } finally {
+    apiLoadingUserId.value = null
+  }
+}
+
+function closeApiUsage() {
+  selectedUser.value = null
+  selectedOverview.value = null
+}
+
 function formatDate(value?: string) {
   if (!value) return '-'
   return value.replace('T', ' ').slice(0, 16)
+}
+
+function compact(value?: number) {
+  const amount = Number(value || 0)
+  if (amount >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(2)}B`
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(2)}M`
+  if (amount >= 1_000) return `${(amount / 1_000).toFixed(2)}K`
+  return String(amount)
+}
+
+function money(value?: number) {
+  return `$${Number(value || 0).toFixed(6)}`
+}
+
+function roleBadge(role: Role) {
+  return role === 'ADMIN'
+    ? 'bg-violet-50 text-violet-700 ring-violet-100'
+    : 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+}
+
+function cardTone(tone: string) {
+  const tones: Record<string, string> = {
+    emerald: 'border-emerald-100 text-emerald-700',
+    blue: 'border-blue-100 text-blue-700',
+    amber: 'border-amber-100 text-amber-700',
+    violet: 'border-violet-100 text-violet-700'
+  }
+  return tones[tone] || tones.blue
 }
 
 onMounted(load)
@@ -97,8 +169,8 @@ onMounted(load)
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div>
           <p class="text-sm font-black tracking-[0.22em] text-sky-600">用户管理</p>
-          <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">账号、资料与余额</h1>
-          <p class="mt-3 text-sm font-medium text-slate-500">维护用户邮箱、权限、余额，并为用户重置登录密码。</p>
+          <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">账户、资料与 API 使用</h1>
+          <p class="mt-3 text-sm font-medium text-slate-500">集中维护用户资料、余额、权限，并快速查看每个用户的中转 API 实时数据。</p>
         </div>
         <div class="grid w-full gap-3 sm:flex sm:w-auto">
           <label class="relative min-w-0 flex-1 sm:w-80">
@@ -107,22 +179,41 @@ onMounted(load)
             </svg>
             <input
               v-model="keyword"
-              class="h-14 w-full rounded-2xl border border-slate-200 bg-white/90 pl-12 pr-4 text-sm font-semibold text-slate-800 shadow-[0_16px_50px_rgba(15,23,42,0.06)] outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+              class="h-12 w-full rounded-lg border border-slate-200 bg-white pl-12 pr-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
               placeholder="搜索用户名"
               @keyup.enter="load(1)"
             />
           </label>
-          <button class="h-14 rounded-2xl bg-slate-950 px-7 text-sm font-black text-white shadow-[0_18px_45px_rgba(15,23,42,0.18)] transition hover:-translate-y-0.5 hover:bg-sky-600" @click="load(1)">搜索</button>
+          <button class="h-12 rounded-lg bg-slate-950 px-6 text-sm font-black text-white transition hover:bg-sky-600" @click="load(1)">搜索</button>
         </div>
       </div>
 
-      <p v-if="message" class="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ message }}</p>
-      <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
+      <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="rounded-lg border border-slate-100 bg-white p-4 shadow-sm">
+          <p class="text-xs font-black text-slate-400">总用户</p>
+          <p class="mt-2 text-2xl font-black text-slate-950">{{ total }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-100 bg-white p-4 shadow-sm">
+          <p class="text-xs font-black text-slate-400">当前页普通用户</p>
+          <p class="mt-2 text-2xl font-black text-emerald-600">{{ activeUsers }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-100 bg-white p-4 shadow-sm">
+          <p class="text-xs font-black text-slate-400">当前页管理员</p>
+          <p class="mt-2 text-2xl font-black text-violet-600">{{ adminUsers }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-100 bg-white p-4 shadow-sm">
+          <p class="text-xs font-black text-slate-400">当前页余额</p>
+          <p class="mt-2 text-2xl font-black text-sky-600">${{ pageBalance.toFixed(2) }}</p>
+        </div>
+      </div>
 
-      <section class="mt-7 overflow-hidden rounded-[28px] border border-white/80 bg-white/78 shadow-[0_28px_90px_rgba(15,23,42,0.08)] backdrop-blur-2xl">
+      <p v-if="message" class="mt-5 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ message }}</p>
+      <p v-if="error" class="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
+
+      <section class="mt-7 overflow-hidden rounded-lg border border-slate-100 bg-white shadow-sm">
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-5 sm:px-6">
           <div>
-            <p class="text-lg font-black text-slate-950">用户资产列表</p>
+            <p class="text-lg font-black text-slate-950">用户列表</p>
             <p class="mt-1 text-xs font-semibold text-slate-500">当前页 {{ users.length }} 位用户，可直接编辑后保存。</p>
           </div>
           <div class="rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-xs font-black text-sky-700">
@@ -130,95 +221,202 @@ onMounted(load)
           </div>
         </div>
 
-        <div class="hidden grid-cols-[1.2fr_1.7fr_1.05fr_1.05fr_1.45fr_1fr_1.15fr] gap-4 bg-slate-50/80 px-6 py-4 text-xs font-black tracking-[0.18em] text-slate-400 xl:grid">
-          <span>用户</span>
-          <span>邮箱</span>
-          <span>角色</span>
-          <span>余额</span>
-          <span>新密码</span>
-          <span>注册时间</span>
-          <span class="text-right">操作</span>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[1180px] text-left text-sm">
+            <thead class="bg-slate-50 text-xs font-black text-slate-500">
+              <tr>
+                <th class="px-5 py-4">用户</th>
+                <th class="px-5 py-4">邮箱</th>
+                <th class="px-5 py-4">角色</th>
+                <th class="px-5 py-4">余额</th>
+                <th class="px-5 py-4">新密码</th>
+                <th class="px-5 py-4">注册时间</th>
+                <th class="px-5 py-4 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-for="user in users" :key="user.id" class="align-middle transition hover:bg-sky-50/40">
+                <td class="px-5 py-4">
+                  <div class="flex items-center gap-3">
+                    <div class="grid h-10 w-10 place-items-center rounded-lg bg-slate-950 text-sm font-black text-white">
+                      {{ user.username.slice(0, 1).toUpperCase() }}
+                    </div>
+                    <div class="min-w-0">
+                      <p class="truncate font-black text-slate-950">{{ user.username }}</p>
+                      <p class="mt-1 text-xs font-semibold text-slate-400">ID {{ user.id }}</p>
+                    </div>
+                  </div>
+                </td>
+                <td class="px-5 py-4">
+                  <input v-model="draftOf(user).email" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold outline-none focus:border-sky-300" type="email" placeholder="用户邮箱" />
+                </td>
+                <td class="px-5 py-4">
+                  <select v-model="draftOf(user).role" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-black outline-none focus:border-sky-300">
+                    <option value="USER">普通用户</option>
+                    <option value="ADMIN">管理员</option>
+                  </select>
+                  <span class="mt-2 inline-flex rounded-full px-2 py-1 text-xs font-black ring-1" :class="roleBadge(draftOf(user).role)">{{ draftOf(user).role }}</span>
+                </td>
+                <td class="px-5 py-4">
+                  <input v-model.number="draftOf(user).balance" class="h-10 w-28 rounded-lg border border-slate-200 bg-white px-3 text-sm font-black outline-none focus:border-sky-300" min="0" step="0.01" type="number" />
+                </td>
+                <td class="px-5 py-4">
+                  <input v-model="draftOf(user).password" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold outline-none focus:border-sky-300" type="password" placeholder="留空不修改" />
+                </td>
+                <td class="px-5 py-4 font-semibold text-slate-500">{{ formatDate(user.createdAt) }}</td>
+                <td class="px-5 py-4">
+                  <div class="flex items-center justify-end gap-2">
+                    <button
+                      class="h-10 rounded-lg border border-sky-100 bg-sky-50 px-3 text-xs font-black text-sky-700 transition hover:border-sky-200 hover:bg-sky-100 disabled:opacity-60"
+                      :disabled="apiLoadingUserId === user.id"
+                      @click="openApiUsage(user)"
+                    >
+                      {{ apiLoadingUserId === user.id ? '查询中' : '查询 API 使用' }}
+                    </button>
+                    <button class="h-10 rounded-lg bg-slate-950 px-3 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="savingId === user.id" @click="saveUser(user)">
+                      {{ savingId === user.id ? '保存中' : '保存' }}
+                    </button>
+                    <button class="grid h-10 w-10 place-items-center rounded-lg border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100" title="删除用户" @click="remove(user)">
+                      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5h6v2m-7 3v8m4-8v8m4-8v8M8 7l1 13h6l1-13" />
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
-        <div class="space-y-3 bg-gradient-to-b from-white to-sky-50/50 p-3 sm:p-4">
-          <article
-            v-for="user in users"
-            :key="user.id"
-            class="group grid gap-4 rounded-3xl border border-slate-100 bg-white p-4 shadow-[0_16px_45px_rgba(15,23,42,0.055)] transition duration-300 hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_24px_70px_rgba(14,165,233,0.13)] xl:grid-cols-[1.2fr_1.7fr_1.05fr_1.05fr_1.45fr_1fr_1.15fr] xl:items-center"
-          >
-            <div class="flex items-center gap-3">
-              <div class="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-slate-950 to-sky-600 text-base font-black text-white shadow-[0_14px_35px_rgba(15,23,42,0.18)]">
-                {{ user.username.slice(0, 1).toUpperCase() }}
-              </div>
-              <div class="min-w-0">
-                <p class="truncate text-base font-black text-slate-950">{{ user.username }}</p>
-                <p class="mt-1 text-xs font-semibold text-slate-400">ID {{ user.id }}</p>
-              </div>
-            </div>
-
-            <label class="block">
-              <span class="mb-2 block text-xs font-black text-slate-400 xl:hidden">邮箱</span>
-              <input v-model="draftOf(user).email" class="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/70 px-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" type="email" placeholder="用户邮箱" />
-            </label>
-
-            <label class="block">
-              <span class="mb-2 block text-xs font-black text-slate-400 xl:hidden">角色</span>
-              <div class="relative">
-                <select v-model="draftOf(user).role" class="h-12 w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50/70 px-4 pr-9 text-sm font-black text-slate-800 outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100">
-                  <option value="USER">普通用户</option>
-                  <option value="ADMIN">管理员</option>
-                </select>
-                <span class="pointer-events-none absolute right-4 top-1/2 h-2 w-2 -translate-y-1/2 rotate-45 border-b-2 border-r-2 border-slate-400" />
-              </div>
-            </label>
-
-            <label class="block">
-              <span class="mb-2 block text-xs font-black text-slate-400 xl:hidden">余额</span>
-              <div class="relative">
-                <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">￥</span>
-                <input v-model.number="draftOf(user).balance" class="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm font-black text-slate-900 outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" min="0" step="0.01" type="number" />
-              </div>
-            </label>
-
-            <label class="block">
-              <span class="mb-2 block text-xs font-black text-slate-400 xl:hidden">新密码</span>
-              <input v-model="draftOf(user).password" class="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/70 px-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" type="password" placeholder="留空则不修改" />
-            </label>
-
-            <div>
-              <span class="mb-2 block text-xs font-black text-slate-400 xl:hidden">注册时间</span>
-              <p class="text-sm font-bold leading-relaxed text-slate-600">{{ formatDate(user.createdAt) }}</p>
-            </div>
-
-            <div class="flex flex-wrap items-center justify-end gap-2">
-              <button
-                class="inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-950 px-4 text-xs font-black text-white shadow-[0_12px_32px_rgba(15,23,42,0.16)] transition hover:-translate-y-0.5 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
-                :disabled="savingId === user.id"
-                @click="saveUser(user)"
-              >
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                {{ savingId === user.id ? '保存中' : '保存' }}
-              </button>
-              <button class="grid h-11 w-11 place-items-center rounded-2xl border border-red-100 bg-red-50 text-red-600 transition hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-100" title="删除用户" @click="remove(user)">
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5h6v2m-7 3v8m4-8v8m4-8v8M8 7l1 13h6l1-13" />
-                </svg>
-              </button>
-            </div>
-          </article>
-
-          <div v-if="!users.length" class="rounded-3xl border border-dashed border-slate-200 bg-white/70 px-6 py-14 text-center">
-            <p class="text-lg font-black text-slate-800">暂无用户数据</p>
-            <p class="mt-2 text-sm font-semibold text-slate-500">请调整搜索条件后重试。</p>
-          </div>
+        <div v-if="!users.length" class="border-t border-slate-100 px-6 py-14 text-center">
+          <p class="text-lg font-black text-slate-800">暂无用户数据</p>
+          <p class="mt-2 text-sm font-semibold text-slate-500">请调整搜索条件后重试。</p>
         </div>
 
         <div class="border-t border-slate-100 bg-white px-4 py-5 sm:px-6">
           <Pagination :current="current" :pages="pages" @change="load" />
         </div>
       </section>
+
+      <Teleport to="body">
+        <div v-if="selectedUser" class="fixed inset-0 z-[9999] h-screen w-screen bg-slate-950/35 backdrop-blur-sm" @click.self="closeApiUsage">
+        <section class="flex h-screen w-screen flex-col bg-slate-50 shadow-2xl">
+          <div class="sticky top-0 z-10 border-b border-slate-200 bg-white px-6 py-5">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div class="min-w-0">
+                <p class="text-xs font-black uppercase tracking-[0.18em] text-sky-600">API Usage</p>
+                <h2 class="mt-1 truncate text-2xl font-black text-slate-950">{{ selectedUser.username }} 的 API 使用</h2>
+                <div class="mt-2 flex flex-wrap items-center gap-2 text-xs font-black text-slate-500">
+                  <span class="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">余额 ${{ Number(selectedOverview?.balance || selectedUser.balance || 0).toFixed(6) }}</span>
+                  <span class="rounded-full bg-slate-100 px-3 py-1">ID {{ selectedUser.id }}</span>
+                  <span class="rounded-full bg-sky-50 px-3 py-1 text-sky-700">{{ tokens.length }} 个密钥</span>
+                </div>
+              </div>
+              <button class="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-white text-xl font-black text-slate-400 transition hover:border-red-100 hover:bg-red-50 hover:text-red-600" @click="closeApiUsage">×</button>
+            </div>
+          </div>
+
+          <div v-if="!selectedOverview" class="grid flex-1 place-items-center p-8">
+            <div class="text-center">
+              <div class="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-100 border-t-sky-500"></div>
+              <p class="mt-4 text-sm font-black text-slate-500">正在加载真实 API 使用数据</p>
+            </div>
+          </div>
+
+          <div v-else class="flex-1 space-y-5 overflow-y-auto p-5 lg:p-6">
+            <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <article v-for="card in apiCards" :key="card.label" class="rounded-lg border bg-white p-4 shadow-sm" :class="cardTone(card.tone)">
+                <p class="text-xs font-black opacity-80">{{ card.label }}</p>
+                <p class="mt-2 text-2xl font-black">{{ card.value }}</p>
+                <p class="mt-1 text-xs font-bold opacity-75">{{ card.sub }}</p>
+              </article>
+            </div>
+
+            <div class="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+              <section class="rounded-lg border border-slate-100 bg-white p-5 shadow-sm">
+                <div class="flex items-center justify-between gap-3">
+                  <h3 class="text-lg font-black text-slate-950">模型分布</h3>
+                  <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{{ models.length }} 个可用模型</span>
+                </div>
+                <div class="mt-4 grid max-h-[360px] gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-1">
+                  <article v-for="model in models" :key="model.id" class="rounded-lg border border-slate-100 p-3 transition hover:border-sky-100 hover:bg-sky-50/40">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="min-w-0">
+                        <p class="truncate font-black text-slate-950">{{ model.displayName || model.model }}</p>
+                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ model.model }}</p>
+                      </div>
+                      <span class="rounded-full px-2 py-1 text-xs font-black" :class="model.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'">{{ model.status }}</span>
+                    </div>
+                  </article>
+                  <div v-if="!models.length" class="rounded-lg border border-dashed border-slate-200 p-8 text-center text-sm font-black text-slate-400">暂无可用模型</div>
+                </div>
+              </section>
+
+              <section class="rounded-lg border border-slate-100 bg-white p-5 shadow-sm">
+                <div class="flex items-center justify-between gap-3">
+                  <h3 class="text-lg font-black text-slate-950">调用排行</h3>
+                  <span class="text-xs font-black text-slate-400">按模型聚合</span>
+                </div>
+                <div class="mt-4 max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                  <article v-for="usage in modelUsage" :key="usage.model" class="rounded-lg border border-slate-100 p-3 transition hover:border-sky-100 hover:bg-sky-50/40">
+                    <div class="flex items-center justify-between gap-4">
+                      <p class="font-black text-slate-950">{{ usage.model }}</p>
+                      <p class="text-sm font-black text-sky-600">{{ usage.requests }} 次</p>
+                    </div>
+                    <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div class="h-full rounded-full bg-sky-500" :style="{ width: `${Math.min(100, Number(usage.totalTokens || 0) / Math.max(1, Number(selectedOverview?.totalTokens || 1)) * 100)}%` }"></div>
+                    </div>
+                    <p class="mt-2 text-xs font-semibold text-slate-500">{{ compact(usage.totalTokens) }} tokens · {{ money(usage.cost) }}</p>
+                  </article>
+                  <div v-if="!modelUsage.length" class="rounded-lg border border-dashed border-slate-200 p-8 text-center text-sm font-black text-slate-400">暂无调用数据</div>
+                </div>
+              </section>
+            </div>
+
+            <div class="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
+              <section class="rounded-lg border border-slate-100 bg-white p-5 shadow-sm">
+                <h3 class="text-lg font-black text-slate-950">API 密钥</h3>
+                <div class="mt-4 max-h-[340px] space-y-3 overflow-y-auto pr-1">
+                  <article v-for="token in tokens" :key="token.id" class="rounded-lg border border-slate-100 p-3 transition hover:border-sky-100 hover:bg-sky-50/40">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <p class="font-black text-slate-950">{{ token.name }}</p>
+                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ token.tokenPreview }} · {{ token.groups }}</p>
+                      </div>
+                      <span class="rounded-full px-2 py-1 text-xs font-black" :class="token.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'">{{ token.enabled ? '启用' : '停用' }}</span>
+                    </div>
+                    <p class="mt-3 text-xs font-semibold text-slate-500">{{ compact(token.requestCount) }} 次 · {{ compact(token.tokenCount) }} tokens · 今日 {{ money(token.todayCost) }}</p>
+                  </article>
+                  <div v-if="!tokens.length" class="rounded-lg border border-dashed border-slate-200 p-8 text-center text-sm font-black text-slate-400">暂无 API 密钥</div>
+                </div>
+              </section>
+
+              <section class="rounded-lg border border-slate-100 bg-white p-5 shadow-sm">
+                <h3 class="text-lg font-black text-slate-950">最近调用</h3>
+                <div class="mt-4 overflow-x-auto">
+                  <table class="w-full min-w-[780px] text-left text-sm">
+                    <thead class="text-xs font-black text-slate-400">
+                      <tr><th class="py-3">密钥</th><th>模型</th><th>Token</th><th>费用</th><th>耗时</th><th>时间</th></tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 font-semibold">
+                      <tr v-for="log in logs.slice(0, 8)" :key="log.id">
+                        <td class="py-3">{{ log.tokenName || '-' }}</td>
+                        <td>{{ log.model }}</td>
+                        <td>{{ compact(log.totalTokens) }}</td>
+                        <td class="font-black text-emerald-600">{{ money(log.cost) }}</td>
+                        <td>{{ ((log.durationMs || 0) / 1000).toFixed(2) }}s</td>
+                        <td>{{ formatDate(log.createdAt) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div v-if="!logs.length" class="rounded-lg border border-dashed border-slate-200 p-8 text-center text-sm font-black text-slate-400">暂无调用记录</div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+        </div>
+      </Teleport>
     </div>
   </AppLayout>
 </template>

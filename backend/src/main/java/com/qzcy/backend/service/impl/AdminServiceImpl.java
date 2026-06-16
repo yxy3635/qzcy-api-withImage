@@ -42,6 +42,10 @@ public class AdminServiceImpl implements AdminService {
         BigDecimal relayUpstreamCost = relayUsageLogMapper.totalUpstreamCost();
         BigDecimal relayProfit = (relaySiteCost == null ? BigDecimal.ZERO : relaySiteCost)
                 .subtract(relayUpstreamCost == null ? BigDecimal.ZERO : relayUpstreamCost);
+        BigDecimal todayRelayCost = zero(relayUsageLogMapper.todayCost());
+        BigDecimal yesterdayRelayCost = zero(relayUsageLogMapper.yesterdayCost());
+        BigDecimal todayRelayUpstreamCost = zero(relayUsageLogMapper.todayUpstreamCost());
+        BigDecimal yesterdayRelayUpstreamCost = zero(relayUsageLogMapper.yesterdayUpstreamCost());
         return new DashboardStats(
                 totalUsers,
                 totalImages,
@@ -50,6 +54,16 @@ public class AdminServiceImpl implements AdminService {
                 relaySiteCost,
                 relayUpstreamCost,
                 relayProfit,
+                relayUsageLogMapper.todayRequests(),
+                relayUsageLogMapper.yesterdayRequests(),
+                relayUsageLogMapper.todayTokens(),
+                relayUsageLogMapper.yesterdayTokens(),
+                todayRelayCost,
+                yesterdayRelayCost,
+                todayRelayUpstreamCost,
+                yesterdayRelayUpstreamCost,
+                todayRelayCost.subtract(todayRelayUpstreamCost),
+                yesterdayRelayCost.subtract(yesterdayRelayUpstreamCost),
                 relayUsageLogMapper.channelProfits(),
                 adminStatsMapper.recentRegistrations(),
                 imageRecordMapper.generationTrend()
@@ -134,5 +148,9 @@ public class AdminServiceImpl implements AdminService {
             throw new BusinessException(400, "邮箱格式不正确");
         }
         return normalized;
+    }
+
+    private BigDecimal zero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 }

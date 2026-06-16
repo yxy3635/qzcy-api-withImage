@@ -84,6 +84,18 @@ export interface PaymentRecord {
   createdAt: string
 }
 
+export interface Announcement {
+  id: number
+  title: string
+  content: string
+  enabled: boolean
+  pinned: boolean
+  sortOrder: number
+  publishedAt?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
 export interface PageResult<T> {
   records: T[]
   total: number
@@ -100,6 +112,16 @@ export interface AdminStats {
   relaySiteCost: number
   relayUpstreamCost: number
   relayProfit: number
+  todayRelayRequests: number
+  yesterdayRelayRequests: number
+  todayRelayTokens: number
+  yesterdayRelayTokens: number
+  todayRelayCost: number
+  yesterdayRelayCost: number
+  todayRelayUpstreamCost: number
+  yesterdayRelayUpstreamCost: number
+  todayRelayProfit: number
+  yesterdayRelayProfit: number
   relayChannelProfits: RelayChannelProfit[]
   recentRegistrations: Array<{ date: string; count: number }>
   generationTrend: Array<{ date: string; count: number }>
@@ -142,6 +164,7 @@ export interface RelayToken {
   allowedModels: string
   quota: number
   usedQuota: number
+  todayCost: number
   requestCount: number
   tokenCount: number
   rpmLimit: number
@@ -264,6 +287,7 @@ export interface RelayGroup {
   name: string
   ratio: number
   enabled: boolean
+  modelIds: number[]
 }
 
 export interface RelayModelUsage {

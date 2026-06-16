@@ -10,6 +10,7 @@ import HistoryPage from '@/views/user/HistoryPage.vue'
 import PaymentPage from '@/views/user/PaymentPage.vue'
 import ProfilePage from '@/views/user/ProfilePage.vue'
 import AdminDashboard from '@/views/admin/AdminDashboard.vue'
+import AdminAnnouncements from '@/views/admin/AdminAnnouncements.vue'
 import AdminUsers from '@/views/admin/AdminUsers.vue'
 import AdminPricing from '@/views/admin/AdminPricing.vue'
 import AdminMail from '@/views/admin/AdminMail.vue'
@@ -31,6 +32,7 @@ const router = createRouter({
     { path: '/user/payment', component: PaymentPage, meta: { requiresAuth: true } },
     { path: '/user/profile', component: ProfilePage, meta: { requiresAuth: true } },
     { path: '/admin/dashboard', component: AdminDashboard, meta: { requiresAuth: true, admin: true } },
+    { path: '/admin/announcements', component: AdminAnnouncements, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/users', component: AdminUsers, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/pricing', component: AdminPricing, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/relay', component: AdminRelay, meta: { requiresAuth: true, admin: true } },

@@ -21,6 +21,7 @@ public class RelayTokenDto {
     private String allowedModels;
     private BigDecimal quota;
     private BigDecimal usedQuota;
+    private BigDecimal todayCost;
     private Long requestCount;
     private Long tokenCount;
     private Integer rpmLimit;

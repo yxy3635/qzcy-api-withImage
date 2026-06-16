@@ -21,6 +21,38 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
     @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log")
     BigDecimal totalCost();
 
+    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE DATE(created_at) = CURDATE()")
+    Long todayRequests();
+
+    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)")
+    Long yesterdayRequests();
+
+    @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE DATE(created_at) = CURDATE()")
+    Long todayTokens();
+
+    @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)")
+    Long yesterdayTokens();
+
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE DATE(created_at) = CURDATE()")
+    BigDecimal todayCost();
+
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)")
+    BigDecimal yesterdayCost();
+
+    @Select("""
+            SELECT COALESCE(SUM((input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio), 0)
+            FROM relay_usage_log
+            WHERE DATE(created_at) = CURDATE()
+            """)
+    BigDecimal todayUpstreamCost();
+
+    @Select("""
+            SELECT COALESCE(SUM((input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio), 0)
+            FROM relay_usage_log
+            WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+            """)
+    BigDecimal yesterdayUpstreamCost();
+
     @Select("SELECT COALESCE(SUM(prompt_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId}")
     Long userPromptTokens(@Param("userId") Long userId);
 
@@ -92,6 +124,9 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
 
     @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE token_id = #{tokenId} AND created_at >= #{since}")
     Long tokenTokensSince(@Param("tokenId") Long tokenId, @Param("since") LocalDateTime since);
+
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE token_id = #{tokenId} AND DATE(created_at) = CURDATE()")
+    BigDecimal tokenTodayCost(@Param("tokenId") Long tokenId);
 
     @Select("SELECT COUNT(*) FROM relay_usage_log WHERE channel_id = #{channelId} AND created_at >= #{since}")
     Long channelRequestsSince(@Param("channelId") Long channelId, @Param("since") LocalDateTime since);

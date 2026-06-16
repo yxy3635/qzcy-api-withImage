@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -15,4 +16,5 @@ public class RelayGroupDto {
     private String name;
     private BigDecimal ratio;
     private Boolean enabled;
+    private List<Long> modelIds;
 }

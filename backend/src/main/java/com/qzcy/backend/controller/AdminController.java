@@ -3,6 +3,8 @@ package com.qzcy.backend.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminImageRecordDto;
 import com.qzcy.backend.dto.AdminUserUpdateDto;
+import com.qzcy.backend.dto.AnnouncementDto;
+import com.qzcy.backend.dto.AnnouncementUpdateDto;
 import com.qzcy.backend.dto.ApiResponse;
 import com.qzcy.backend.dto.DashboardStats;
 import com.qzcy.backend.dto.ImageGenerationConfigDto;
@@ -19,9 +21,11 @@ import com.qzcy.backend.dto.RelayGroupUpdateDto;
 import com.qzcy.backend.dto.RelayModelDto;
 import com.qzcy.backend.dto.RelayModelUpdateDto;
 import com.qzcy.backend.dto.RelayUpstreamModelDto;
+import com.qzcy.backend.dto.RelayUserOverviewDto;
 import com.qzcy.backend.dto.RoleUpdateDto;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.service.AdminService;
+import com.qzcy.backend.service.AnnouncementService;
 import com.qzcy.backend.service.ImageGenerationConfigService;
 import com.qzcy.backend.service.MailConfigService;
 import com.qzcy.backend.service.PaymentConfigService;
@@ -44,6 +48,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AdminController {
     private final AdminService adminService;
+    private final AnnouncementService announcementService;
     private final ImageGenerationConfigService imageGenerationConfigService;
     private final MailConfigService mailConfigService;
     private final PaymentConfigService paymentConfigService;
@@ -55,11 +60,37 @@ public class AdminController {
         return ApiResponse.success(adminService.dashboard());
     }
 
+    @GetMapping("/announcements")
+    public ApiResponse<java.util.List<AnnouncementDto>> announcements() {
+        return ApiResponse.success(announcementService.adminList());
+    }
+
+    @PostMapping("/announcements")
+    public ApiResponse<AnnouncementDto> createAnnouncement(@RequestBody AnnouncementUpdateDto dto) {
+        return ApiResponse.success(announcementService.create(dto));
+    }
+
+    @PutMapping("/announcements/{id}")
+    public ApiResponse<AnnouncementDto> updateAnnouncement(@PathVariable Long id, @RequestBody AnnouncementUpdateDto dto) {
+        return ApiResponse.success(announcementService.update(id, dto));
+    }
+
+    @DeleteMapping("/announcements/{id}")
+    public ApiResponse<Void> deleteAnnouncement(@PathVariable Long id) {
+        announcementService.delete(id);
+        return ApiResponse.success(null);
+    }
+
     @GetMapping("/users")
     public ApiResponse<Page<User>> users(@RequestParam(defaultValue = "1") long page,
                                           @RequestParam(defaultValue = "10") long size,
                                           @RequestParam(required = false) String keyword) {
         return ApiResponse.success(adminService.users(page, size, keyword));
+    }
+
+    @GetMapping("/users/{id}/relay-overview")
+    public ApiResponse<RelayUserOverviewDto> userRelayOverview(@PathVariable Long id) {
+        return ApiResponse.success(relayService.userOverview(id));
     }
 
     @GetMapping("/image-records")

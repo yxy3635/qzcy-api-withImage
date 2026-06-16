@@ -1,12 +1,27 @@
 import http from './http'
-import type { AdminImageRecord, AdminStats, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, UserInfo } from '@/types'
+import type { AdminImageRecord, AdminStats, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
 export const adminApi = {
   dashboard() {
     return http.get<ApiResponse<AdminStats>>('/admin/dashboard')
   },
+  announcements() {
+    return http.get<ApiResponse<Announcement[]>>('/admin/announcements')
+  },
+  createAnnouncement(payload: Partial<Omit<Announcement, 'id' | 'createdAt' | 'updatedAt' | 'publishedAt'>>) {
+    return http.post<ApiResponse<Announcement>>('/admin/announcements', payload)
+  },
+  updateAnnouncement(id: number, payload: Partial<Omit<Announcement, 'id' | 'createdAt' | 'updatedAt' | 'publishedAt'>>) {
+    return http.put<ApiResponse<Announcement>>(`/admin/announcements/${id}`, payload)
+  },
+  deleteAnnouncement(id: number) {
+    return http.delete<ApiResponse<void>>(`/admin/announcements/${id}`)
+  },
   users(page = 1, size = 10, keyword = '') {
     return http.get<ApiResponse<PageResult<UserInfo>>>('/admin/users', { params: { page, size, keyword } })
+  },
+  userRelayOverview(id: number) {
+    return http.get<ApiResponse<RelayUserOverview>>(`/admin/users/${id}/relay-overview`)
   },
   imageRecords(page = 1, size = 10, keyword = '', status = '') {
     return http.get<ApiResponse<PageResult<AdminImageRecord>>>('/admin/image-records', {

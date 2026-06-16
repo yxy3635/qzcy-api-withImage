@@ -4,18 +4,22 @@ import { RouterLink } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
 import BalanceCard from '@/components/BalanceCard.vue'
 import { imageApi } from '@/api/imageApi'
+import { noticeApi } from '@/api/noticeApi'
 import { userApi } from '@/api/userApi'
 import { useAuthStore } from '@/store/authStore'
-import type { ImageRecord } from '@/types'
+import type { Announcement, ImageRecord } from '@/types'
 
 const auth = useAuthStore()
 const balance = ref(0)
 const records = ref<ImageRecord[]>([])
+const announcements = ref<Announcement[]>([])
+const selectedAnnouncement = ref<Announcement | null>(null)
 
 onMounted(async () => {
-  const [balanceRes, historyRes] = await Promise.all([userApi.balance(), imageApi.history(1, 6)])
+  const [balanceRes, historyRes, announcementRes] = await Promise.all([userApi.balance(), imageApi.history(1, 6), noticeApi.list()])
   balance.value = Number(balanceRes.data.data)
   records.value = historyRes.data.data.records
+  announcements.value = announcementRes.data.data
 })
 </script>
 
@@ -56,6 +60,31 @@ onMounted(async () => {
       </div>
     </div>
 
+    <section class="mt-6 rounded-[1.5rem] border border-white/80 bg-white/82 p-5 shadow-[0_24px_80px_rgba(14,165,233,0.10)] backdrop-blur-2xl">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <p class="text-sm font-bold uppercase tracking-[0.22em] text-sky-600">公告</p>
+          <h2 class="mt-2 text-2xl font-black text-slate-950">最新通知</h2>
+        </div>
+        <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{{ announcements.length }} 条</span>
+      </div>
+      <div class="mt-5 grid gap-3">
+        <button
+          v-for="item in announcements"
+          :key="item.id"
+          class="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/70"
+          @click="selectedAnnouncement = item"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <p class="text-base font-black text-slate-950">{{ item.title }}</p>
+            <span class="shrink-0 text-xs font-semibold text-slate-400">{{ (item.publishedAt || item.createdAt || '').slice(0, 16).replace('T', ' ') }}</span>
+          </div>
+          <p class="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-slate-600">{{ item.content }}</p>
+        </button>
+        <div v-if="!announcements.length" class="rounded-2xl border border-dashed border-slate-200 p-8 text-sm font-black text-slate-500">暂无公告</div>
+      </div>
+    </section>
+
     <section class="mt-9">
       <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -84,5 +113,18 @@ onMounted(async () => {
         </div>
       </div>
     </section>
+
+    <div v-if="selectedAnnouncement" class="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-4 backdrop-blur-sm" @click.self="selectedAnnouncement = null">
+      <section class="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-[0_28px_90px_rgba(15,23,42,0.24)]">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-black text-slate-950">{{ selectedAnnouncement.title }}</h2>
+            <p class="mt-2 text-xs font-semibold text-slate-400">{{ (selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt || '').replace('T', ' ') }}</p>
+          </div>
+          <button class="rounded-xl px-3 py-2 text-xl font-black text-slate-400 hover:bg-slate-50" @click="selectedAnnouncement = null">×</button>
+        </div>
+        <div class="mt-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{{ selectedAnnouncement.content }}</div>
+      </section>
+    </div>
   </AppLayout>
 </template>

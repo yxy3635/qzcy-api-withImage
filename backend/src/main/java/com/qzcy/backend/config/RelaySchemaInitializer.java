@@ -19,6 +19,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         jdbcTemplate.update("UPDATE relay_channel SET group_names = 'default' WHERE group_names IS NULL OR group_names = ''");
         ensureRelayPrecision();
         ensureGptImage2Model();
+        ensureEmptyGroupsHaveModels();
     }
 
     private void ensureGptImage2Model() {
@@ -73,6 +74,25 @@ public class RelaySchemaInitializer implements CommandLineRunner {
                 JOIN relay_model m
                 WHERE g.code = 'default' AND m.model = ?
                 """, model);
+    }
+
+    private void ensureEmptyGroupsHaveModels() {
+        if (!tableExists("relay_group") || !tableExists("relay_model") || !tableExists("relay_group_model")) {
+            return;
+        }
+        jdbcTemplate.update("""
+                INSERT IGNORE INTO relay_group_model (group_id, model_id, created_at)
+                SELECT g.id, m.id, NOW()
+                FROM relay_group g
+                JOIN relay_model m
+                WHERE g.enabled = 1
+                  AND m.enabled = 1
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM relay_group_model gm
+                      WHERE gm.group_id = g.id
+                  )
+                """);
     }
 
     private void addColumnIfMissing(String tableName, String columnName, String definition) {

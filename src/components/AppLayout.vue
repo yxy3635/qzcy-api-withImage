@@ -12,6 +12,7 @@ const nav = computed(() =>
   props.admin
     ? [
         { to: '/admin/dashboard', label: '仪表盘', desc: '运营总览' },
+        { to: '/admin/announcements', label: '公告发布', desc: '站内通知' },
         { to: '/admin/users', label: '用户管理', desc: '账号权限' },
         { to: '/admin/pricing', label: '生图定价', desc: '模型价格' },
         { to: '/admin/relay', label: '中转站设置', desc: 'API分发配置' },

@@ -283,3 +283,17 @@ ALTER TABLE relay_token MODIFY COLUMN used_quota DECIMAL(12, 6) NOT NULL DEFAULT
 ALTER TABLE relay_token MODIFY COLUMN quota DECIMAL(12, 6) NOT NULL DEFAULT 0.000000;
 ALTER TABLE `user` MODIFY COLUMN balance DECIMAL(12, 6) NOT NULL DEFAULT 0.000000;
 ALTER TABLE payment_record MODIFY COLUMN amount DECIMAL(12, 6) NOT NULL;
+
+CREATE TABLE IF NOT EXISTS announcement (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    title VARCHAR(160) NOT NULL,
+    content TEXT NOT NULL,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    pinned TINYINT(1) NOT NULL DEFAULT 0,
+    sort_order INT NOT NULL DEFAULT 10,
+    published_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_announcement_public (enabled, pinned, sort_order, published_at),
+    INDEX idx_announcement_created (created_at)
+    );

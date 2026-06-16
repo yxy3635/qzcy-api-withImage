@@ -9,6 +9,7 @@ import type { PaymentRecord } from '@/types'
 
 const auth = useAuthStore()
 const amount = ref(10)
+const amountPreset = ref<number | 'custom'>(10)
 const type = ref('alipay')
 const message = ref('')
 const error = ref('')
@@ -18,6 +19,7 @@ const successOrderId = ref('')
 const records = ref<PaymentRecord[]>([])
 const current = ref(1)
 const pages = ref(1)
+const rechargePresets = [1, 5, 10, 100]
 const paymentOptions = ref([
   { value: 'alipay', label: '支付宝', desc: '推荐使用支付宝扫码支付', enabled: true },
   { value: 'wxpay', label: '微信支付', desc: '使用微信完成余额充值', enabled: true },
@@ -25,6 +27,13 @@ const paymentOptions = ref([
 ])
 
 const enabledPaymentOptions = () => paymentOptions.value.filter((item) => item.enabled)
+
+function selectAmountPreset(value: number | 'custom') {
+  amountPreset.value = value
+  if (typeof value === 'number') {
+    amount.value = value
+  }
+}
 
 async function recharge() {
   error.value = ''
@@ -101,7 +110,27 @@ onMounted(async () => {
         <section class="soft-card space-y-4 p-5">
           <div>
             <label class="text-sm font-semibold text-slate-600">充值金额</label>
-            <input v-model.number="amount" class="input mt-2 rounded-2xl" type="number" min="1" step="0.01" />
+            <div class="mt-2 grid grid-cols-2 gap-2">
+              <button
+                v-for="preset in rechargePresets"
+                :key="preset"
+                class="h-12 rounded-2xl border text-sm font-black transition"
+                :class="amountPreset === preset ? 'border-sky-400 bg-sky-50 text-sky-700 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-sky-200 hover:bg-sky-50/60'"
+                type="button"
+                @click="selectAmountPreset(preset)"
+              >
+                ￥{{ preset }}
+              </button>
+              <button
+                class="h-12 rounded-2xl border text-sm font-black transition"
+                :class="amountPreset === 'custom' ? 'border-sky-400 bg-sky-50 text-sky-700 shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-sky-200 hover:bg-sky-50/60'"
+                type="button"
+                @click="selectAmountPreset('custom')"
+              >
+                自定义
+              </button>
+            </div>
+            <input v-if="amountPreset === 'custom'" v-model.number="amount" class="input mt-2 rounded-2xl" type="number" min="0.01" step="0.01" placeholder="输入充值金额" />
           </div>
           <div>
             <label class="text-sm font-semibold text-slate-600">支付方式</label>

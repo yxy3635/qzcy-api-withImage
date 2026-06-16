@@ -2,6 +2,7 @@ package com.qzcy.backend.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.qzcy.backend.entity.RelayGroupModel;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -43,4 +44,19 @@ public interface RelayGroupModelMapper extends BaseMapper<RelayGroupModel> {
               AND m.enabled = 1
             """)
     Long countEnabledModelsForGroup(@Param("groupId") Long groupId);
+
+    @Select("""
+            SELECT gm.model_id
+            FROM relay_group_model gm
+            JOIN relay_model m ON m.id = gm.model_id
+            WHERE gm.group_id = #{groupId}
+            ORDER BY m.sort_order, m.id
+            """)
+    List<Long> modelIdsForGroup(@Param("groupId") Long groupId);
+
+    @Delete("""
+            DELETE FROM relay_group_model
+            WHERE group_id = #{groupId}
+            """)
+    void deleteByGroupId(@Param("groupId") Long groupId);
 }
