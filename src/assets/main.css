@@ -104,6 +104,15 @@ select {
   }
 }
 
+@keyframes channelScan {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
 .float-soft {
   animation: floatSoft 5.5s ease-in-out infinite;
 }

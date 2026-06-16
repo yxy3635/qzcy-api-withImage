@@ -11,6 +11,7 @@ import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.AdminStatsMapper;
 import com.qzcy.backend.mapper.ImageRecordMapper;
 import com.qzcy.backend.mapper.PaymentRecordMapper;
+import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.AdminService;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ public class AdminServiceImpl implements AdminService {
     private final UserMapper userMapper;
     private final ImageRecordMapper imageRecordMapper;
     private final PaymentRecordMapper paymentRecordMapper;
+    private final RelayUsageLogMapper relayUsageLogMapper;
     private final AdminStatsMapper adminStatsMapper;
     private final PasswordEncoder passwordEncoder;
 
@@ -36,11 +38,19 @@ public class AdminServiceImpl implements AdminService {
         Long todayImages = imageRecordMapper.selectCount(
                 new LambdaQueryWrapper<ImageRecord>().ge(ImageRecord::getCreatedAt, LocalDate.now().atStartOfDay())
         );
+        BigDecimal relaySiteCost = relayUsageLogMapper.totalCost();
+        BigDecimal relayUpstreamCost = relayUsageLogMapper.totalUpstreamCost();
+        BigDecimal relayProfit = (relaySiteCost == null ? BigDecimal.ZERO : relaySiteCost)
+                .subtract(relayUpstreamCost == null ? BigDecimal.ZERO : relayUpstreamCost);
         return new DashboardStats(
                 totalUsers,
                 totalImages,
                 todayImages,
                 paymentRecordMapper.totalRevenue(),
+                relaySiteCost,
+                relayUpstreamCost,
+                relayProfit,
+                relayUsageLogMapper.channelProfits(),
                 adminStatsMapper.recentRegistrations(),
                 imageRecordMapper.generationTrend()
         );

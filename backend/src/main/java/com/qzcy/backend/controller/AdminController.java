@@ -11,17 +11,28 @@ import com.qzcy.backend.dto.MailConfigDto;
 import com.qzcy.backend.dto.MailConfigUpdateDto;
 import com.qzcy.backend.dto.PaymentConfigDto;
 import com.qzcy.backend.dto.PaymentConfigUpdateDto;
+import com.qzcy.backend.dto.RelayAdminOverviewDto;
+import com.qzcy.backend.dto.RelayChannelDto;
+import com.qzcy.backend.dto.RelayChannelUpdateDto;
+import com.qzcy.backend.dto.RelayGroupDto;
+import com.qzcy.backend.dto.RelayGroupUpdateDto;
+import com.qzcy.backend.dto.RelayModelDto;
+import com.qzcy.backend.dto.RelayModelUpdateDto;
+import com.qzcy.backend.dto.RelayUpstreamModelDto;
 import com.qzcy.backend.dto.RoleUpdateDto;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.service.AdminService;
 import com.qzcy.backend.service.ImageGenerationConfigService;
 import com.qzcy.backend.service.MailConfigService;
 import com.qzcy.backend.service.PaymentConfigService;
+import com.qzcy.backend.service.RelayChannelStatusService;
+import com.qzcy.backend.service.RelayService;
 import com.qzcy.backend.util.SecurityUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,6 +47,8 @@ public class AdminController {
     private final ImageGenerationConfigService imageGenerationConfigService;
     private final MailConfigService mailConfigService;
     private final PaymentConfigService paymentConfigService;
+    private final RelayService relayService;
+    private final RelayChannelStatusService relayChannelStatusService;
 
     @GetMapping("/dashboard")
     public ApiResponse<DashboardStats> dashboard() {
@@ -66,6 +79,67 @@ public class AdminController {
     public ApiResponse<ImageGenerationConfigDto> updateImageConfig(@PathVariable Long id,
                                                                    @RequestBody ImageGenerationConfigUpdateDto dto) {
         return ApiResponse.success(imageGenerationConfigService.update(id, dto));
+    }
+
+    @GetMapping("/relay")
+    public ApiResponse<RelayAdminOverviewDto> relayOverview() {
+        return ApiResponse.success(relayService.adminOverview());
+    }
+
+    @PostMapping("/relay/channels")
+    public ApiResponse<RelayChannelDto> createRelayChannel(@RequestBody RelayChannelUpdateDto dto) {
+        return ApiResponse.success(relayService.createChannel(dto));
+    }
+
+    @PutMapping("/relay/channels/{id}")
+    public ApiResponse<RelayChannelDto> updateRelayChannel(@PathVariable Long id,
+                                                           @RequestBody RelayChannelUpdateDto dto) {
+        return ApiResponse.success(relayService.updateChannel(id, dto));
+    }
+
+    @PostMapping("/relay/groups")
+    public ApiResponse<RelayGroupDto> createRelayGroup(@RequestBody RelayGroupUpdateDto dto) {
+        return ApiResponse.success(relayService.createGroup(dto));
+    }
+
+    @PutMapping("/relay/groups/{id}")
+    public ApiResponse<RelayGroupDto> updateRelayGroup(@PathVariable Long id,
+                                                       @RequestBody RelayGroupUpdateDto dto) {
+        return ApiResponse.success(relayService.updateGroup(id, dto));
+    }
+
+    @DeleteMapping("/relay/groups/{id}")
+    public ApiResponse<Void> deleteRelayGroup(@PathVariable Long id) {
+        relayService.deleteGroup(id);
+        return ApiResponse.success(null);
+    }
+
+    @PostMapping("/relay/models")
+    public ApiResponse<RelayModelDto> createRelayModel(@RequestBody RelayModelUpdateDto dto) {
+        return ApiResponse.success(relayService.createModel(dto));
+    }
+
+    @PutMapping("/relay/models/{id}")
+    public ApiResponse<RelayModelDto> updateRelayModel(@PathVariable Long id,
+                                                       @RequestBody RelayModelUpdateDto dto) {
+        return ApiResponse.success(relayService.updateModel(id, dto));
+    }
+
+    @DeleteMapping("/relay/models/{id}")
+    public ApiResponse<Void> deleteRelayModel(@PathVariable Long id) {
+        relayService.deleteModel(id);
+        return ApiResponse.success(null);
+    }
+
+    @PostMapping("/relay/channels/{id}/models/sync")
+    public ApiResponse<java.util.List<RelayUpstreamModelDto>> syncRelayModels(@PathVariable Long id) {
+        return ApiResponse.success(relayService.fetchUpstreamModels(id));
+    }
+
+    @PostMapping("/relay/channels/status/sync")
+    public ApiResponse<Void> syncRelayChannelStatus() {
+        relayChannelStatusService.syncAll();
+        return ApiResponse.success(null);
     }
 
     @GetMapping("/mail-config")

@@ -97,6 +97,178 @@ export interface AdminStats {
   totalImages: number
   todayImages: number
   totalRevenue: number
+  relaySiteCost: number
+  relayUpstreamCost: number
+  relayProfit: number
+  relayChannelProfits: RelayChannelProfit[]
   recentRegistrations: Array<{ date: string; count: number }>
   generationTrend: Array<{ date: string; count: number }>
+}
+
+export interface RelayChannelProfit {
+  channelId: number
+  channelName: string
+  requests: number
+  totalTokens: number
+  upstreamCost: number
+  siteCost: number
+  profit: number
+}
+
+export interface RelayChannel {
+  id: number
+  name: string
+  provider: string
+  apiBaseUrl: string
+  apiKeyMasked: string
+  groupNames: string
+  status: string
+  priority: number
+  weight: number
+  rpmLimit: number
+  tpmLimit: number
+  priceMultiplier: number
+  enabled: boolean
+}
+
+export interface RelayToken {
+  id: number
+  userId: number
+  username: string
+  name: string
+  tokenPreview: string
+  plainToken?: string
+  groups: string
+  allowedModels: string
+  quota: number
+  usedQuota: number
+  requestCount: number
+  tokenCount: number
+  rpmLimit: number
+  tpmLimit: number
+  ipWhitelist: string
+  enabled: boolean
+  expiresAt?: string
+  lastUsedAt?: string
+  createdAt?: string
+}
+
+export interface RelayStats {
+  totalChannels: number
+  activeChannels: number
+  totalTokens: number
+  activeTokens: number
+  totalRequests: number
+  totalTokensUsed: number
+  totalCost: number
+}
+
+export interface RelayAdminOverview {
+  stats: RelayStats
+  channels: RelayChannel[]
+  tokens: RelayToken[]
+  models: RelayModel[]
+  groups: RelayGroup[]
+}
+
+export interface RelayUserOverview {
+  balance: number
+  models: RelayModel[]
+  tokens: RelayToken[]
+  channels: RelayChannel[]
+  logs: RelayUsageLog[]
+  modelUsage: RelayModelUsage[]
+  trend: RelayTrend[]
+  groups: RelayGroup[]
+  totalRequests: number
+  totalTokens: number
+  totalCost: number
+  averageDurationMs: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalCachedTokens: number
+  totalCacheCreationTokens: number
+  todayRequests: number
+  todayPromptTokens: number
+  todayCompletionTokens: number
+  todayTotalTokens: number
+  todayCost: number
+  currentRpm: number
+  currentTpm: number
+}
+
+export interface RelayModel {
+  id: number
+  model: string
+  displayName: string
+  modelType: string
+  inputPrice: number
+  outputPrice: number
+  cachedInputPrice: number
+  cacheCreationPrice: number
+  requestPrice: number
+  fixedRequestBilling: boolean
+  status: string
+  enabled: boolean
+  sortOrder: number
+}
+
+export interface RelayUpstreamModel {
+  id: string
+  ownedBy: string
+  configured: boolean
+}
+
+export interface RelayUsageLog {
+  id: number
+  tokenName: string
+  channelName: string
+  groupNames: string
+  endpoint: string
+  model: string
+  modelType: string
+  promptTokens: number
+  completionTokens: number
+  cachedTokens: number
+  cacheCreationTokens: number
+  totalTokens: number
+  inputCost: number
+  outputCost: number
+  cacheReadCost: number
+  cacheCreationCost: number
+  requestCost: number
+  groupRatio: number
+  channelRatio: number
+  cost: number
+  statusCode: number
+  durationMs: number
+  userAgent: string
+  status: string
+  createdAt: string
+}
+
+export interface RelayTrend {
+  date: string
+  requests: number
+  promptTokens: number
+  completionTokens: number
+  cachedTokens: number
+  cacheCreationTokens: number
+  totalTokens: number
+  cost: number
+}
+
+export interface RelayGroup {
+  id: number
+  code: string
+  name: string
+  ratio: number
+  enabled: boolean
+}
+
+export interface RelayModelUsage {
+  model: string
+  requests: number
+  totalTokens: number
+  cost: number
 }

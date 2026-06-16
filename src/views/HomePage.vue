@@ -85,7 +85,7 @@ const routerToGithub = () => {
       </div>
       
       <div class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-500">
-        <button class="hover:text-blue-600 transition-colors">中转站</button>
+        <button class="hover:text-blue-600 transition-colors" @click="router.push('/relay')">中转站</button>
         <button class="hover:text-blue-600 transition-colors" @click="scrollToGallery">视觉矩阵</button>
         <button class="hover:text-blue-600 transition-colors">对接文档</button>
 		<button class="hover:text-blue-600 transition-colors" 

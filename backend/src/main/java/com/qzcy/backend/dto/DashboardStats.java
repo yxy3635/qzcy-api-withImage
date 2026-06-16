@@ -14,6 +14,10 @@ public class DashboardStats {
     private Long totalImages;
     private Long todayImages;
     private BigDecimal totalRevenue;
+    private BigDecimal relaySiteCost;
+    private BigDecimal relayUpstreamCost;
+    private BigDecimal relayProfit;
+    private List<RelayChannelProfitDto> relayChannelProfits;
     private List<Map<String, Object>> recentRegistrations;
     private List<Map<String, Object>> generationTrend;
 }

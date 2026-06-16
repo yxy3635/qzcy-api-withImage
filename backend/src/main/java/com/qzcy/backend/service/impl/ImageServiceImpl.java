@@ -57,7 +57,11 @@ public class ImageServiceImpl implements ImageService {
     @Value("${app.upload.image-path:userImage/}")
     private String imagePath;
 
+    @Value("${server.port:8080}")
+    private int serverPort;
+
     private static final Duration IMAGE_TIMEOUT = Duration.ofMinutes(10);
+    private static final int MAX_LOG_BODY_CHARS = 4000;
 
     public ImageServiceImpl(ImageRecordMapper imageRecordMapper,
                             ImageGenerationMetricMapper metricMapper,
@@ -210,6 +214,8 @@ public class ImageServiceImpl implements ImageService {
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            log.warn("OpenAI图像接口返回错误，url={}, status={}, body={}",
+                    requestUrl, response.statusCode(), truncateForLog(responseBody));
             if (response.statusCode() == 524) {
                 throw new IllegalStateException("中转服务网关超时：同步生图请求在服务商网关层超时，请将 gpt-image 系列质量改为 auto/medium/high，或更换支持长连接/异步任务的中转线路");
             }
@@ -332,6 +338,7 @@ public class ImageServiceImpl implements ImageService {
         String baseUrl = config.getApiBaseUrl() == null || config.getApiBaseUrl().isBlank()
                 ? "https://api.openai.com"
                 : config.getApiBaseUrl().trim();
+        baseUrl = normalizeLocalRelayBaseUrl(baseUrl);
         while (baseUrl.endsWith("/")) {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         }
@@ -345,6 +352,37 @@ public class ImageServiceImpl implements ImageService {
             path = path.substring(3);
         }
         return baseUrl + path;
+    }
+
+    private String normalizeLocalRelayBaseUrl(String baseUrl) {
+        try {
+            URI uri = URI.create(baseUrl);
+            String host = uri.getHost();
+            int port = uri.getPort();
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            boolean localHost = "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "::1".equals(host);
+            if (localHost && port == 5173 && path.startsWith("/api")) {
+                URI normalized = new URI(
+                        uri.getScheme(),
+                        uri.getUserInfo(),
+                        "localhost",
+                        serverPort,
+                        path,
+                        uri.getQuery(),
+                        uri.getFragment()
+                );
+                return normalized.toString();
+            }
+        } catch (Exception ignored) {
+            return baseUrl;
+        }
+        return baseUrl;
+    }
+
+    private String truncateForLog(String text) {
+        if (text == null) return "";
+        if (text.length() <= MAX_LOG_BODY_CHARS) return text;
+        return text.substring(0, MAX_LOG_BODY_CHARS) + "...";
     }
 
     private String saveRemoteImage(String username, String remoteUrl) throws Exception {
