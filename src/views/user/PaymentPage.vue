@@ -5,17 +5,19 @@ import BalanceCard from '@/components/BalanceCard.vue'
 import Pagination from '@/components/Pagination.vue'
 import { paymentApi } from '@/api/paymentApi'
 import { useAuthStore } from '@/store/authStore'
+import { useToast } from '@/composables/useToast'
 import type { PaymentRecord } from '@/types'
 
 const auth = useAuthStore()
+const toast = useToast()
 const amount = ref(10)
 const amountPreset = ref<number | 'custom'>(10)
 const type = ref('alipay')
-const message = ref('')
 const error = ref('')
 const successModalOpen = ref(false)
 const successAmount = ref('')
 const successOrderId = ref('')
+const returnedPaymentParams = ref<Record<string, string> | null>(null)
 const records = ref<PaymentRecord[]>([])
 const current = ref(1)
 const pages = ref(1)
@@ -37,7 +39,6 @@ function selectAmountPreset(value: number | 'custom') {
 
 async function recharge() {
   error.value = ''
-  message.value = ''
   try {
     const { data } = await paymentApi.recharge(amount.value, type.value)
     const paymentUrl = data.data.paymentUrl ? String(data.data.paymentUrl) : ''
@@ -45,11 +46,12 @@ async function recharge() {
       window.location.href = paymentUrl
       return
     }
-    message.value = String(data.data.message || '操作完成')
+    toast.success(String(data.data.message || '操作完成'))
     await auth.refreshUser()
     await loadHistory()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '创建支付订单失败'
+    toast.error(error.value)
   }
 }
 
@@ -76,11 +78,21 @@ async function loadPaymentConfig() {
   }
 }
 
+function paymentTypeText(value: string) {
+  if (value === 'alipay') return '支付宝'
+  if (value === 'wxpay') return '微信支付'
+  if (value === 'qqpay') return 'QQ钱包'
+  if (value === 'referral_rebate') return '邀请返利'
+  if (value === 'balance') return '余额扣费'
+  return value || '-'
+}
+
 function handlePaymentReturn() {
   const params = new URLSearchParams(window.location.search)
   if (params.get('trade_status') !== 'TRADE_SUCCESS') {
     return false
   }
+  returnedPaymentParams.value = Object.fromEntries(params.entries())
   successAmount.value = params.get('money') || ''
   successOrderId.value = params.get('out_trade_no') || ''
   successModalOpen.value = true
@@ -88,11 +100,40 @@ function handlePaymentReturn() {
   return true
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function isSelectedOrderCompleted() {
+  return records.value.some((record) => String(record.id) === successOrderId.value && record.status === 'completed')
+}
+
+async function confirmReturnedPayment() {
+  const payload = returnedPaymentParams.value
+  if (!payload || payload.trade_status !== 'TRADE_SUCCESS') {
+    return
+  }
+  try {
+    await paymentApi.notify(payload)
+  } catch (err) {
+    console.error('payment notify confirm failed', err)
+  }
+  for (let index = 0; index < 5; index += 1) {
+    await Promise.all([auth.refreshUser(), loadHistory()])
+    if (isSelectedOrderCompleted()) {
+      break
+    }
+    await sleep(1000)
+  }
+}
+
 onMounted(async () => {
   const returnedFromPayment = handlePaymentReturn()
-  await Promise.all([loadHistory(), loadPaymentConfig(), auth.refreshUser()])
+  await Promise.all([loadPaymentConfig(), auth.refreshUser()])
+  await loadHistory()
   if (returnedFromPayment) {
-    message.value = '支付成功，余额到账状态请以支付回调和余额刷新结果为准。'
+    await confirmReturnedPayment()
+    toast.success('支付成功，余额到账状态请以支付回调和余额刷新结果为准。')
   }
 })
 </script>
@@ -155,7 +196,6 @@ onMounted(async () => {
             </div>
           </div>
           <button class="w-full rounded-full bg-sky-500 px-5 py-3 text-sm font-black text-white shadow-[0_18px_50px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60" :disabled="enabledPaymentOptions().length === 0" @click="recharge">创建支付订单</button>
-          <p v-if="message" class="rounded-2xl bg-teal-50 px-3 py-2 text-sm font-semibold text-mint">{{ message }}</p>
           <p v-if="error" class="rounded-2xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{{ error }}</p>
         </section>
       </div>
@@ -167,7 +207,7 @@ onMounted(async () => {
         <div class="divide-y divide-slate-100">
           <div v-for="record in records" :key="record.id" class="interactive-row grid gap-2 p-4 text-sm md:grid-cols-[120px_1fr_120px_180px] md:p-5">
             <span class="font-black text-slate-950">￥{{ Number(record.amount).toFixed(2) }}</span>
-            <span class="text-slate-600">{{ record.type }}</span>
+            <span class="text-slate-600">{{ paymentTypeText(record.type) }}</span>
             <span class="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{{ record.status }}</span>
             <span class="text-slate-500">{{ record.createdAt }}</span>
           </div>

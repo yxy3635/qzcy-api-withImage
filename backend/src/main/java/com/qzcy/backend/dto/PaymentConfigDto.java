@@ -12,6 +12,7 @@ public class PaymentConfigDto {
     private String apiUrl;
     private String merchantId;
     private BigDecimal registerGiftAmount;
+    private BigDecimal referralRebateRate;
     private Boolean enabled;
     private Boolean alipayEnabled;
     private Boolean wxpayEnabled;

@@ -5,6 +5,9 @@ export const paymentApi = {
   recharge(amount: number, type: string) {
     return http.post<ApiResponse<Record<string, unknown>>>('/payment/recharge', { amount, type })
   },
+  notify(params: Record<string, string>) {
+    return http.post<string>('/payment/notify', params)
+  },
   config() {
     return http.get<ApiResponse<PaymentConfig>>('/payment/config')
   },

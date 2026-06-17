@@ -5,16 +5,17 @@ import { useAuthStore } from '@/store/authStore'
 import { noticeApi } from '@/api/noticeApi'
 import { relayApi } from '@/api/relayApi'
 import { paymentApi } from '@/api/paymentApi'
+import { useToast } from '@/composables/useToast'
 import type { Announcement, PaymentRecord, RelayUserOverview } from '@/types'
 
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToast()
 
 const overview = ref<RelayUserOverview | null>(null)
 const activeMenu = ref('dashboard')
 const loading = ref(false)
 const copied = ref('')
-const toastMessage = ref('')
 const creatingKey = ref(false)
 const showKeyDialog = ref(false)
 const syncingStatus = ref(false)
@@ -26,7 +27,6 @@ const rechargeAmount = ref(10)
 const rechargePreset = ref<number | 'custom'>(10)
 const rechargeType = ref('alipay')
 const rechargeLoading = ref(false)
-const rechargeMessage = ref('')
 const rechargeError = ref('')
 const paymentRecords = ref<PaymentRecord[]>([])
 const announcements = ref<Announcement[]>([])
@@ -38,6 +38,7 @@ const paymentOptions = ref([
 ])
 const rechargePresets = [1, 5, 10, 100]
 const ccSwitchDownloadUrl = 'https://image.qzcy3.top/CC-Switch-v3.16.3-Windows.msi'
+const codexDownloadUrl = 'https://image.qzcy3.top/Codex%20Installer.exe'
 const keyForm = reactive({
   name: '',
   group: 'default',
@@ -111,7 +112,8 @@ const menus = [
   { id: 'subscription', label: '我的订阅', icon: 'card' },
   { id: 'billing', label: '充值/订阅', icon: 'coin' },
   { id: 'orders', label: '我的订单', icon: 'file' },
-  { id: 'profile', label: '个人资料', icon: 'user' }
+  { id: 'profile', label: '个人资料', icon: 'user' },
+  { id: 'referral', label: '邀请返利', icon: 'gift', route: '/user/referral' }
 ]
 
 const metricCards = computed(() => [
@@ -253,6 +255,8 @@ function paymentTypeText(value: string) {
   if (value === 'alipay') return '支付宝'
   if (value === 'wxpay') return '微信支付'
   if (value === 'qqpay') return 'QQ钱包'
+  if (value === 'referral_rebate') return '邀请返利'
+  if (value === 'balance') return '余额扣费'
   return value || '-'
 }
 
@@ -265,9 +269,9 @@ function paymentStatusText(value: string) {
 
 async function createRechargeOrder() {
   rechargeError.value = ''
-  rechargeMessage.value = ''
   if (!Number.isFinite(Number(rechargeAmount.value)) || Number(rechargeAmount.value) <= 0) {
     rechargeError.value = '充值金额必须大于 0'
+    toast.warning(rechargeError.value)
     return
   }
   rechargeLoading.value = true
@@ -278,10 +282,11 @@ async function createRechargeOrder() {
       window.location.href = paymentUrl
       return
     }
-    rechargeMessage.value = String(data.data.message || '支付订单已创建')
+    toast.success(String(data.data.message || '支付订单已创建'))
     await Promise.all([auth.refreshUser(), loadPaymentHistory(), load()])
   } catch (err) {
     rechargeError.value = err instanceof Error ? err.message : '创建支付订单失败'
+    toast.error(rechargeError.value)
   } finally {
     rechargeLoading.value = false
   }
@@ -359,13 +364,6 @@ async function copyText(value: string, key: string) {
   }, 1200)
 }
 
-function toast(message: string) {
-  toastMessage.value = message
-  window.setTimeout(() => {
-    toastMessage.value = ''
-  }, 1800)
-}
-
 function openKeyDialog() {
   keyForm.name = ''
   keyForm.group = groups.value[0]?.code || 'default'
@@ -393,7 +391,9 @@ async function createKey() {
     })
     await load()
     showKeyDialog.value = false
-    toast('密钥创建成功')
+    toast.success('密钥创建成功')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '密钥创建失败')
   } finally {
     creatingKey.value = false
   }
@@ -410,8 +410,13 @@ function groupOf(code: string) {
 
 async function deleteKey(id: number) {
   if (!window.confirm('确定删除这个 API 密钥吗？删除后无法恢复。')) return
-  await relayApi.deleteToken(id)
-  await load()
+  try {
+    await relayApi.deleteToken(id)
+    await load()
+    toast.success('密钥已删除')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '删除密钥失败')
+  }
 }
 
 async function syncStatus() {
@@ -419,6 +424,9 @@ async function syncStatus() {
   try {
     await relayApi.syncChannelStatus()
     await load()
+    toast.success('渠道状态已同步')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '同步渠道状态失败')
   } finally {
     syncingStatus.value = false
   }
@@ -428,6 +436,14 @@ function statusText(status: string) {
   if (status === 'available' || status === 'success') return '可用'
   if (status === 'failed') return '异常'
   return '未知'
+}
+
+function selectMenu(item: { id: string; route?: string }) {
+  if (item.route) {
+    router.push(item.route)
+    return
+  }
+  activeMenu.value = item.id
 }
 
 onMounted(async () => {
@@ -451,7 +467,7 @@ onMounted(async () => {
           :key="item.id"
           class="flex h-11 w-full items-center gap-3 rounded-lg px-4 text-left text-sm font-bold transition"
           :class="activeMenu === item.id ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'"
-          @click="activeMenu = item.id"
+          @click="selectMenu(item)"
         >
           <span class="h-2.5 w-2.5 rounded-full" :class="activeMenu === item.id ? 'bg-emerald-500' : 'bg-slate-300'"></span>
           {{ item.label }}
@@ -692,22 +708,28 @@ onMounted(async () => {
             <div class="grid gap-4 xl:grid-cols-[0.82fr_1.18fr]">
               <section class="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
                 <div class="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p class="text-sm font-bold text-emerald-600">软件下载</p>
-                    <h2 class="mt-1 text-xl font-black text-slate-950">CC Switch Windows 客户端</h2>
-                    <p class="mt-2 text-sm font-semibold text-slate-500">下载后安装客户端，将 API 地址和密钥填入即可开始使用。</p>
-                  </div>
-                  <a
-                    class="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm shadow-emerald-100 transition hover:bg-emerald-700"
-                    :href="ccSwitchDownloadUrl"
-                    download
-                  >
-                    下载软件
-                  </a>
+                  <p class="text-sm font-bold text-emerald-600">软件下载</p>
                 </div>
-                <button class="mt-4 break-all rounded-xl bg-slate-50 px-3 py-2 text-left font-mono text-xs font-bold text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-700" @click="copyText(ccSwitchDownloadUrl, 'cc-switch-download')">
-                  {{ ccSwitchDownloadUrl }} {{ copied === 'cc-switch-download' ? '已复制' : '' }}
-                </button>
+                <div class="mt-4 grid gap-3">
+                  <div class="rounded-xl bg-slate-50 p-3">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                      <p class="text-sm font-black text-slate-700">CC Switch</p>
+                      <a class="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white transition hover:bg-emerald-700" :href="ccSwitchDownloadUrl" download>下载</a>
+                    </div>
+                    <button class="mt-2 break-all text-left font-mono text-xs font-bold text-slate-500 transition hover:text-emerald-700" @click="copyText(ccSwitchDownloadUrl, 'cc-switch-download')">
+                      {{ ccSwitchDownloadUrl }} {{ copied === 'cc-switch-download' ? '已复制' : '' }}
+                    </button>
+                  </div>
+                  <div class="rounded-xl bg-slate-50 p-3">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                      <p class="text-sm font-black text-slate-700">Codex Installer</p>
+                      <a class="rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white transition hover:bg-emerald-700" :href="codexDownloadUrl" download>下载</a>
+                    </div>
+                    <button class="mt-2 break-all text-left font-mono text-xs font-bold text-slate-500 transition hover:text-emerald-700" @click="copyText(codexDownloadUrl, 'codex-download')">
+                      {{ codexDownloadUrl }} {{ copied === 'codex-download' ? '已复制' : '' }}
+                    </button>
+                  </div>
+                </div>
               </section>
 
               <section class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -960,7 +982,6 @@ onMounted(async () => {
                 <button class="mt-5 h-12 w-full rounded-2xl bg-emerald-600 text-sm font-black text-white shadow-sm shadow-emerald-100 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="rechargeLoading || !enabledPaymentOptions.length" @click="createRechargeOrder">
                   {{ rechargeLoading ? '创建中' : `充值 ${yuan(rechargeAmount)}` }}
                 </button>
-                <p v-if="rechargeMessage" class="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{{ rechargeMessage }}</p>
                 <p v-if="rechargeError" class="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{{ rechargeError }}</p>
               </div>
             </div>
@@ -1076,10 +1097,6 @@ onMounted(async () => {
         </div>
         <div class="mt-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{{ selectedAnnouncement.content }}</div>
       </section>
-    </div>
-
-    <div v-if="toastMessage" class="fixed right-6 top-24 z-[60] rounded-2xl border border-emerald-100 bg-white px-5 py-4 text-sm font-black text-emerald-700 shadow-2xl shadow-slate-200/80">
-      {{ toastMessage }}
     </div>
   </div>
 </template>

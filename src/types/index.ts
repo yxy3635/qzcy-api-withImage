@@ -64,6 +64,7 @@ export interface PaymentConfig {
   apiUrl: string
   merchantId: string
   registerGiftAmount: number
+  referralRebateRate: number
   enabled: boolean
   alipayEnabled: boolean
   wxpayEnabled: boolean
@@ -81,6 +82,64 @@ export interface PaymentRecord {
   amount: number
   type: string
   status: string
+  createdAt: string
+}
+
+export interface ReferralOverview {
+  enabled: boolean
+  invitationCode: string
+  invitationLink: string
+  rebateRate: number
+  invitedUsers: number
+  inviteeRechargeTotal: number
+  rebateTotal: number
+  referralBalance: number
+  pendingReviewAmount: number
+  approvedAmount: number
+  withdrawingAmount: number
+  withdrawQrCodes: ReferralWithdrawQrCode[]
+}
+
+export interface ReferralWithdrawQrCode {
+  channel: string
+  qrCodeUrl: string
+}
+
+export interface ReferralInvitee {
+  userId: number
+  username: string
+  totalRecharge: number
+  registeredAt: string
+}
+
+export interface ReferralRebate {
+  id: number
+  inviterId: number
+  inviterUsername: string
+  inviteeId: number
+  inviteeUsername: string
+  rechargeAmount: number
+  rebateRate: number
+  rebateAmount: number
+  status: string
+  rejectReason?: string
+  withdrawQrCodeUrl?: string
+  withdrawFailReason?: string
+  reviewedAt?: string
+  withdrawnAt?: string
+  createdAt: string
+}
+
+export interface ReferralWithdrawRequest {
+  id: number
+  userId: number
+  username: string
+  amount: number
+  channel: string
+  qrCodeUrl: string
+  status: string
+  failReason?: string
+  reviewedAt?: string
   createdAt: string
 }
 

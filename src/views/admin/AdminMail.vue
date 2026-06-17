@@ -2,10 +2,11 @@
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import { adminApi } from '@/api/adminApi'
+import { useToast } from '@/composables/useToast'
 
+const toast = useToast()
 const loading = ref(false)
 const saving = ref(false)
-const message = ref('')
 const error = ref('')
 const passwordConfigured = ref(false)
 
@@ -48,7 +49,6 @@ async function load() {
 async function save() {
   saving.value = true
   error.value = ''
-  message.value = ''
   try {
     const { data } = await adminApi.updateMailConfig({
       host: form.host,
@@ -63,9 +63,10 @@ async function save() {
     })
     form.password = ''
     passwordConfigured.value = data.data.passwordConfigured
-    message.value = '邮箱配置已保存'
+    toast.success('邮箱配置已保存')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存失败'
+    toast.error(error.value)
   } finally {
     saving.value = false
   }
@@ -101,7 +102,6 @@ onMounted(load)
       </button>
     </div>
 
-    <p v-if="message" class="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ message }}</p>
     <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
     <div v-if="loading" class="mt-8 rounded-3xl border border-slate-100 bg-white p-10 text-center text-sm font-bold text-slate-500 shadow-sm">

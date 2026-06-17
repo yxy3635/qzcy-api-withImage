@@ -30,6 +30,7 @@ public class PaymentConfigServiceImpl implements PaymentConfigService {
         created.setMerchantId("");
         created.setMerchantSecret("");
         created.setRegisterGiftAmount(BigDecimal.ZERO);
+        created.setReferralRebateRate(BigDecimal.ZERO);
         created.setEnabled(false);
         created.setAlipayEnabled(true);
         created.setWxpayEnabled(true);
@@ -42,6 +43,12 @@ public class PaymentConfigServiceImpl implements PaymentConfigService {
     public BigDecimal registerGiftAmount() {
         BigDecimal amount = current().getRegisterGiftAmount();
         return amount == null || amount.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : amount;
+    }
+
+    @Override
+    public BigDecimal referralRebateRate() {
+        BigDecimal rate = current().getReferralRebateRate();
+        return rate == null || rate.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : rate;
     }
 
     @Override
@@ -66,6 +73,13 @@ public class PaymentConfigServiceImpl implements PaymentConfigService {
                 throw new BusinessException(400, "注册赠送金额不能小于0");
             }
             config.setRegisterGiftAmount(dto.getRegisterGiftAmount());
+        }
+        if (dto.getReferralRebateRate() != null) {
+            if (dto.getReferralRebateRate().compareTo(BigDecimal.ZERO) < 0
+                    || dto.getReferralRebateRate().compareTo(new BigDecimal("100")) > 0) {
+                throw new BusinessException(400, "邀请返利比例必须在0-100之间");
+            }
+            config.setReferralRebateRate(dto.getReferralRebateRate());
         }
         if (dto.getEnabled() != null) {
             config.setEnabled(dto.getEnabled());
@@ -109,6 +123,7 @@ public class PaymentConfigServiceImpl implements PaymentConfigService {
                 config.getApiUrl(),
                 config.getMerchantId(),
                 config.getRegisterGiftAmount(),
+                config.getReferralRebateRate() == null ? BigDecimal.ZERO : config.getReferralRebateRate(),
                 config.getEnabled(),
                 Boolean.TRUE.equals(config.getAlipayEnabled()),
                 Boolean.TRUE.equals(config.getWxpayEnabled()),

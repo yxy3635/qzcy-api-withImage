@@ -10,6 +10,7 @@ import com.qzcy.backend.mapper.PaymentRecordMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.PaymentService;
+import com.qzcy.backend.service.ReferralService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final UserMapper userMapper;
     private final PaymentRecordMapper paymentRecordMapper;
     private final PaymentConfigService paymentConfigService;
+    private final ReferralService referralService;
 
     @Override
     @Transactional
@@ -117,9 +119,13 @@ public class PaymentServiceImpl implements PaymentService {
         if (record.getAmount().setScale(2, RoundingMode.HALF_UP).compareTo(paidAmount) != 0) {
             return "fail";
         }
-        userMapper.addBalance(record.getUserId(), record.getAmount());
+        int completed = paymentRecordMapper.markCompletedIfPending(record.getId());
+        if (completed == 0) {
+            return "success";
+        }
         record.setStatus("completed");
-        paymentRecordMapper.updateById(record);
+        userMapper.addBalance(record.getUserId(), record.getAmount());
+        referralService.rewardForRecharge(record);
         return "success";
     }
 

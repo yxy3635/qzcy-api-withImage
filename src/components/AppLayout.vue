@@ -17,6 +17,7 @@ const nav = computed(() =>
         { to: '/admin/pricing', label: '生图定价', desc: '模型价格' },
         { to: '/admin/relay', label: '中转站设置', desc: 'API分发配置' },
         { to: '/admin/payment', label: '支付管理', desc: '充值接入' },
+        { to: '/admin/referral', label: '邀请返利', desc: '返利比例设置' },
         { to: '/admin/mail', label: '邮箱配置', desc: '发信SMTP' },
         { to: '/admin/logs', label: '系统日志', desc: '运行记录' }
       ]
@@ -24,6 +25,7 @@ const nav = computed(() =>
         { to: '/user/dashboard', label: '资产概览', desc: '创作总览' },
         { to: '/user/history', label: '生成历史', desc: '图像资产' },
         { to: '/user/payment', label: '余额支付', desc: '充值记录' },
+        { to: '/user/referral', label: '邀请返利', desc: '邀请码与返利' },
         { to: '/user/profile', label: '资料管理', desc: '邮箱密码' }
       ]
 )

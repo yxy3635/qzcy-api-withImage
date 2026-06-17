@@ -3,8 +3,10 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import Pagination from '@/components/Pagination.vue'
 import { adminApi } from '@/api/adminApi'
+import { useToast } from '@/composables/useToast'
 import type { RelayUserOverview, Role, UserInfo } from '@/types'
 
+const toast = useToast()
 interface UserDraft {
   email: string
   role: Role
@@ -18,7 +20,6 @@ const keyword = ref('')
 const current = ref(1)
 const pages = ref(1)
 const total = ref(0)
-const message = ref('')
 const error = ref('')
 const savingId = ref<number | null>(null)
 const apiLoadingUserId = ref<number | null>(null)
@@ -70,13 +71,14 @@ async function load(page = 1) {
 async function saveUser(user: UserInfo) {
   const draft = draftOf(user)
   error.value = ''
-  message.value = ''
   if (draft.balance < 0) {
     error.value = '余额不能小于 0'
+    toast.warning(error.value)
     return
   }
   if (draft.password && draft.password.length < 6) {
     error.value = '新密码至少 6 位'
+    toast.warning(error.value)
     return
   }
   savingId.value = user.id
@@ -88,10 +90,11 @@ async function saveUser(user: UserInfo) {
       password: draft.password || undefined
     })
     draft.password = ''
-    message.value = `用户 ${user.username} 已更新`
+    toast.success(`用户 ${user.username} 已更新`)
     await load(current.value)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存失败'
+    toast.error(error.value)
   } finally {
     savingId.value = null
   }
@@ -100,10 +103,14 @@ async function saveUser(user: UserInfo) {
 async function remove(user: UserInfo) {
   if (!confirm(`确认删除用户 ${user.username}？`)) return
   error.value = ''
-  message.value = ''
-  await adminApi.deleteUser(user.id)
-  message.value = '用户已删除'
-  await load(current.value)
+  try {
+    await adminApi.deleteUser(user.id)
+    toast.success('用户已删除')
+    await load(current.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '删除失败'
+    toast.error(error.value)
+  }
 }
 
 async function openApiUsage(user: UserInfo) {
@@ -116,6 +123,7 @@ async function openApiUsage(user: UserInfo) {
     selectedOverview.value = data.data
   } catch (err) {
     error.value = err instanceof Error ? err.message : '查询 API 使用失败'
+    toast.error(error.value)
     selectedUser.value = null
   } finally {
     apiLoadingUserId.value = null
@@ -207,7 +215,6 @@ onMounted(load)
         </div>
       </div>
 
-      <p v-if="message" class="mt-5 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ message }}</p>
       <p v-if="error" class="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
       <section class="mt-7 overflow-hidden rounded-lg border border-slate-100 bg-white shadow-sm">

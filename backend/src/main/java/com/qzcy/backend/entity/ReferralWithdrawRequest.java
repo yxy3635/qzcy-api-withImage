@@ -9,18 +9,17 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("`user`")
-public class User {
+@TableName("referral_withdraw_request")
+public class ReferralWithdrawRequest {
     private Long id;
-    private String username;
-    private String email;
-    private String password;
-    private String role;
-    private BigDecimal balance;
-    private BigDecimal referralBalance;
-    private String invitationCode;
-    private Long inviterId;
-    private Integer version;
+    private Long userId;
+    private BigDecimal amount;
+    private String channel;
+    private String qrCodeUrl;
+    private String status;
+    private Long reviewedBy;
+    private String failReason;
+    private LocalDateTime reviewedAt;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

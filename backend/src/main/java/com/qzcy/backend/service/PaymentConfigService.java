@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 public interface PaymentConfigService {
     PaymentConfig current();
     BigDecimal registerGiftAmount();
+    BigDecimal referralRebateRate();
     PaymentConfigDto adminDetail();
     PaymentConfigDto update(PaymentConfigUpdateDto dto);
 }

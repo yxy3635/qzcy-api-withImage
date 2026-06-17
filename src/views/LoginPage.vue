@@ -3,9 +3,11 @@ import { ref, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/authApi'
+import { useToast } from '@/composables/useToast'
 
 const auth = useAuthStore()
 const router = useRouter()
+const toast = useToast()
 const username = ref('')
 const password = ref('')
 const loading = ref(false)
@@ -15,7 +17,6 @@ const resetEmail = ref('')
 const resetCode = ref('')
 const resetPassword = ref('')
 const resetConfirmPassword = ref('')
-const resetMessage = ref('')
 const sending = ref(false)
 const resetting = ref(false)
 
@@ -47,18 +48,19 @@ async function submit() {
 
 async function sendResetCode() {
   error.value = ''
-  resetMessage.value = ''
   if (!isEmail(resetEmail.value)) {
     error.value = '请输入有效邮箱'
+    toast.warning(error.value)
     return
   }
   sending.value = true
   try {
     const { data } = await authApi.sendEmailCode(resetEmail.value, 'forgot_password')
     const devCode = data.data && typeof data.data.devCode === 'string' ? data.data.devCode : ''
-    resetMessage.value = devCode ? `验证码已发送，开发验证码：${devCode}` : '验证码已发送，请查收邮箱'
+    toast.success(devCode ? `验证码已发送，开发验证码：${devCode}` : '验证码已发送，请查收邮箱')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '验证码发送失败'
+    toast.error(error.value)
   } finally {
     sending.value = false
   }
@@ -66,21 +68,24 @@ async function sendResetCode() {
 
 async function resetPwd() {
   error.value = ''
-  resetMessage.value = ''
   if (!isEmail(resetEmail.value)) error.value = '请输入有效邮箱'
   else if (!resetCode.value.trim()) error.value = '请输入邮箱验证码'
   else if (resetPassword.value.length < 6) error.value = '新密码至少6位'
   else if (resetPassword.value !== resetConfirmPassword.value) error.value = '两次密码不一致'
-  if (error.value) return
+  if (error.value) {
+    toast.warning(error.value)
+    return
+  }
   resetting.value = true
   try {
     await authApi.resetPassword(resetEmail.value, resetCode.value, resetPassword.value)
     resetCode.value = ''
     resetPassword.value = ''
     resetConfirmPassword.value = ''
-    resetMessage.value = '密码已重置，请使用新密码登录'
+    toast.success('密码已重置，请使用新密码登录')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '密码重置失败'
+    toast.error(error.value)
   } finally {
     resetting.value = false
   }
@@ -157,14 +162,14 @@ const title = 'imageCreater'
                 type="email"
                 placeholder="输入绑定邮箱"
               />
-              <div class="grid gap-3 sm:flex">
+              <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_132px]">
                 <input
                   v-model="resetCode"
                   class="min-w-0 flex-1 rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                   placeholder="邮箱验证码"
                 />
                 <button
-                  class="shrink-0 rounded-xl border border-blue-200 bg-white px-4 text-sm font-bold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  class="h-12 w-full rounded-xl border border-blue-200 bg-white px-3 text-sm font-bold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   type="button"
                   :disabled="sending"
                   @click="sendResetCode"
@@ -192,7 +197,6 @@ const title = 'imageCreater'
               >
                 {{ resetting ? '正在重置' : '重置密码' }}
               </button>
-              <p v-if="resetMessage" class="text-sm font-semibold text-blue-700">{{ resetMessage }}</p>
             </div>
           </div>
         </div>

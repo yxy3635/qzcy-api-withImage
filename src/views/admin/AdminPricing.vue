@@ -2,8 +2,10 @@
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import { adminApi } from '@/api/adminApi'
+import { useToast } from '@/composables/useToast'
 import type { ImageGenerationConfig } from '@/types'
 
+const toast = useToast()
 interface ConfigDraft {
   name: string
   model: string
@@ -21,7 +23,6 @@ const configs = ref<ImageGenerationConfig[]>([])
 const drafts = reactive<Record<number, ConfigDraft>>({})
 const loading = ref(false)
 const savingId = ref<number | null>(null)
-const message = ref('')
 const error = ref('')
 
 function setDraft(config: ImageGenerationConfig) {
@@ -61,9 +62,9 @@ async function load() {
 async function save(config: ImageGenerationConfig) {
   const draft = draftOf(config)
   error.value = ''
-  message.value = ''
   if (draft.price < 0) {
     error.value = '价格不能小于0'
+    toast.warning(error.value)
     return
   }
   savingId.value = config.id
@@ -81,10 +82,11 @@ async function save(config: ImageGenerationConfig) {
       sortOrder: draft.sortOrder
     })
     draft.apiKey = ''
-    message.value = `${draft.name} 已保存`
+    toast.success(`${draft.name} 已保存`)
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存失败'
+    toast.error(error.value)
   } finally {
     savingId.value = null
   }
@@ -107,7 +109,6 @@ onMounted(load)
         </button>
       </div>
 
-      <p v-if="message" class="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ message }}</p>
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
       <div v-if="loading" class="mt-8 rounded-3xl border border-slate-100 bg-white p-10 text-center text-sm font-bold text-slate-500 shadow-sm">

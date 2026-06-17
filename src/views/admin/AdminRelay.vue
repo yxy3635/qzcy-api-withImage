@@ -2,8 +2,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import { adminApi } from '@/api/adminApi'
+import { useToast } from '@/composables/useToast'
 import type { RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel } from '@/types'
 
+const toast = useToast()
 type Tab = 'overview' | 'channels' | 'tokens' | 'models' | 'usage' | 'policy'
 
 interface ChannelDraft {
@@ -47,7 +49,6 @@ const overview = ref<RelayAdminOverview | null>(null)
 const activeTab = ref<Tab>('overview')
 const loading = ref(false)
 const saving = ref<number | string | null>(null)
-const message = ref('')
 const error = ref('')
 const channelDrafts = reactive<Record<number, ChannelDraft>>({})
 const modelDrafts = reactive<Record<number, ModelDraft>>({})
@@ -275,15 +276,15 @@ async function load() {
 
 async function createGroup() {
   saving.value = 'group-new'
-  message.value = ''
   error.value = ''
   try {
     if (!newGroup.modelIds.length) selectAllGroupModels(newGroup)
     await adminApi.createRelayGroup(groupPayload(newGroup))
-    message.value = `${newGroup.code} 分组已创建`
+    toast.success(`${newGroup.code} 分组已创建`)
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '创建分组失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -292,14 +293,14 @@ async function createGroup() {
 async function saveGroup(group: RelayGroup) {
   const draft = groupDraftOf(group)
   saving.value = `group-${group.id}`
-  message.value = ''
   error.value = ''
   try {
     await adminApi.updateRelayGroup(group.id, groupPayload(draft))
-    message.value = `${draft.code} 分组已保存`
+    toast.success(`${draft.code} 分组已保存`)
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存分组失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -308,14 +309,14 @@ async function saveGroup(group: RelayGroup) {
 async function deleteGroup(group: RelayGroup) {
   if (!window.confirm(`确定删除分组 ${group.code} 吗？已使用该分组的令牌需要重新配置。`)) return
   saving.value = `group-delete-${group.id}`
-  message.value = ''
   error.value = ''
   try {
     await adminApi.deleteRelayGroup(group.id)
-    message.value = `${group.code} 分组已删除`
+    toast.success(`${group.code} 分组已删除`)
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '删除分组失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -323,15 +324,15 @@ async function deleteGroup(group: RelayGroup) {
 
 async function createChannel() {
   saving.value = 'channel-new'
-  message.value = ''
   error.value = ''
   try {
     await adminApi.createRelayChannel(channelPayload(newChannel))
     newChannel.keyValue = ''
-    message.value = '渠道已创建'
+    toast.success('渠道已创建')
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '创建失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -340,15 +341,15 @@ async function createChannel() {
 async function saveChannel(channel: RelayChannel) {
   const draft = channelDraftOf(channel)
   saving.value = `channel-${channel.id}`
-  message.value = ''
   error.value = ''
   try {
     await adminApi.updateRelayChannel(channel.id, channelPayload(draft))
     draft.keyValue = ''
-    message.value = `${draft.name} 已保存`
+    toast.success(`${draft.name} 已保存`)
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -356,15 +357,15 @@ async function saveChannel(channel: RelayChannel) {
 
 async function createModel() {
   saving.value = 'model-new'
-  message.value = ''
   error.value = ''
   try {
     await adminApi.createRelayModel(newModel)
-    message.value = '模型已创建'
+    toast.success('模型已创建')
     editingModelId.value = null
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '创建失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -373,14 +374,14 @@ async function createModel() {
 async function saveModel(model: RelayModel) {
   const draft = modelDraftOf(model)
   saving.value = `model-${model.id}`
-  message.value = ''
   error.value = ''
   try {
     await adminApi.updateRelayModel(model.id, draft)
-    message.value = `${draft.model} 已保存`
+    toast.success(`${draft.model} 已保存`)
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -389,15 +390,15 @@ async function saveModel(model: RelayModel) {
 async function deleteModel(model: RelayModel) {
   if (!window.confirm(`确定删除模型 ${model.model} 吗？删除后用户将不能再使用这个模型。`)) return
   saving.value = `model-delete-${model.id}`
-  message.value = ''
   error.value = ''
   try {
     await adminApi.deleteRelayModel(model.id)
-    message.value = `${model.model} 已删除`
+    toast.success(`${model.model} 已删除`)
     if (editingModelId.value === model.id) editingModelId.value = null
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '删除失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -405,7 +406,6 @@ async function deleteModel(model: RelayModel) {
 
 async function syncModels(channel: RelayChannel) {
   syncingChannelId.value = channel.id
-  message.value = ''
   error.value = ''
   try {
     const { data } = await adminApi.syncRelayModels(channel.id)
@@ -413,12 +413,13 @@ async function syncModels(channel: RelayChannel) {
     selectedUpstreamIds.value = data.data.filter((item) => !item.configured).map((item) => item.id)
     const upstreamIds = data.data.map((item) => item.id).filter(Boolean)
     if (upstreamIds.length) {
-      message.value = `已从 ${channel.name} 查询到 ${upstreamIds.length} 个上游模型，可在下方选择导入到模型库`
+      toast.success(`已从 ${channel.name} 查询到 ${upstreamIds.length} 个上游模型，可在下方选择导入到模型库`)
     } else {
-      message.value = `已查询 ${channel.name}，但上游没有返回模型`
+      toast.info(`已查询 ${channel.name}，但上游没有返回模型`)
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '查询上游模型失败'
+    toast.error(error.value)
   } finally {
     syncingChannelId.value = null
   }
@@ -426,14 +427,14 @@ async function syncModels(channel: RelayChannel) {
 
 async function syncChannelStatus() {
   saving.value = 'channel-status-sync'
-  message.value = ''
   error.value = ''
   try {
     await adminApi.syncRelayChannelStatus()
-    message.value = '渠道状态已同步'
+    toast.success('渠道状态已同步')
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '同步渠道状态失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -477,7 +478,6 @@ async function enableSelectedUpstreamModels() {
   const ids = selectedUpstreamIds.value.filter((id) => id && !models.value.some((item) => item.model === id))
   if (!ids.length) return
   saving.value = 'model-import'
-  message.value = ''
   error.value = ''
   try {
     for (const id of ids) {
@@ -496,10 +496,11 @@ async function enableSelectedUpstreamModels() {
         sortOrder: 10
       })
     }
-    message.value = `已启用 ${ids.length} 个上游模型`
+    toast.success(`已启用 ${ids.length} 个上游模型`)
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '启用上游模型失败'
+    toast.error(error.value)
   } finally {
     saving.value = null
   }
@@ -537,7 +538,6 @@ onMounted(load)
         </button>
       </div>
 
-      <p v-if="message" class="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ message }}</p>
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
       <section v-if="activeTab === 'overview'" class="mt-6 grid gap-4 xl:grid-cols-4">

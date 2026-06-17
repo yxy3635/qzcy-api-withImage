@@ -4,13 +4,14 @@ import AppLayout from '@/components/AppLayout.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import Pagination from '@/components/Pagination.vue'
 import { imageApi } from '@/api/imageApi'
+import { useToast } from '@/composables/useToast'
 import type { ImageRecord } from '@/types'
 
+const toast = useToast()
 const records = ref<ImageRecord[]>([])
 const current = ref(1)
 const pages = ref(1)
 const preview = ref('')
-const message = ref('')
 const error = ref('')
 
 async function load(page = 1) {
@@ -24,13 +25,13 @@ async function load(page = 1) {
 async function remove(record: ImageRecord) {
   if (!confirm('确认删除这张图片记录？')) return
   error.value = ''
-  message.value = ''
   try {
     await imageApi.remove(record.id)
-    message.value = '图片记录已删除'
+    toast.success('图片记录已删除')
     await load(current.value)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '删除失败'
+    toast.error(error.value)
   }
 }
 onMounted(() => load())
@@ -47,7 +48,6 @@ onMounted(() => load())
       <RouterLink class="w-full rounded-full bg-sky-500 px-5 py-3 text-center text-sm font-black text-white shadow-[0_18px_50px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5 hover:bg-sky-600 sm:w-auto" to="/create">继续创作</RouterLink>
     </div>
 
-    <p v-if="message" class="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ message }}</p>
     <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
     <section class="soft-card mt-6 overflow-hidden">

@@ -1,5 +1,5 @@
 import http from './http'
-import type { AdminImageRecord, AdminStats, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
+import type { AdminImageRecord, AdminStats, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
 export const adminApi = {
   dashboard() {
@@ -78,6 +78,30 @@ export const adminApi = {
   },
   updatePaymentConfig(payload: Partial<Omit<PaymentConfig, 'id' | 'merchantSecretConfigured'>> & { merchantSecret?: string }) {
     return http.put<ApiResponse<PaymentConfig>>('/admin/payment-config', payload)
+  },
+  referralRebates(page = 1, size = 10, status = '') {
+    return http.get<ApiResponse<PageResult<ReferralRebate>>>('/admin/referral/rebates', { params: { page, size, status } })
+  },
+  approveReferralRebate(id: number) {
+    return http.post<ApiResponse<void>>(`/admin/referral/rebates/${id}/approve`)
+  },
+  rejectReferralRebate(id: number, reason: string) {
+    return http.post<ApiResponse<void>>(`/admin/referral/rebates/${id}/reject`, { reason })
+  },
+  referralWithdrawSuccess(id: number) {
+    return http.post<ApiResponse<void>>(`/admin/referral/rebates/${id}/withdraw-success`)
+  },
+  referralWithdrawFailed(id: number, reason: string) {
+    return http.post<ApiResponse<void>>(`/admin/referral/rebates/${id}/withdraw-failed`, { reason })
+  },
+  referralWithdraws(page = 1, size = 10, status = '') {
+    return http.get<ApiResponse<PageResult<ReferralWithdrawRequest>>>('/admin/referral/withdraws', { params: { page, size, status } })
+  },
+  referralAccountWithdrawSuccess(id: number) {
+    return http.post<ApiResponse<void>>(`/admin/referral/withdraws/${id}/success`)
+  },
+  referralAccountWithdrawFailed(id: number, reason: string) {
+    return http.post<ApiResponse<void>>(`/admin/referral/withdraws/${id}/failed`, { reason })
   },
   updateRole(id: number, role: 'USER' | 'ADMIN') {
     return http.put<ApiResponse<void>>(`/admin/users/${id}/role`, { role })

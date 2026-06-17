@@ -4,10 +4,12 @@ import { RouterLink, useRouter } from 'vue-router'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import { imageApi } from '@/api/imageApi'
 import { useAuthStore } from '@/store/authStore'
+import { useToast } from '@/composables/useToast'
 import type { ImageGenerationConfig, ImageRecord } from '@/types'
 
 const auth = useAuthStore()
 const router = useRouter()
+const toast = useToast()
 const prompt = ref('')
 const loading = ref(false)
 const error = ref('')
@@ -132,6 +134,7 @@ async function generate() {
   error.value = ''
   if (!prompt.value.trim()) {
     error.value = '请输入提示词'
+    toast.warning(error.value)
     return
   }
   await loadEstimate()
@@ -153,11 +156,14 @@ async function generate() {
     recent.value = [completed, ...recent.value.filter((item) => item.id !== completed.id)]
     if (completed.status === 'success') {
       previewRecord.value = completed
+      toast.success('图像生成完成')
     } else if (completed.status === 'failed') {
       error.value = '图像生成失败，请稍后重试或更换服务商线路'
+      toast.error(error.value)
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '生成失败'
+    toast.error(error.value)
   } finally {
     window.clearInterval(timer)
     await Promise.allSettled([auth.refreshUser(), loadRecent(), loadEstimate()])
@@ -195,8 +201,10 @@ async function remove(record: ImageRecord) {
     if (result.value?.id === record.id) result.value = null
     if (previewRecord.value?.id === record.id) previewRecord.value = null
     await loadRecent()
+    toast.success('图片记录已删除')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '删除失败'
+    toast.error(error.value)
   }
 }
 
@@ -211,7 +219,7 @@ function selectSpec(code: string) {
 
 function openUpload() {
   if (uploadDisabled.value) {
-    window.alert(unsupportedUploadMessage)
+    toast.warning(unsupportedUploadMessage)
     return
   }
   fileInput.value?.click()
@@ -280,7 +288,7 @@ onMounted(() => {
 watch(uploadDisabled, (disabled) => {
   if (disabled && uploadedImages.value.length) {
     clearUploads()
-    window.alert(unsupportedUploadMessage)
+    toast.warning(unsupportedUploadMessage)
   }
 })
 

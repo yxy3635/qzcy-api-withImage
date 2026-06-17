@@ -284,6 +284,81 @@ ALTER TABLE relay_token MODIFY COLUMN quota DECIMAL(12, 6) NOT NULL DEFAULT 0.00
 ALTER TABLE `user` MODIFY COLUMN balance DECIMAL(12, 6) NOT NULL DEFAULT 0.000000;
 ALTER TABLE payment_record MODIFY COLUMN amount DECIMAL(12, 6) NOT NULL;
 
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'invitation_code') = 0, 'ALTER TABLE `user` ADD COLUMN invitation_code VARCHAR(6) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'inviter_id') = 0, 'ALTER TABLE `user` ADD COLUMN inviter_id BIGINT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'referral_balance') = 0, 'ALTER TABLE `user` ADD COLUMN referral_balance DECIMAL(12, 6) NOT NULL DEFAULT 0.000000', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND INDEX_NAME = 'uk_user_invitation_code') = 0, 'CREATE UNIQUE INDEX uk_user_invitation_code ON `user` (invitation_code)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND INDEX_NAME = 'idx_user_inviter_id') = 0, 'CREATE INDEX idx_user_inviter_id ON `user` (inviter_id)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_config' AND COLUMN_NAME = 'referral_rebate_rate') = 0, 'ALTER TABLE payment_config ADD COLUMN referral_rebate_rate DECIMAL(5, 2) NOT NULL DEFAULT 0.00', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS referral_rebate_record (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    inviter_id BIGINT NOT NULL,
+    invitee_id BIGINT NOT NULL,
+    payment_record_id BIGINT NOT NULL,
+    recharge_amount DECIMAL(12, 6) NOT NULL,
+    rebate_rate DECIMAL(5, 2) NOT NULL,
+    rebate_amount DECIMAL(12, 6) NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'pending_review',
+    reviewed_by BIGINT NULL,
+    reject_reason VARCHAR(500) NULL,
+    withdraw_qr_code_url VARCHAR(500) NULL,
+    withdraw_fail_reason VARCHAR(500) NULL,
+    reviewed_at DATETIME NULL,
+    withdrawn_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_referral_payment_record (payment_record_id),
+    INDEX idx_referral_inviter (inviter_id, created_at),
+    INDEX idx_referral_invitee (invitee_id)
+    );
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'referral_rebate_record' AND COLUMN_NAME = 'status') = 0, 'ALTER TABLE referral_rebate_record ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT ''pending_review''', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'referral_rebate_record' AND COLUMN_NAME = 'reviewed_by') = 0, 'ALTER TABLE referral_rebate_record ADD COLUMN reviewed_by BIGINT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'referral_rebate_record' AND COLUMN_NAME = 'reject_reason') = 0, 'ALTER TABLE referral_rebate_record ADD COLUMN reject_reason VARCHAR(500) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'referral_rebate_record' AND COLUMN_NAME = 'withdraw_qr_code_url') = 0, 'ALTER TABLE referral_rebate_record ADD COLUMN withdraw_qr_code_url VARCHAR(500) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'referral_rebate_record' AND COLUMN_NAME = 'withdraw_fail_reason') = 0, 'ALTER TABLE referral_rebate_record ADD COLUMN withdraw_fail_reason VARCHAR(500) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'referral_rebate_record' AND COLUMN_NAME = 'reviewed_at') = 0, 'ALTER TABLE referral_rebate_record ADD COLUMN reviewed_at DATETIME NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'referral_rebate_record' AND COLUMN_NAME = 'withdrawn_at') = 0, 'ALTER TABLE referral_rebate_record ADD COLUMN withdrawn_at DATETIME NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS referral_withdraw_qr_code (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    channel VARCHAR(20) NOT NULL,
+    qr_code_url VARCHAR(500) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_referral_withdraw_qr_user_channel (user_id, channel),
+    INDEX idx_referral_withdraw_qr_user (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS referral_withdraw_request (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    amount DECIMAL(12, 6) NOT NULL,
+    channel VARCHAR(20) NOT NULL,
+    qr_code_url VARCHAR(500) NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'pending',
+    reviewed_by BIGINT NULL,
+    fail_reason VARCHAR(500) NULL,
+    reviewed_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_referral_withdraw_user (user_id, created_at),
+    INDEX idx_referral_withdraw_status (status, created_at)
+);
+
 CREATE TABLE IF NOT EXISTS announcement (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     title VARCHAR(160) NOT NULL,

@@ -12,6 +12,7 @@ import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.AuthService;
 import com.qzcy.backend.service.EmailCodeService;
 import com.qzcy.backend.service.PaymentConfigService;
+import com.qzcy.backend.service.ReferralService;
 import com.qzcy.backend.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -25,6 +26,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtUtil jwtUtil;
     private final EmailCodeService emailCodeService;
     private final PaymentConfigService paymentConfigService;
+    private final ReferralService referralService;
 
     @Override
     public AuthUser register(RegisterDto dto) {
@@ -44,6 +46,7 @@ public class AuthServiceImpl implements AuthService {
         if (emailCount > 0) {
             throw new BusinessException(409, "邮箱已被注册");
         }
+        Long inviterId = referralService.inviterIdForCode(dto.getInviteCode());
         emailCodeService.verify(email, "register", dto.getCode());
         User user = new User();
         user.setUsername(username);
@@ -51,6 +54,7 @@ public class AuthServiceImpl implements AuthService {
         user.setPassword(passwordEncoder.encode(dto.getPassword()));
         user.setRole("USER");
         user.setBalance(paymentConfigService.registerGiftAmount());
+        user.setInviterId(inviterId);
         user.setVersion(0);
         userMapper.insert(user);
         return toAuthUser(user);

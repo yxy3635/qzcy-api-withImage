@@ -196,6 +196,26 @@ select {
   transform: scale(0.98);
 }
 
+.toast-stack-move,
+.toast-stack-enter-active,
+.toast-stack-leave-active {
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease,
+    filter 0.22s ease;
+}
+
+.toast-stack-enter-from,
+.toast-stack-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.97);
+  filter: blur(8px);
+}
+
+.toast-stack-leave-active {
+  position: absolute;
+}
+
 @media (max-width: 640px) {
   h1 {
     overflow-wrap: anywhere;

@@ -38,6 +38,7 @@ onMounted(async () => {
           <div class="mt-7 flex flex-wrap gap-3">
             <RouterLink class="w-full rounded-full bg-sky-500 px-5 py-3 text-center text-sm font-black text-white shadow-[0_18px_50px_rgba(14,165,233,0.28)] transition hover:-translate-y-0.5 hover:bg-sky-600 sm:w-auto" to="/create">进入前台创作</RouterLink>
             <RouterLink class="w-full rounded-full border border-slate-200 bg-white px-5 py-3 text-center text-sm font-black text-slate-800 transition hover:border-sky-200 hover:bg-sky-50 sm:w-auto" to="/user/payment">管理余额</RouterLink>
+            <RouterLink class="w-full rounded-full border border-emerald-200 bg-emerald-50 px-5 py-3 text-center text-sm font-black text-emerald-700 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-100 sm:w-auto" to="/relay">接入 API</RouterLink>
           </div>
         </div>
         <div class="float-soft rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-sky-50 p-5 shadow-[0_18px_60px_rgba(14,165,233,0.12)]">

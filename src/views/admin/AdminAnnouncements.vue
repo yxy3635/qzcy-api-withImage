@@ -2,12 +2,13 @@
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import { adminApi } from '@/api/adminApi'
+import { useToast } from '@/composables/useToast'
 import type { Announcement } from '@/types'
 
+const toast = useToast()
 const announcements = ref<Announcement[]>([])
 const loading = ref(false)
 const saving = ref(false)
-const message = ref('')
 const error = ref('')
 const editingId = ref<number | null>(null)
 const form = reactive({
@@ -51,9 +52,9 @@ async function load() {
 
 async function save() {
   error.value = ''
-  message.value = ''
   if (!form.title.trim() || !form.content.trim()) {
     error.value = '标题和内容不能为空'
+    toast.warning(error.value)
     return
   }
   saving.value = true
@@ -67,15 +68,16 @@ async function save() {
     }
     if (editingId.value) {
       await adminApi.updateAnnouncement(editingId.value, payload)
-      message.value = '公告已更新'
+      toast.success('公告已更新')
     } else {
       await adminApi.createAnnouncement(payload)
-      message.value = '公告已发布'
+      toast.success('公告已发布')
     }
     resetForm()
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '公告保存失败'
+    toast.error(error.value)
   } finally {
     saving.value = false
   }
@@ -86,6 +88,7 @@ async function removeItem(id: number) {
   await adminApi.deleteAnnouncement(id)
   if (editingId.value === id) resetForm()
   await load()
+  toast.success('公告已删除')
 }
 
 onMounted(load)
@@ -105,7 +108,6 @@ onMounted(load)
         </button>
       </div>
 
-      <p v-if="message" class="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ message }}</p>
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
       <div class="mt-6 grid gap-6 xl:grid-cols-[420px_1fr]">

@@ -13,6 +13,9 @@ import com.qzcy.backend.dto.MailConfigDto;
 import com.qzcy.backend.dto.MailConfigUpdateDto;
 import com.qzcy.backend.dto.PaymentConfigDto;
 import com.qzcy.backend.dto.PaymentConfigUpdateDto;
+import com.qzcy.backend.dto.ReferralActionDto;
+import com.qzcy.backend.dto.ReferralRebateDto;
+import com.qzcy.backend.dto.ReferralWithdrawRequestDto;
 import com.qzcy.backend.dto.RelayAdminOverviewDto;
 import com.qzcy.backend.dto.RelayChannelDto;
 import com.qzcy.backend.dto.RelayChannelUpdateDto;
@@ -29,6 +32,7 @@ import com.qzcy.backend.service.AnnouncementService;
 import com.qzcy.backend.service.ImageGenerationConfigService;
 import com.qzcy.backend.service.MailConfigService;
 import com.qzcy.backend.service.PaymentConfigService;
+import com.qzcy.backend.service.ReferralService;
 import com.qzcy.backend.service.RelayChannelStatusService;
 import com.qzcy.backend.service.RelayService;
 import com.qzcy.backend.util.SecurityUtil;
@@ -52,6 +56,7 @@ public class AdminController {
     private final ImageGenerationConfigService imageGenerationConfigService;
     private final MailConfigService mailConfigService;
     private final PaymentConfigService paymentConfigService;
+    private final ReferralService referralService;
     private final RelayService relayService;
     private final RelayChannelStatusService relayChannelStatusService;
 
@@ -191,6 +196,56 @@ public class AdminController {
     @PutMapping("/payment-config")
     public ApiResponse<PaymentConfigDto> updatePaymentConfig(@RequestBody PaymentConfigUpdateDto dto) {
         return ApiResponse.success(paymentConfigService.update(dto));
+    }
+
+    @GetMapping("/referral/rebates")
+    public ApiResponse<Page<ReferralRebateDto>> referralRebates(@RequestParam(defaultValue = "1") long page,
+                                                                @RequestParam(defaultValue = "10") long size,
+                                                                @RequestParam(required = false) String status) {
+        return ApiResponse.success(referralService.adminRebates(page, size, status));
+    }
+
+    @PostMapping("/referral/rebates/{id}/approve")
+    public ApiResponse<Void> approveReferralRebate(@PathVariable Long id) {
+        referralService.approve(id, SecurityUtil.current().userId());
+        return ApiResponse.success(null);
+    }
+
+    @PostMapping("/referral/rebates/{id}/reject")
+    public ApiResponse<Void> rejectReferralRebate(@PathVariable Long id, @RequestBody ReferralActionDto dto) {
+        referralService.reject(id, SecurityUtil.current().userId(), dto.getReason());
+        return ApiResponse.success(null);
+    }
+
+    @PostMapping("/referral/rebates/{id}/withdraw-success")
+    public ApiResponse<Void> referralWithdrawSuccess(@PathVariable Long id) {
+        referralService.markWithdrawSuccess(id, SecurityUtil.current().userId());
+        return ApiResponse.success(null);
+    }
+
+    @PostMapping("/referral/rebates/{id}/withdraw-failed")
+    public ApiResponse<Void> referralWithdrawFailed(@PathVariable Long id, @RequestBody ReferralActionDto dto) {
+        referralService.markWithdrawFailed(id, SecurityUtil.current().userId(), dto.getReason());
+        return ApiResponse.success(null);
+    }
+
+    @GetMapping("/referral/withdraws")
+    public ApiResponse<Page<ReferralWithdrawRequestDto>> referralWithdraws(@RequestParam(defaultValue = "1") long page,
+                                                                           @RequestParam(defaultValue = "10") long size,
+                                                                           @RequestParam(required = false) String status) {
+        return ApiResponse.success(referralService.adminWithdrawRequests(page, size, status));
+    }
+
+    @PostMapping("/referral/withdraws/{id}/success")
+    public ApiResponse<Void> referralAccountWithdrawSuccess(@PathVariable Long id) {
+        referralService.markAccountWithdrawSuccess(id, SecurityUtil.current().userId());
+        return ApiResponse.success(null);
+    }
+
+    @PostMapping("/referral/withdraws/{id}/failed")
+    public ApiResponse<Void> referralAccountWithdrawFailed(@PathVariable Long id, @RequestBody ReferralActionDto dto) {
+        referralService.markAccountWithdrawFailed(id, SecurityUtil.current().userId(), dto.getReason());
+        return ApiResponse.success(null);
     }
 
     @PutMapping("/users/{id}/role")

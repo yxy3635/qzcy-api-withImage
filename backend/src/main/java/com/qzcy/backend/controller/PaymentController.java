@@ -39,7 +39,12 @@ public class PaymentController {
 
     @RequestMapping("/notify")
     @ResponseBody
-    public String notify(@RequestParam Map<String, String> params) {
+    public String notify(@RequestParam(required = false) Map<String, String> queryParams,
+                         @RequestBody(required = false) Map<String, String> bodyParams) {
+        Map<String, String> params = bodyParams != null && !bodyParams.isEmpty() ? bodyParams : queryParams;
+        if (params == null) {
+            params = Map.of();
+        }
         return paymentService.handleNotify(params);
     }
 

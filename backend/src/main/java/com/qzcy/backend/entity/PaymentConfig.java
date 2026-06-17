@@ -16,6 +16,7 @@ public class PaymentConfig {
     private String merchantId;
     private String merchantSecret;
     private BigDecimal registerGiftAmount;
+    private BigDecimal referralRebateRate;
     private Boolean enabled;
     private Boolean alipayEnabled;
     private Boolean wxpayEnabled;

@@ -1,24 +1,29 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/authApi'
+import { useToast } from '@/composables/useToast'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
+const toast = useToast()
 const username = ref('')
 const email = ref('')
 const code = ref('')
 const password = ref('')
 const confirmPassword = ref('')
+const inviteCode = ref('')
 const error = ref('')
-const message = ref('')
 const loading = ref(false)
 const sending = ref(false)
 
 const isVisible = ref(false)
 
 onMounted(() => {
+  const queryCode = route.query.inviteCode || route.query.invite || route.query.ref
+  inviteCode.value = typeof queryCode === 'string' ? queryCode.toUpperCase().slice(0, 6) : ''
   // Trigger animation after mount
   setTimeout(() => {
     isVisible.value = true
@@ -31,18 +36,19 @@ function isEmail(value: string) {
 
 async function sendCode() {
   error.value = ''
-  message.value = ''
   if (!isEmail(email.value)) {
     error.value = '请输入有效邮箱'
+    toast.warning(error.value)
     return
   }
   sending.value = true
   try {
     const { data } = await authApi.sendEmailCode(email.value, 'register')
     const devCode = data.data && typeof data.data.devCode === 'string' ? data.data.devCode : ''
-    message.value = devCode ? `验证码已发送，开发验证码：${devCode}` : '验证码已发送，请查收邮箱'
+    toast.success(devCode ? `验证码已发送，开发验证码：${devCode}` : '验证码已发送，请查收邮箱')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '验证码发送失败'
+    toast.error(error.value)
   } finally {
     sending.value = false
   }
@@ -50,19 +56,24 @@ async function sendCode() {
 
 async function submit() {
   error.value = ''
-  message.value = ''
   if (!/^[A-Za-z0-9]{3,20}$/.test(username.value)) error.value = '用户名只能包含英文/数字，长度3-20位'
   else if (!isEmail(email.value)) error.value = '请输入有效邮箱'
   else if (!code.value.trim()) error.value = '请输入邮箱验证码'
+  else if (inviteCode.value && !/^[A-Za-z0-9]{6}$/.test(inviteCode.value)) error.value = '邀请码必须是6位英文或数字'
   else if (password.value.length < 6) error.value = '密码至少6位'
   else if (password.value !== confirmPassword.value) error.value = '两次密码不一致'
-  if (error.value) return
+  if (error.value) {
+    toast.warning(error.value)
+    return
+  }
   loading.value = true
   try {
-    await auth.register(username.value, email.value, password.value, code.value)
+    await auth.register(username.value, email.value, password.value, code.value, inviteCode.value)
+    toast.success('注册成功，请登录')
     router.push('/login')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '注册失败'
+    toast.error(error.value)
   } finally {
     loading.value = false
   }
@@ -130,7 +141,7 @@ const title = 'imageCreater'
           <!-- Email Code Input -->
           <div class="space-y-2">
             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">邮箱验证码</label>
-            <div class="grid gap-3 sm:flex">
+            <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_132px]">
               <input 
                 v-model="code" 
                 class="min-w-0 flex-1 bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
@@ -138,7 +149,7 @@ const title = 'imageCreater'
                 required 
               />
               <button
-                class="shrink-0 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                class="h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 type="button"
                 :disabled="sending"
                 @click="sendCode"
@@ -146,6 +157,16 @@ const title = 'imageCreater'
                 {{ sending ? '发送中' : '获取验证码' }}
               </button>
             </div>
+          </div>
+
+          <div class="space-y-2">
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">邀请码</label>
+            <input
+              v-model.trim="inviteCode"
+              class="w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3.5 uppercase focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
+              maxlength="6"
+              placeholder="选填，6位英文或数字"
+            />
           </div>
 
           <!-- Password Input -->
@@ -183,10 +204,6 @@ const title = 'imageCreater'
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           {{ error }}
-        </div>
-
-        <div v-if="message" class="mt-5 rounded-lg border border-cyan-100 bg-cyan-50 p-3 text-sm font-medium text-cyan-700">
-          {{ message }}
         </div>
 
         <!-- Submit Button -->
