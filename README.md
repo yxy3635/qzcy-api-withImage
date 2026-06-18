@@ -1,16 +1,16 @@
 # imageCreater
 
-imageCreater 是一个 AI 图像生成平台，包含门户首页、用户创作台、用户资产管理和管理员后台。前端使用 Vue 3 + Vite + Pinia + Tailwind CSS，后端使用 Spring Boot + MyBatis-Plus + MySQL，并通过 OpenAI 兼容图像接口完成生图。
+imageCreater 是一个 AI 图像生成与 OpenAI 兼容接口中转平台。项目包含 Vue 3 前端和 Spring Boot 后端，支持用户注册登录、余额扣费、图像生成、生成历史、充值配置、邀请返佣、公告管理、邮件配置、后台管理，以及兼容 `/v1/*` 的模型中转接口。
 
 ## 功能概览
 
-- 门户首页：白色极简风格，Three.js 3D 交互动效，AI 作品展示。
-- 用户认证：注册、登录、邮箱验证码、忘记密码邮箱找回。
-- 用户创作：提示词生图，1K / 2K / 4K 规格选择，余额扣费，生成历史，图片预览、下载与删除。
-- 生成反馈：生成时显示读秒和预计完成时间，预计时间基于全站成功生成耗时平均值计算。
-- 用户中心：余额充值模拟、生成记录、资料管理、修改密码。
-- 管理后台：仪表盘、用户管理、余额管理、密码重置、系统日志、生图结果列表。
-- 生图定价：按规格配置模型、API Key、服务商 API 地址、图像路径、尺寸、质量、价格和启用状态。
+- 门户首页：白色极简风格，包含 Three.js 交互背景和 AI 作品展示。
+- 用户认证：注册、登录、邮箱验证码、忘记密码。
+- 图像生成：提示词生图、规格选择、余额扣费、生成状态、图片预览、下载和删除。
+- 用户中心：仪表盘、余额、充值记录、生成历史、个人资料、修改密码。
+- 邀请返佣：邀请码、邀请用户列表、返佣记录、提现二维码、提现申请。
+- 管理后台：数据看板、用户管理、公告管理、生图配置、邮件配置、支付配置、返佣审核、系统日志。
+- OpenAI 兼容中转：支持模型、渠道、分组、令牌、额度、RPM/TPM、IP 白名单、用量日志和成本统计。
 
 ## 技术栈
 
@@ -38,87 +38,79 @@ imageCreater 是一个 AI 图像生成平台，包含门户首页、用户创作
 
 ```text
 .
-├── backend/                 # Spring Boot 后端
-│   ├── src/main/java/       # 后端源码
-│   └── src/main/resources/
-│       ├── application.yml  # 后端配置
-│       └── db/schema.sql    # 数据库初始化脚本
-├── src/                     # Vue 前端源码
-│   ├── api/                 # 前端接口封装
-│   ├── components/          # 公共组件
-│   ├── router/              # 路由
-│   ├── store/               # Pinia 状态
-│   └── views/               # 页面
+├── backend/                         # Spring Boot 后端
+│   ├── src/main/java/               # 后端源码
+│   │   └── com/qzcy/backend/
+│   │       ├── config/              # 配置、初始化器、安全配置
+│   │       ├── controller/          # HTTP 接口
+│   │       ├── dto/                 # 请求/响应 DTO
+│   │       ├── entity/              # 数据库实体
+│   │       ├── mapper/              # MyBatis-Plus Mapper
+│   │       ├── service/             # 业务服务
+│   │       └── util/                # 工具类
+│   ├── src/main/resources/
+│   │   ├── application.yml          # 通用配置
+│   │   ├── application-dev.yml      # 本地开发配置
+│   │   └── db/schema.sql            # 数据库初始化/迁移脚本
+│   └── userImage/                   # 本地生成图片与上传文件目录
+├── public/                          # 静态资源
+├── src/                             # Vue 前端源码
+│   ├── api/                         # API 封装
+│   ├── assets/                      # 样式和图片资源
+│   ├── components/                  # 公共组件
+│   ├── composables/                 # 组合式函数
+│   ├── router/                      # 前端路由
+│   ├── store/                       # Pinia 状态
+│   ├── types/                       # TypeScript 类型
+│   └── views/                       # 页面
 ├── package.json
+├── vite.config.ts
 └── README.md
 ```
 
 ## 环境要求
 
-- Node.js 20.19+ 或 22.12+
-- JDK 17+
-- MySQL 8+
-- Maven Wrapper 已包含在 `backend/` 目录中
+- Node.js `20.19+` 或 `22.12+`
+- JDK `17+`
+- MySQL `8+`
+- Maven Wrapper：项目已在 `backend/` 内包含 `mvnw` 和 `mvnw.cmd`
 
-## 数据库初始化
+## 快速开始
 
-先创建数据库和表：
+### 1. 初始化数据库
+
+先在 MySQL 中创建数据库：
 
 ```sql
-source backend/src/main/resources/db/schema.sql;
+CREATE DATABASE IF NOT EXISTS image_creator
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_unicode_ci;
 ```
 
-或手动在 MySQL 客户端中执行 [schema.sql](backend/src/main/resources/db/schema.sql)。
+再执行初始化脚本：
 
-默认数据库名：
+```sh
+mysql -u root -p image_creator < backend/src/main/resources/db/schema.sql
+```
+
+也可以在 MySQL 客户端中执行：
+
+```sql
+USE image_creator;
+SOURCE backend/src/main/resources/db/schema.sql;
+```
+
+如果是从旧版本升级，`schema.sql` 中包含部分兼容迁移语句；重复执行前仍建议先备份数据库。
+
+### 2. 配置后端
+
+本地开发默认启用 `dev` profile，数据库配置在：
 
 ```text
-image_creator
+backend/src/main/resources/application-dev.yml
 ```
 
-如果你是从旧版本升级，确认 `user` 表包含邮箱字段：
-
-```sql
-ALTER TABLE `user`
-    ADD COLUMN email VARCHAR(120) UNIQUE AFTER username;
-```
-
-确认生图配置表包含以下字段：
-
-```sql
-ALTER TABLE image_generation_config
-    ADD COLUMN api_base_url VARCHAR(255) NOT NULL DEFAULT 'https://api.openai.com' AFTER api_key;
-
-ALTER TABLE image_generation_config
-    ADD COLUMN endpoint_path VARCHAR(80) NOT NULL DEFAULT '/v1/images/generations' AFTER api_key;
-```
-
-如果字段已存在，不要重复执行对应 `ALTER TABLE`。
-
-如果需要显示生图预计耗时，还需要创建成功耗时统计表：
-
-```sql
-CREATE TABLE IF NOT EXISTS image_generation_metric (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    image_record_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    quality_code VARCHAR(20),
-    duration_ms BIGINT NOT NULL,
-    created_at DATETIME NOT NULL,
-    INDEX idx_metric_created (created_at),
-    INDEX idx_metric_user_created (user_id, created_at)
-);
-```
-
-## 后端配置
-
-配置文件：
-
-```text
-backend/src/main/resources/application.yml
-```
-
-默认 MySQL 配置：
+默认配置：
 
 ```yaml
 spring:
@@ -128,57 +120,69 @@ spring:
     password: root
 ```
 
-可以按本机环境修改数据库账号密码。
+根据本机 MySQL 用户名和密码修改即可。
 
-邮件验证码相关环境变量：
-
-```text
-MAIL_HOST
-MAIL_PORT
-MAIL_USERNAME
-MAIL_PASSWORD
-MAIL_FROM
-```
-
-开发环境默认 `app.mail.dev-return-code: true`，如果没有配置 SMTP，验证码接口会返回开发验证码，方便本地测试。
-
-JWT 密钥建议生产环境修改：
+通用配置在：
 
 ```text
-JWT_SECRET
+backend/src/main/resources/application.yml
 ```
 
-## 启动后端
+常用环境变量：
+
+```text
+JWT_SECRET       JWT 签名密钥，生产环境必须修改
+OPENAI_API_KEY   默认 OpenAI API Key
+OPENAI_BASE_URL  默认 OpenAI 兼容服务商基础地址，默认 https://api.openai.com
+MAIL_HOST        SMTP 服务器
+MAIL_PORT        SMTP 端口，默认 587
+MAIL_USERNAME    SMTP 用户名
+MAIL_PASSWORD    SMTP 密码
+MAIL_FROM        发件人地址
+```
+
+本地开发默认 `app.mail.dev-return-code: true`。没有配置 SMTP 时，验证码接口会返回开发验证码，方便调试；生产环境必须关闭。
+
+### 3. 启动后端
+
+Windows：
 
 ```sh
 cd backend
 cmd /c mvnw.cmd spring-boot:run
 ```
 
-后端默认端口：
+macOS / Linux：
+
+```sh
+cd backend
+./mvnw spring-boot:run
+```
+
+后端默认地址：
 
 ```text
 http://localhost:8080
 ```
 
-## 启动前端
+### 4. 启动前端
 
 ```sh
 npm install
 npm run dev
 ```
 
-前端默认端口：
+前端默认地址：
 
 ```text
 http://localhost:5173
 ```
 
-Vite 已配置 `/api` 代理到后端 `http://localhost:8080`。
+Vite 已配置 `/api` 代理到 `http://localhost:8080`。
 
 ## 默认管理员
 
-后端启动时会自动创建默认管理员：
+后端首次启动时会自动创建默认管理员：
 
 ```text
 账号：admin
@@ -191,9 +195,38 @@ Vite 已配置 `/api` 代理到后端 `http://localhost:8080`。
 /admin/dashboard
 ```
 
-## OpenAI / 服务商生图配置
+生产环境部署后请立即修改默认管理员密码。
 
-进入管理员后台：
+## 主要页面
+
+用户端：
+
+- `/`：首页
+- `/login`：登录
+- `/register`：注册
+- `/create` 或 `/user/generate`：AI 生图
+- `/user/dashboard`：用户仪表盘
+- `/user/history`：生成历史
+- `/user/payment`：充值与充值记录
+- `/user/referral`：邀请返佣
+- `/user/profile`：个人资料
+- `/relay`：用户中转令牌与用量
+
+管理端：
+
+- `/admin/dashboard`：后台仪表盘
+- `/admin/announcements`：公告管理
+- `/admin/users`：用户管理
+- `/admin/pricing`：生图规格与扣费配置
+- `/admin/relay`：中转渠道、模型、分组管理
+- `/admin/payment`：支付配置
+- `/admin/referral`：返佣审核与提现管理
+- `/admin/mail`：邮件配置
+- `/admin/logs`：生图记录与日志
+
+## AI 生图配置
+
+管理员登录后进入：
 
 ```text
 /admin/pricing
@@ -203,52 +236,45 @@ Vite 已配置 `/api` 代理到后端 `http://localhost:8080`。
 
 - 显示名称
 - API Key
-- 服务商 API 地址，例如 `https://api.openai.com` 或中转服务商地址
-- 图像路径，只支持：
-  - `/v1/images/generations`
-  - `/v1/images/edits`
-- 模型名
+- 服务商基础地址，例如 `https://api.openai.com` 或兼容中转服务地址
+- 图像接口路径，例如 `/v1/images/generations`
+- 模型名称
 - 尺寸，例如 `1024x1024`
 - 质量参数，例如 `standard`、`hd`
 - 用户扣费价格
 - 启用状态
 - 排序
 
-默认规格：
+注意：服务商基础地址只填写根地址，不要把 `/v1/images/generations` 拼到基础地址里；接口路径在后台单独选择或填写。
+
+## OpenAI 兼容中转
+
+平台提供兼容 OpenAI 风格的接口中转能力，入口包括：
 
 ```text
-1k：1K 标准图像
-2k：2K 高清图像
-4k：4K 超清图像
+GET  /api/v1/models
+POST /api/v1/chat/completions
+POST /api/v1/responses
+POST /api/v1/completions
+POST /api/v1/embeddings
+POST /api/v1/images/generations
+POST /api/v1/audio/transcriptions
+POST /api/v1/audio/translations
+POST /api/v1/audio/speech
 ```
 
-注意：服务商 API 地址只填写基础地址，不要带 `/v1/images/generations`；图像路径在后台单独选择。
+使用方式：
 
-## 常见问题
+1. 管理员在 `/admin/relay` 配置上游渠道、模型、分组和价格。
+2. 用户在 `/relay` 创建访问令牌。
+3. 客户端使用平台地址作为 OpenAI Base URL，并使用创建的令牌作为 Bearer Token。
 
-### 登录接口 404
+示例：
 
-确认前端开发服务器使用 Vite 代理，并且后端已经启动在 `8080` 端口。
-
-### 邮箱验证码没有收到
-
-本地开发如果没有配置 SMTP，接口会返回开发验证码。生产环境需要正确配置 `MAIL_HOST`、`MAIL_USERNAME`、`MAIL_PASSWORD`。
-
-### OpenAI 429 TOO_MANY_REQUESTS
-
-服务商限流或额度不足。检查 API Key 余额、请求频率、中转服务商额度池。
-
-### OpenAI 503 SERVICE_UNAVAILABLE
-
-服务商临时不可用、节点拥堵或模型不支持。稍后重试，或更换服务商 API 地址。
-
-### I/O error on POST request
-
-后端无法连接服务商 API。检查服务器网络、代理地址、防火墙、证书或中转服务商地址。
-
-### Lock wait timeout exceeded
-
-旧版本可能因生图长事务锁住用户余额。当前版本已将生图外部请求移出长事务；请重新启动后端并重试。
+```text
+Base URL: http://localhost:8080/api
+API Key: 用户在 /relay 创建的 token
+```
 
 ## 构建
 
@@ -258,18 +284,69 @@ Vite 已配置 `/api` 代理到后端 `http://localhost:8080`。
 npm run build
 ```
 
+前端预览：
+
+```sh
+npm run preview
+```
+
+后端测试：
+
+```sh
+cd backend
+cmd /c mvnw.cmd test
+```
+
 后端打包：
 
 ```sh
 cd backend
-cmd /c mvnw.cmd -q -DskipTests package
+cmd /c mvnw.cmd -DskipTests package
 ```
+
+构建产物：
+
+- 前端：`dist/`
+- 后端：`backend/target/backend-0.0.1-SNAPSHOT.jar`
 
 ## 生产部署提示
 
-- 修改数据库账号密码。
-- 修改 `JWT_SECRET`。
-- 关闭开发验证码返回：`app.mail.dev-return-code: false`。
-- 配置真实 SMTP。
-- 在后台配置真实可用的服务商 API 地址和 API Key。
+- 修改 `JWT_SECRET`，不要使用默认开发密钥。
+- 修改默认管理员密码。
+- 使用独立的生产数据库账号和强密码。
+- 将 `app.mail.dev-return-code` 设置为 `false`。
+- 配置真实 SMTP 邮件服务。
+- 在后台配置可用的 OpenAI 或兼容服务商 API Key。
 - 确认 `app.upload.image-path` 指向持久化目录。
+- 对外部署时建议使用 Nginx 反向代理前端静态资源和后端接口。
+- 数据库升级前先备份，再执行迁移脚本。
+
+## 常见问题
+
+### 前端请求 `/api` 返回 404 或连接失败
+
+确认后端已经启动在 `http://localhost:8080`，并且前端通过 `npm run dev` 启动。开发环境下 Vite 会把 `/api` 代理到后端。
+
+### 邮箱验证码收不到
+
+本地开发如果没有配置 SMTP，验证码接口会返回开发验证码。生产环境需要正确配置 `MAIL_HOST`、`MAIL_USERNAME`、`MAIL_PASSWORD`、`MAIL_FROM`，并关闭 `app.mail.dev-return-code`。
+
+### AI 生图失败或返回 401
+
+检查后台生图规格中的 API Key、服务商基础地址、接口路径和模型名称是否正确。服务商基础地址只填写根地址，例如 `https://api.openai.com`。
+
+### OpenAI 429 TOO_MANY_REQUESTS
+
+通常是服务商限流、额度不足或请求频率过高。检查 API Key 额度、RPM/TPM 限制和上游服务商状态。
+
+### OpenAI 503 SERVICE_UNAVAILABLE
+
+通常是上游服务临时不可用、节点拥塞或模型不支持。稍后重试，或切换后台配置的服务商渠道。
+
+### `Lock wait timeout exceeded`
+
+旧版本可能因为长时间生图事务锁住用户余额。当前版本已将外部生图请求移出长事务；升级后请重启后端并重试。
+
+## 许可证
+
+本项目使用 [Apache License 2.0](LICENSE)。
