@@ -1,11 +1,14 @@
 package com.qzcy.backend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qzcy.backend.dto.RelayAdminOverviewDto;
 import com.qzcy.backend.dto.RelayChannelDto;
+import com.qzcy.backend.dto.RelayChannelModelDto;
+import com.qzcy.backend.dto.RelayChannelModelUpdateDto;
 import com.qzcy.backend.dto.RelayChannelUpdateDto;
 import com.qzcy.backend.dto.RelayGroupDto;
 import com.qzcy.backend.dto.RelayGroupUpdateDto;
@@ -19,6 +22,7 @@ import com.qzcy.backend.dto.RelayUpstreamModelDto;
 import com.qzcy.backend.dto.RelayUsageLogDto;
 import com.qzcy.backend.dto.RelayUserOverviewDto;
 import com.qzcy.backend.entity.RelayChannel;
+import com.qzcy.backend.entity.RelayChannelModel;
 import com.qzcy.backend.entity.RelayGroup;
 import com.qzcy.backend.entity.RelayGroupModel;
 import com.qzcy.backend.entity.RelayModel;
@@ -27,6 +31,7 @@ import com.qzcy.backend.entity.RelayUsageLog;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayChannelMapper;
+import com.qzcy.backend.mapper.RelayChannelModelMapper;
 import com.qzcy.backend.mapper.RelayGroupMapper;
 import com.qzcy.backend.mapper.RelayGroupModelMapper;
 import com.qzcy.backend.mapper.RelayModelMapper;
@@ -55,6 +60,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class RelayServiceImpl implements RelayService {
     private final RelayChannelMapper channelMapper;
+    private final RelayChannelModelMapper channelModelMapper;
     private final RelayGroupMapper groupMapper;
     private final RelayGroupModelMapper groupModelMapper;
     private final RelayModelMapper modelMapper;
@@ -109,6 +115,7 @@ public class RelayServiceImpl implements RelayService {
         if (channel.getPriceMultiplier() == null) channel.setPriceMultiplier(BigDecimal.ONE);
         if (channel.getEnabled() == null) channel.setEnabled(true);
         channelMapper.insert(channel);
+        replaceChannelModels(channel.getId(), dto.getModels());
         return toChannelDto(channelMapper.selectById(channel.getId()));
     }
 
@@ -118,6 +125,9 @@ public class RelayServiceImpl implements RelayService {
         if (channel == null) throw new BusinessException(404, "Relay channel not found");
         apply(channel, dto);
         channelMapper.updateById(channel);
+        if (dto.getModels() != null) {
+            replaceChannelModels(channel.getId(), dto.getModels());
+        }
         return toChannelDto(channelMapper.selectById(id));
     }
 
@@ -165,6 +175,8 @@ public class RelayServiceImpl implements RelayService {
 
     @Override
     public RelayModelDto createModel(RelayModelUpdateDto dto) {
+        boolean duplicateModelName = dto.getModel() != null && modelMapper.selectCount(new QueryWrapper<RelayModel>()
+                .eq("model", dto.getModel().trim())) > 0;
         RelayModel model = new RelayModel();
         apply(model, dto);
         if (isBlank(model.getModel())) throw new BusinessException(400, "Model is required");
@@ -180,7 +192,10 @@ public class RelayServiceImpl implements RelayService {
         if (model.getEnabled() == null) model.setEnabled(true);
         if (model.getSortOrder() == null) model.setSortOrder(10);
         modelMapper.insert(model);
-        attachModelToAllGroups(model.getId());
+        if (!duplicateModelName) {
+            attachModelToAllGroups(model.getId());
+            attachModelToAllChannels(model.getId(), model.getModel());
+        }
         return toModelDto(modelMapper.selectById(model.getId()));
     }
 
@@ -188,6 +203,7 @@ public class RelayServiceImpl implements RelayService {
     public RelayModelDto updateModel(Long id, RelayModelUpdateDto dto) {
         RelayModel model = modelMapper.selectById(id);
         if (model == null) throw new BusinessException(404, "Relay model not found");
+        String oldModelName = model.getModel();
         apply(model, dto);
         if (isBlank(model.getModel())) throw new BusinessException(400, "Model is required");
         if (isBlank(model.getDisplayName())) model.setDisplayName(model.getModel());
@@ -197,6 +213,7 @@ public class RelayServiceImpl implements RelayService {
         if (model.getFixedRequestBilling() == null) model.setFixedRequestBilling(false);
         if (isBlank(model.getStatus())) model.setStatus("available");
         modelMapper.updateById(model);
+        syncDefaultChannelUpstreamModelName(model.getId(), oldModelName, model.getModel());
         return toModelDto(modelMapper.selectById(id));
     }
 
@@ -205,6 +222,7 @@ public class RelayServiceImpl implements RelayService {
         RelayModel model = modelMapper.selectById(id);
         if (model == null) throw new BusinessException(404, "Relay model not found");
         groupModelMapper.delete(new QueryWrapper<RelayGroupModel>().eq("model_id", id));
+        channelModelMapper.delete(new QueryWrapper<RelayChannelModel>().eq("model_id", id));
         modelMapper.deleteById(id);
     }
 
@@ -229,7 +247,10 @@ public class RelayServiceImpl implements RelayService {
                 throw new BusinessException(response.statusCode(), "Upstream model query failed: " + response.body());
             }
             JsonNode data = objectMapper.readTree(response.body()).path("data");
-            Set<String> configured = new HashSet<>(modelMapper.selectList(null).stream().map(RelayModel::getModel).toList());
+            Set<String> configured = new HashSet<>(channelModelMapper.modelsForChannel(channelId).stream()
+                    .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
+                    .map(RelayChannelModelDto::getUpstreamModel)
+                    .toList());
             if (!data.isArray()) return List.of();
             return java.util.stream.StreamSupport.stream(data.spliterator(), false)
                     .map(item -> new RelayUpstreamModelDto(
@@ -311,6 +332,7 @@ public class RelayServiceImpl implements RelayService {
                         .orderByAsc("id"))
                 .stream()
                 .filter(model -> accessibleModels.contains(model.getModel()))
+                .filter(distinctByModelName())
                 .map(this::toModelDto).toList();
         List<RelayTokenDto> tokens = tokenMapper.selectList(new QueryWrapper<RelayToken>()
                         .eq("user_id", userId)
@@ -364,6 +386,7 @@ public class RelayServiceImpl implements RelayService {
         if (dto.getApiBaseUrl() != null) channel.setApiBaseUrl(normalizeBaseUrl(dto.getApiBaseUrl()));
         if (dto.getApiKey() != null && !dto.getApiKey().isBlank()) channel.setApiKey(dto.getApiKey().trim());
         if (dto.getGroupNames() != null) channel.setGroupNames(normalizeCsv(dto.getGroupNames(), "default"));
+        if (dto.getRemark() != null) channel.setRemark(dto.getRemark().trim());
         if (dto.getPriority() != null) channel.setPriority(Math.max(0, dto.getPriority()));
         if (dto.getWeight() != null) channel.setWeight(Math.max(0, dto.getWeight()));
         if (dto.getRpmLimit() != null) channel.setRpmLimit(Math.max(0, dto.getRpmLimit()));
@@ -411,6 +434,11 @@ public class RelayServiceImpl implements RelayService {
                 .forEach(group -> attachModelToGroup(group.getId(), modelId));
     }
 
+    private void attachModelToAllChannels(Long modelId, String upstreamModel) {
+        channelMapper.selectList(new QueryWrapper<RelayChannel>())
+                .forEach(channel -> attachModelToChannel(channel.getId(), modelId, upstreamModel, true));
+    }
+
     private void attachAllModelsToGroup(Long groupId) {
         modelMapper.selectList(new QueryWrapper<RelayModel>().eq("enabled", true))
                 .forEach(model -> attachModelToGroup(groupId, model.getId()));
@@ -419,20 +447,78 @@ public class RelayServiceImpl implements RelayService {
     private void replaceGroupModels(Long groupId, List<Long> modelIds) {
         groupModelMapper.deleteByGroupId(groupId);
         if (modelIds == null) return;
+        Set<String> selectedNames = new HashSet<>();
         modelIds.stream()
-                .filter(id -> id != null && modelMapper.selectById(id) != null)
                 .distinct()
-                .forEach(modelId -> attachModelToGroup(groupId, modelId));
+                .forEach(modelId -> {
+                    RelayModel model = modelId == null ? null : modelMapper.selectById(modelId);
+                    if (model == null || !selectedNames.add(model.getModel())) return;
+                    attachModelToGroup(groupId, model.getId());
+                });
     }
 
     private void attachModelToGroup(Long groupId, Long modelId) {
         if (groupId == null || modelId == null) return;
+        RelayModel model = modelMapper.selectById(modelId);
+        if (model == null) return;
+        Long sameName = groupModelMapper.countGroupModelName(groupId, model.getModel());
+        if (sameName != null && sameName > 0) return;
         Long count = groupModelMapper.countGroupModel(groupId, modelId);
         if (count != null && count > 0) return;
         RelayGroupModel item = new RelayGroupModel();
         item.setGroupId(groupId);
         item.setModelId(modelId);
         groupModelMapper.insert(item);
+    }
+
+    private void replaceChannelModels(Long channelId, List<RelayChannelModelUpdateDto> models) {
+        channelModelMapper.deleteByChannelId(channelId);
+        if (models == null) {
+            modelMapper.selectList(new QueryWrapper<RelayModel>().eq("enabled", true))
+                    .forEach(model -> attachModelToChannel(channelId, model.getId(), model.getModel(), true));
+            return;
+        }
+        models.stream()
+                .filter(item -> item != null && item.getModelId() != null)
+                .forEach(item -> {
+                    RelayModel model = modelMapper.selectById(item.getModelId());
+                    if (model == null) return;
+                    String upstreamModel = isBlank(item.getUpstreamModel()) ? model.getModel() : item.getUpstreamModel().trim();
+                    attachModelToChannel(channelId, model.getId(), upstreamModel, item.getEnabled() == null || item.getEnabled());
+                });
+    }
+
+    private void attachModelToChannel(Long channelId, Long modelId, String upstreamModel, boolean enabled) {
+        if (channelId == null || modelId == null) return;
+        RelayChannelModel existing = channelModelMapper.selectByChannelAndModel(channelId, modelId);
+        if (existing != null) {
+            existing.setUpstreamModel(isBlank(upstreamModel) ? existing.getUpstreamModel() : upstreamModel.trim());
+            existing.setEnabled(enabled);
+            channelModelMapper.updateById(existing);
+            return;
+        }
+        RelayChannelModel item = new RelayChannelModel();
+        item.setChannelId(channelId);
+        item.setModelId(modelId);
+        item.setUpstreamModel(isBlank(upstreamModel) ? "" : upstreamModel.trim());
+        item.setEnabled(enabled);
+        channelModelMapper.insert(item);
+    }
+
+    private void syncDefaultChannelUpstreamModelName(Long modelId, String oldModelName, String newModelName) {
+        if (modelId == null || isBlank(newModelName) || oldModelName == null || oldModelName.equals(newModelName)) {
+            return;
+        }
+        RelayChannelModel update = new RelayChannelModel();
+        update.setUpstreamModel(newModelName.trim());
+        channelModelMapper.update(update, new UpdateWrapper<RelayChannelModel>()
+                .eq("model_id", modelId)
+                .and(wrapper -> wrapper
+                        .eq("upstream_model", oldModelName)
+                        .or()
+                        .isNull("upstream_model")
+                        .or()
+                        .eq("upstream_model", "")));
     }
 
     private List<String> accessibleModelsForTokenGroups(Long userId) {
@@ -446,20 +532,27 @@ public class RelayServiceImpl implements RelayService {
             if (group != null) {
                 Long configuredModels = groupModelMapper.countEnabledModelsForGroup(group.getId());
                 if (configuredModels == null || configuredModels == 0 || "default".equalsIgnoreCase(group.getCode())) {
-                    modelMapper.selectList(new QueryWrapper<RelayModel>().eq("enabled", true))
-                            .forEach(model -> models.add(model.getModel()));
+                    models.addAll(channelModelMapper.enabledModelNamesForGroup(group.getCode()));
                 } else {
-                    models.addAll(groupModelMapper.modelsForGroup(group.getId()));
+                    Set<String> channelModels = new HashSet<>(channelModelMapper.enabledModelNamesForGroup(group.getCode()));
+                    groupModelMapper.modelsForGroup(group.getId()).stream()
+                            .filter(channelModels::contains)
+                            .forEach(models::add);
                 }
             }
         });
         return List.copyOf(models);
     }
 
+    private java.util.function.Predicate<RelayModel> distinctByModelName() {
+        Set<String> seen = new HashSet<>();
+        return model -> seen.add(model.getModel());
+    }
+
     private RelayChannelDto toChannelDto(RelayChannel channel) {
         return new RelayChannelDto(channel.getId(), channel.getName(), channel.getProvider(), channel.getApiBaseUrl(),
-                mask(channel.getApiKey()), channel.getGroupNames(), channel.getStatus(), channel.getPriority(), channel.getWeight(), channel.getRpmLimit(),
-                channel.getTpmLimit(), channel.getPriceMultiplier(), channel.getEnabled());
+                mask(channel.getApiKey()), channel.getGroupNames(), channel.getRemark(), channel.getStatus(), channel.getPriority(), channel.getWeight(), channel.getRpmLimit(),
+                channel.getTpmLimit(), channel.getPriceMultiplier(), channel.getEnabled(), channelModelMapper.modelsForChannel(channel.getId()));
     }
 
     private RelayModelDto toModelDto(RelayModel model) {

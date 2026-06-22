@@ -9,6 +9,7 @@ import com.qzcy.backend.dto.relay.RelayDispatchRequest;
 import com.qzcy.backend.dto.relay.RelayDispatchResult;
 import com.qzcy.backend.dto.relay.RelayStreamDispatchResult;
 import com.qzcy.backend.entity.RelayChannel;
+import com.qzcy.backend.entity.RelayChannelModel;
 import com.qzcy.backend.entity.RelayGroup;
 import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.entity.RelayUsageLog;
@@ -59,14 +60,14 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 model
         );
         long startedAt = System.currentTimeMillis();
-        HttpResponse<String> response = relayString(request.body(), context.channel(), request.upstreamPath());
+        HttpResponse<String> response = relayString(request.body(), context, request.upstreamPath());
         JsonNode responseBody = parseResponseBody(response.body());
         if (response.statusCode() >= 200 && response.statusCode() < 300 && !hasBillableUsage(responseBody)) {
             responseBody = withEstimatedUsage(request.body(), response.body());
         }
         RelayCostBreakdown cost = relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), responseBody);
         chargeIfSuccessful(response.statusCode(), context, cost);
-        saveUsage(context, model, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
+        saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
         return new RelayDispatchResult(response.statusCode(), contentType(response), response.body());
     }
 
@@ -82,7 +83,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 model
         );
         long startedAt = System.currentTimeMillis();
-        HttpResponse<InputStream> response = relayStream(request.body(), context.channel(), request.upstreamPath());
+        HttpResponse<InputStream> response = relayStream(request.body(), context, request.upstreamPath());
         JsonNode responseBody = emptyResponseBody();
         RelayCostBreakdown cost = relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), responseBody);
         chargeIfSuccessful(response.statusCode(), context, cost);
@@ -90,7 +91,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             try (InputStream inputStream = response.body()) {
                 inputStream.transferTo(outputStream);
             } finally {
-                saveUsage(context, model, request.upstreamPath(), request.userAgent(), response.statusCode(),
+                saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(),
                         responseBody, cost, System.currentTimeMillis() - startedAt);
             }
         };
@@ -105,22 +106,23 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         paymentService.deductBalance(context.token().getUserId(), cost.total());
     }
 
-    private HttpResponse<String> relayString(ObjectNode body, RelayChannel channel, String path) throws Exception {
+    private HttpResponse<String> relayString(ObjectNode body, RelayContext context, String path) throws Exception {
         return HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .build()
-                .send(upstreamRequest(body, channel, path), HttpResponse.BodyHandlers.ofString());
+                .send(upstreamRequest(body, context, path), HttpResponse.BodyHandlers.ofString());
     }
 
-    private HttpResponse<InputStream> relayStream(ObjectNode body, RelayChannel channel, String path) throws Exception {
+    private HttpResponse<InputStream> relayStream(ObjectNode body, RelayContext context, String path) throws Exception {
         return HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .build()
-                .send(upstreamRequest(body, channel, path), HttpResponse.BodyHandlers.ofInputStream());
+                .send(upstreamRequest(body, context, path), HttpResponse.BodyHandlers.ofInputStream());
     }
 
-    private HttpRequest upstreamRequest(ObjectNode body, RelayChannel channel, String path) throws Exception {
-        ObjectNode outboundBody = prepareOutboundBody(body, path);
+    private HttpRequest upstreamRequest(ObjectNode body, RelayContext context, String path) throws Exception {
+        RelayChannel channel = context.channel();
+        ObjectNode outboundBody = prepareOutboundBody(body, context, path);
         return HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), path)))
                 .timeout(RELAY_TIMEOUT)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + channel.getApiKey())
@@ -130,8 +132,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 .build();
     }
 
-    private ObjectNode prepareOutboundBody(ObjectNode body, String path) {
+    private ObjectNode prepareOutboundBody(ObjectNode body, RelayContext context, String path) {
         ObjectNode outbound = body.deepCopy();
+        String upstreamModel = upstreamModel(context);
+        if (!upstreamModel.isBlank()) {
+            outbound.put("model", upstreamModel);
+        }
         if (outbound.path("stream").asBoolean(false) && path.endsWith("/chat/completions")) {
             ObjectNode streamOptions = outbound.withObject("/stream_options");
             streamOptions.put("include_usage", true);
@@ -139,11 +145,19 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return outbound;
     }
 
+    private String upstreamModel(RelayContext context) {
+        RelayChannelModel binding = context.channelModel();
+        if (binding != null && binding.getUpstreamModel() != null && !binding.getUpstreamModel().isBlank()) {
+            return binding.getUpstreamModel().trim();
+        }
+        return context.model() == null || context.model().getModel() == null ? "" : context.model().getModel();
+    }
+
     private String acceptHeader(ObjectNode body) {
         return body.path("stream").asBoolean(false) ? MediaType.TEXT_EVENT_STREAM_VALUE : MediaType.APPLICATION_JSON_VALUE;
     }
 
-    private void saveUsage(RelayContext context, String model, String endpoint, String userAgent,
+    private void saveUsage(RelayContext context, String endpoint, String userAgent,
                            int statusCode, JsonNode responseBody, RelayCostBreakdown cost, long durationMs) {
         RelayToken access = context.token();
         RelayChannel channel = context.channel();
@@ -162,7 +176,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         log.setChannelName(channel.getName());
         log.setGroupNames(access.getGroupNames());
         log.setEndpoint(endpoint);
-        log.setModel(model);
+        log.setModel(context.model() == null ? "" : context.model().getModel());
         log.setModelType(context.effectiveModelType());
         log.setPromptTokens(promptTokens);
         log.setCompletionTokens(completionTokens);

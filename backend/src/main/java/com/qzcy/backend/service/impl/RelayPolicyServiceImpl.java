@@ -6,12 +6,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.qzcy.backend.dto.relay.RelayContext;
 import com.qzcy.backend.dto.relay.RelayCostBreakdown;
 import com.qzcy.backend.entity.RelayChannel;
+import com.qzcy.backend.entity.RelayChannelModel;
 import com.qzcy.backend.entity.RelayGroup;
 import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayChannelMapper;
+import com.qzcy.backend.mapper.RelayChannelModelMapper;
 import com.qzcy.backend.mapper.RelayGroupMapper;
 import com.qzcy.backend.mapper.RelayGroupModelMapper;
 import com.qzcy.backend.mapper.RelayModelMapper;
@@ -37,6 +39,7 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
     private final RelayGroupMapper groupMapper;
     private final RelayGroupModelMapper groupModelMapper;
     private final RelayChannelMapper channelMapper;
+    private final RelayChannelModelMapper channelModelMapper;
     private final RelayUsageLogMapper usageLogMapper;
     private final UserMapper userMapper;
 
@@ -44,14 +47,13 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
     public RelayContext buildContext(String authorization, String apiKeyHeader, String queryKey, String clientIp, String endpointType, String requestedModel) {
         RelayToken access = requireRelayToken(authorization, apiKeyHeader, queryKey);
         enforceIpAccess(access, clientIp);
-        RelayModel relayModel = requireModel(requestedModel, endpointType);
         enforceTokenModelAccess(access, requestedModel);
-        RelayGroup group = resolveGroup(access.getGroupNames(), relayModel);
-        RelayChannel channel = chooseChannel(relayModel, group);
-        enforceRateLimits(access, channel);
+        RelayGroup group = resolveGroup(access.getGroupNames(), requestedModel, endpointType);
+        RelayModel relayModel = requireModelForGroup(requestedModel, endpointType, group);
+        RelayContext context = chooseChannel(access, relayModel, group, endpointType);
+        enforceRateLimits(access, context.channel());
         ensureBalance(access.getUserId());
-        String effectiveModelType = isBlank(relayModel.getModelType()) ? endpointType : relayModel.getModelType();
-        return new RelayContext(access, relayModel, group, channel, effectiveModelType);
+        return context;
     }
 
     @Override
@@ -107,7 +109,31 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         }
         RelayModel item = modelMapper.selectOne(new QueryWrapper<RelayModel>()
                 .eq("model", model.trim())
-                .eq("enabled", true));
+                .eq("enabled", true)
+                .orderByAsc("sort_order")
+                .orderByAsc("id")
+                .last("LIMIT 1"));
+        if (item == null || !modelTypeMatches(item.getModelType(), endpointType)) {
+            throw new BusinessException(400, "Selected relay model is unavailable");
+        }
+        return item;
+    }
+
+    @Override
+    public RelayModel requireModelForGroup(String model, String endpointType, RelayGroup group) {
+        if (model == null || model.isBlank()) {
+            throw new BusinessException(400, "Model is required");
+        }
+        if (group == null || group.getId() == null) {
+            return requireModel(model, endpointType);
+        }
+        RelayModel item = groupModelMapper.selectEnabledModelForGroup(group.getId(), model.trim());
+        if (item == null) {
+            Long configuredModels = groupModelMapper.countEnabledModelsForGroup(group.getId());
+            if (configuredModels == null || configuredModels == 0 || "default".equalsIgnoreCase(group.getCode())) {
+                return requireModel(model, endpointType);
+            }
+        }
         if (item == null || !modelTypeMatches(item.getModelType(), endpointType)) {
             throw new BusinessException(400, "Selected relay model is unavailable");
         }
@@ -119,6 +145,35 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         if (!containsCsv(access.getAllowedModels(), model)) {
             throw new BusinessException(403, "This API key cannot access the selected model");
         }
+    }
+
+    @Override
+    public RelayGroup resolveGroup(String groupNames, String model, String endpointType) {
+        if (model == null || model.isBlank()) {
+            throw new BusinessException(400, "Model is required");
+        }
+        List<String> groupCodes = csvValues(groupNames == null || groupNames.isBlank() ? "default" : groupNames);
+        for (String code : groupCodes) {
+            RelayGroup group = groupMapper.selectOne(new QueryWrapper<RelayGroup>().eq("code", code).eq("enabled", true));
+            if (group == null) continue;
+            RelayModel groupModel = groupModelMapper.selectEnabledModelForGroup(group.getId(), model.trim());
+            if (groupModel != null && modelTypeMatches(groupModel.getModelType(), endpointType)) {
+                return group;
+            }
+            Long configuredModels = groupModelMapper.countEnabledModelsForGroup(group.getId());
+            if (configuredModels == null || configuredModels == 0 || "default".equalsIgnoreCase(group.getCode())) {
+                RelayModel fallback = modelMapper.selectOne(new QueryWrapper<RelayModel>()
+                        .eq("model", model.trim())
+                        .eq("enabled", true)
+                        .orderByAsc("sort_order")
+                        .orderByAsc("id")
+                        .last("LIMIT 1"));
+                if (fallback != null && modelTypeMatches(fallback.getModelType(), endpointType)) {
+                    return group;
+                }
+            }
+        }
+        throw new BusinessException(403, "Current group cannot access the selected model: " + model.trim());
     }
 
     @Override
@@ -140,7 +195,7 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
     }
 
     @Override
-    public RelayChannel chooseChannel(RelayModel model, RelayGroup group) {
+    public RelayContext chooseChannel(RelayToken access, RelayModel model, RelayGroup group, String endpointType) {
         List<RelayChannel> candidates = channelMapper.selectList(new LambdaQueryWrapper<RelayChannel>()
                 .eq(RelayChannel::getEnabled, true)
                 .ne(RelayChannel::getStatus, "failed")
@@ -150,15 +205,19 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         candidates = candidates.stream()
                 .filter(this::isConfigured)
                 .filter(channel -> channelSupportsGroup(channel, group))
+                .filter(channel -> channelSupportsModel(channel, model))
                 .toList();
         if (candidates.isEmpty()) {
-            throw new BusinessException(400, "No available relay channel for current group");
+            throw new BusinessException(400, "No available relay channel for current group and model");
         }
         int priority = candidates.get(0).getPriority() == null ? 0 : candidates.get(0).getPriority();
         List<RelayChannel> samePriority = candidates.stream()
                 .filter(channel -> (channel.getPriority() == null ? 0 : channel.getPriority()) == priority)
                 .toList();
-        return weightedPick(samePriority);
+        RelayChannel channel = weightedPick(samePriority);
+        RelayChannelModel channelModel = channelModelMapper.selectByChannelAndModel(channel.getId(), model.getId());
+        String effectiveModelType = isBlank(model.getModelType()) ? endpointType : model.getModelType();
+        return new RelayContext(access, model, group, channel, channelModel, effectiveModelType);
     }
 
     @Override
@@ -294,6 +353,12 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         if (isBlank(groupNames)) return true;
         String groupCode = group == null || isBlank(group.getCode()) ? "default" : group.getCode();
         return containsCsv(groupNames, groupCode);
+    }
+
+    private boolean channelSupportsModel(RelayChannel channel, RelayModel model) {
+        if (channel == null || model == null || channel.getId() == null || model.getId() == null) return false;
+        RelayChannelModel binding = channelModelMapper.selectByChannelAndModel(channel.getId(), model.getId());
+        return binding != null && Boolean.TRUE.equals(binding.getEnabled());
     }
 
     private RelayChannel weightedPick(List<RelayChannel> channels) {

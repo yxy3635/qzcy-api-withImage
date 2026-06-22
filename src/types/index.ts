@@ -203,12 +203,25 @@ export interface RelayChannel {
   apiBaseUrl: string
   apiKeyMasked: string
   groupNames: string
+  remark: string
   status: string
   priority: number
   weight: number
   rpmLimit: number
   tpmLimit: number
   priceMultiplier: number
+  enabled: boolean
+  models: RelayChannelModel[]
+}
+
+export interface RelayChannelModel {
+  id: number
+  channelId: number
+  modelId: number
+  model: string
+  displayName: string
+  modelType: string
+  upstreamModel: string
   enabled: boolean
 }
 

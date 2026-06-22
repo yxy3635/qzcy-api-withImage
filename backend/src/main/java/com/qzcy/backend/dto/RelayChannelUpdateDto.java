@@ -3,6 +3,7 @@ package com.qzcy.backend.dto;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 public class RelayChannelUpdateDto {
@@ -11,10 +12,12 @@ public class RelayChannelUpdateDto {
     private String apiBaseUrl;
     private String apiKey;
     private String groupNames;
+    private String remark;
     private Integer priority;
     private Integer weight;
     private Integer rpmLimit;
     private Integer tpmLimit;
     private BigDecimal priceMultiplier;
     private Boolean enabled;
+    private List<RelayChannelModelUpdateDto> models;
 }

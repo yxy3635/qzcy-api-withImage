@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -16,6 +17,7 @@ public class RelayChannelDto {
     private String apiBaseUrl;
     private String apiKeyMasked;
     private String groupNames;
+    private String remark;
     private String status;
     private Integer priority;
     private Integer weight;
@@ -23,4 +25,5 @@ public class RelayChannelDto {
     private Integer tpmLimit;
     private BigDecimal priceMultiplier;
     private Boolean enabled;
+    private List<RelayChannelModelDto> models;
 }

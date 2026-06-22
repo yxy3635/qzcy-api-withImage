@@ -22,6 +22,7 @@ const syncingStatus = ref(false)
 const keySearch = ref('')
 const keyGroupFilter = ref('')
 const keyStatusFilter = ref('')
+const channelSearch = ref('')
 const activeChartIndex = ref<number | null>(null)
 const rechargeAmount = ref(10)
 const rechargePreset = ref<number | 'custom'>(10)
@@ -63,6 +64,24 @@ const models = computed(() => overview.value?.models || [])
 const groups = computed(() => overview.value?.groups || [{ id: 0, code: 'default', name: '默认分组', ratio: 1, enabled: true }])
 const trend = computed(() => overview.value?.trend || [])
 const modelUsage = computed(() => overview.value?.modelUsage || [])
+const channelRows = computed(() => {
+  const keyword = channelSearch.value.trim().toLowerCase()
+  return channels.value
+    .filter((channel) => {
+      const modelText = (channel.models || []).map((item) => `${item.model} ${item.upstreamModel}`).join(' ').toLowerCase()
+      return !keyword
+        || channel.name.toLowerCase().includes(keyword)
+        || channel.provider.toLowerCase().includes(keyword)
+        || channel.groupNames.toLowerCase().includes(keyword)
+        || (channel.remark || '').toLowerCase().includes(keyword)
+        || modelText.includes(keyword)
+    })
+    .map((channel) => ({
+      ...channel,
+      groups: csvValues(channel.groupNames || 'default'),
+      enabledModels: (channel.models || []).filter((item) => item.enabled)
+    }))
+})
 const activeTokens = computed(() => tokens.value.filter((item) => item.enabled))
 const enabledPaymentOptions = computed(() => paymentOptions.value.filter((item) => item.enabled))
 const filteredTokens = computed(() => tokens.value.filter((item) => {
@@ -238,6 +257,13 @@ function compact(value: number) {
 
 function money(value: number) {
   return `$${Number(value || 0).toFixed(6)}`
+}
+
+function csvValues(value: string) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function yuan(value: number) {
@@ -873,7 +899,59 @@ onMounted(async () => {
                 {{ syncingStatus ? '正在检测渠道' : '检测可用状态' }}
               </button>
             </div>
-            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div class="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+              <div class="border-b border-slate-100 p-4">
+                <input v-model="channelSearch" class="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm font-semibold outline-none focus:border-emerald-300 sm:w-80" placeholder="搜索渠道或模型..." />
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full min-w-[980px] text-left text-sm">
+                  <thead class="bg-slate-50 text-xs font-black text-slate-500">
+                    <tr>
+                      <th class="px-5 py-4">渠道名</th>
+                      <th class="px-5 py-4">平台</th>
+                      <th class="px-5 py-4">我可访问的分组</th>
+                      <th class="px-5 py-4">备注</th>
+                      <th class="px-5 py-4">支持模型</th>
+                      <th class="px-5 py-4 text-right">状态</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    <tr v-for="channel in channelRows" :key="channel.id" class="align-top">
+                      <td class="px-5 py-5">
+                        <p class="font-black text-slate-950">{{ channel.name }}</p>
+                      </td>
+                      <td class="px-5 py-5">
+                        <span class="inline-flex rounded-md bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">{{ channel.provider }}</span>
+                      </td>
+                      <td class="px-5 py-5">
+                        <div class="flex flex-wrap gap-2">
+                          <span v-for="group in channel.groups" :key="group" class="inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-black text-slate-600">{{ group }}</span>
+                        </div>
+                      </td>
+                      <td class="px-5 py-5">
+                        <p class="max-w-[260px] whitespace-pre-wrap text-xs font-semibold leading-5 text-slate-500">{{ channel.remark || '-' }}</p>
+                      </td>
+                      <td class="px-5 py-5">
+                        <div class="flex max-w-[520px] flex-wrap gap-2">
+                          <span v-for="model in channel.enabledModels" :key="model.modelId" class="inline-flex items-center rounded-md bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">
+                            {{ model.model }}
+                          </span>
+                          <span v-if="!channel.enabledModels.length" class="text-xs font-semibold text-slate-400">暂无绑定模型</span>
+                        </div>
+                      </td>
+                      <td class="px-5 py-5 text-right">
+                        <span class="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-xs font-black" :class="channel.status === 'available' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">
+                          <span class="h-2 w-2 rounded-full" :class="channel.status === 'available' ? 'bg-emerald-500' : 'bg-amber-500'"></span>
+                          {{ statusText(channel.status) }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-if="!channelRows.length" class="p-10 text-center text-sm font-black text-slate-500">暂无匹配渠道</div>
+              </div>
+            </div>
+            <div class="hidden gap-3 md:grid-cols-2 xl:grid-cols-3">
               <article
                 v-for="channel in channels"
                 :key="channel.id"

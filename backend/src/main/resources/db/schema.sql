@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS relay_channel (
     api_base_url VARCHAR(255) NOT NULL DEFAULT '',
     api_key VARCHAR(255),
     group_names VARCHAR(160) NOT NULL DEFAULT 'default',
+    remark VARCHAR(500) NOT NULL DEFAULT '',
     status VARCHAR(20) NOT NULL DEFAULT 'unknown',
     priority INT NOT NULL DEFAULT 10,
     weight INT NOT NULL DEFAULT 10,
@@ -28,6 +29,8 @@ SELECT 1, 'OpenAI Compatible', 'OpenAI Compatible', 'https://api.openai.com', NU
 
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_channel' AND COLUMN_NAME = 'group_names') = 0, 'ALTER TABLE relay_channel ADD COLUMN group_names VARCHAR(160) NOT NULL DEFAULT ''default'' AFTER api_key', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_channel' AND COLUMN_NAME = 'remark') = 0, 'ALTER TABLE relay_channel ADD COLUMN remark VARCHAR(500) NOT NULL DEFAULT '''' AFTER group_names', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS relay_group (
                                            id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -46,7 +49,7 @@ SELECT 'default', '默认分组', 1.0000, 1, NOW(), NOW()
 
 CREATE TABLE IF NOT EXISTS relay_model (
                                            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-                                           model VARCHAR(120) NOT NULL UNIQUE,
+                                           model VARCHAR(120) NOT NULL,
     display_name VARCHAR(120) NOT NULL,
     model_type VARCHAR(40) NOT NULL DEFAULT 'chat',
     input_price DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
@@ -60,9 +63,41 @@ CREATE TABLE IF NOT EXISTS relay_model (
     sort_order INT NOT NULL DEFAULT 10,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
+    INDEX idx_relay_model_model (model),
     INDEX idx_relay_model_type_enabled (model_type, enabled),
     INDEX idx_relay_model_sort (sort_order, id)
     );
+
+SET @relay_model_unique_model_index := (
+    SELECT s.INDEX_NAME
+    FROM INFORMATION_SCHEMA.STATISTICS s
+    WHERE s.TABLE_SCHEMA = DATABASE()
+      AND s.TABLE_NAME = 'relay_model'
+      AND s.COLUMN_NAME = 'model'
+      AND s.NON_UNIQUE = 0
+      AND s.INDEX_NAME <> 'PRIMARY'
+      AND (
+          SELECT COUNT(*)
+          FROM INFORMATION_SCHEMA.STATISTICS x
+          WHERE x.TABLE_SCHEMA = s.TABLE_SCHEMA
+            AND x.TABLE_NAME = s.TABLE_NAME
+            AND x.INDEX_NAME = s.INDEX_NAME
+      ) = 1
+    LIMIT 1
+);
+SET @drop_relay_model_unique_model := IF(
+    @relay_model_unique_model_index IS NULL,
+    'SELECT 1',
+    CONCAT('ALTER TABLE relay_model DROP INDEX `', REPLACE(@relay_model_unique_model_index, '`', '``'), '`')
+);
+PREPARE stmt FROM @drop_relay_model_unique_model; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_relay_model_model_index := IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND INDEX_NAME = 'idx_relay_model_model') = 0,
+    'CREATE INDEX idx_relay_model_model ON relay_model (model)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @add_relay_model_model_index; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @add_model_cached_input := IF(
     (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'cached_input_price') = 0,
@@ -159,6 +194,26 @@ SET @migrate_group_models := IF(
 PREPARE stmt FROM @migrate_group_models;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS relay_channel_model (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    channel_id BIGINT NOT NULL,
+    model_id BIGINT NOT NULL,
+    upstream_model VARCHAR(120) NOT NULL DEFAULT '',
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY uk_relay_channel_model (channel_id, model_id),
+    INDEX idx_relay_channel_model_channel (channel_id),
+    INDEX idx_relay_channel_model_model (model_id),
+    INDEX idx_relay_channel_model_enabled (enabled)
+);
+
+INSERT IGNORE INTO relay_channel_model (channel_id, model_id, upstream_model, enabled, created_at, updated_at)
+SELECT c.id, m.id, m.model, 1, NOW(), NOW()
+FROM relay_channel c
+         JOIN relay_model m
+WHERE c.enabled = 1;
 
 CREATE TABLE IF NOT EXISTS relay_token (
                                            id BIGINT PRIMARY KEY AUTO_INCREMENT,

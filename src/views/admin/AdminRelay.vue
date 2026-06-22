@@ -14,11 +14,19 @@ interface ChannelDraft {
   apiBaseUrl: string
   keyValue: string
   groupNames: string
+  remark: string
   priority: number
   weight: number
   rpmLimit: number
   tpmLimit: number
   priceMultiplier: number
+  enabled: boolean
+  models: ChannelModelDraft[]
+}
+
+interface ChannelModelDraft {
+  modelId: number
+  upstreamModel: string
   enabled: boolean
 }
 
@@ -67,12 +75,14 @@ const newChannel = reactive<ChannelDraft>({
   apiBaseUrl: 'https://api.openai.com',
   keyValue: '',
   groupNames: 'default',
+  remark: '',
   priority: 10,
   weight: 10,
   rpmLimit: 0,
   tpmLimit: 0,
   priceMultiplier: 1,
-  enabled: true
+  enabled: true,
+  models: []
 })
 
 const newModel = reactive<ModelDraft>({
@@ -156,12 +166,21 @@ function setChannelDraft(channel: RelayChannel) {
     apiBaseUrl: channel.apiBaseUrl,
     keyValue: '',
     groupNames: channel.groupNames || 'default',
+    remark: channel.remark || '',
     priority: Number(channel.priority || 0),
     weight: Number(channel.weight || 0),
     rpmLimit: Number(channel.rpmLimit || 0),
     tpmLimit: Number(channel.tpmLimit || 0),
     priceMultiplier: Number(channel.priceMultiplier || 1),
-    enabled: channel.enabled
+    enabled: channel.enabled,
+    models: models.value.map((model) => {
+      const binding = (channel.models || []).find((item) => item.modelId === model.id)
+      return {
+        modelId: model.id,
+        upstreamModel: binding?.upstreamModel || model.model,
+        enabled: binding ? Boolean(binding.enabled) : false
+      }
+    })
   }
 }
 
@@ -213,12 +232,14 @@ function channelPayload(draft: ChannelDraft) {
     provider: draft.provider,
     apiBaseUrl: draft.apiBaseUrl,
     groupNames: draft.groupNames,
+    remark: draft.remark,
     priority: draft.priority,
     weight: draft.weight,
     rpmLimit: draft.rpmLimit,
     tpmLimit: draft.tpmLimit,
     priceMultiplier: draft.priceMultiplier,
-    enabled: draft.enabled
+    enabled: draft.enabled,
+    models: draft.models
   }
   const keyValue = draft.keyValue.trim()
   if (keyValue) payload['api' + 'Key'] = keyValue
@@ -253,6 +274,36 @@ function toggleGroupModel(draft: GroupDraft, modelId: number) {
 
 function selectAllGroupModels(draft: GroupDraft) {
   draft.modelIds = models.value.map((model) => model.id)
+}
+
+function modelOptionLabel(model: RelayModel) {
+  const duplicate = models.value.some((item) => item.id !== model.id && item.model === model.model)
+  if (!duplicate) return model.model
+  const displayName = (model.displayName || '').trim()
+  return displayName && displayName !== model.model
+    ? `${model.model} · ${displayName} · #${model.id}`
+    : `${model.model} · #${model.id}`
+}
+
+function channelModelDraft(draft: ChannelDraft, model: RelayModel) {
+  let item = draft.models.find((modelDraft) => modelDraft.modelId === model.id)
+  if (!item) {
+    item = { modelId: model.id, upstreamModel: model.model, enabled: false }
+    draft.models = [...draft.models, item]
+  }
+  return item
+}
+
+function enabledChannelModelCount(channel: RelayChannel) {
+  return (channelDraftOf(channel).models || []).filter((item) => item.enabled).length
+}
+
+function selectAllChannelModels(draft: ChannelDraft) {
+  draft.models = models.value.map((model) => ({
+    modelId: model.id,
+    upstreamModel: channelModelDraft(draft, model).upstreamModel || model.model,
+    enabled: true
+  }))
 }
 
 async function load() {
@@ -326,6 +377,7 @@ async function createChannel() {
   saving.value = 'channel-new'
   error.value = ''
   try {
+    if (!newChannel.models.length) selectAllChannelModels(newChannel)
     await adminApi.createRelayChannel(channelPayload(newChannel))
     newChannel.keyValue = ''
     toast.success('渠道已创建')
@@ -576,6 +628,26 @@ onMounted(load)
               <span class="mt-1 block text-xs font-semibold text-slate-500">逗号分隔，例如 default,vip；只有这些分组的令牌会路由到该渠道。</span>
               <input v-model="newChannel.groupNames" class="input mt-2 h-12 rounded-2xl" placeholder="default,vip" />
             </label>
+            <label class="block">
+              <span class="text-sm font-black text-slate-800">用户备注</span>
+              <span class="mt-1 block text-xs font-semibold text-slate-500">展示给用户看的注意事项，不会影响实际转发。</span>
+              <textarea v-model="newChannel.remark" class="input mt-2 min-h-24 rounded-2xl py-3" placeholder="例如：该渠道仅支持图片模型，请勿用于聊天请求。"></textarea>
+            </label>
+            <div v-if="models.length" class="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <span class="text-sm font-black text-slate-800">绑定模型</span>
+                <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="selectAllChannelModels(newChannel)">全选</button>
+              </div>
+              <div class="grid max-h-56 gap-2 overflow-y-auto">
+                <label v-for="model in models" :key="model.id" class="grid gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">
+                  <span class="flex items-center gap-2">
+                    <input v-model="channelModelDraft(newChannel, model).enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
+                    <span>{{ modelOptionLabel(model) }}</span>
+                  </span>
+                  <input v-model="channelModelDraft(newChannel, model).upstreamModel" class="input h-9 rounded-md text-xs" placeholder="上游模型 ID" />
+                </label>
+              </div>
+            </div>
             <div class="grid gap-3 sm:grid-cols-2">
               <label class="block">
                 <span class="text-sm font-black text-slate-800">优先级</span>
@@ -643,6 +715,11 @@ onMounted(load)
                 <input v-model="channelDraftOf(channel).groupNames" class="input mt-2 h-12 rounded-2xl" />
               </label>
               <label class="block">
+                <span class="text-sm font-black text-slate-800">用户备注</span>
+                <span class="mt-1 block text-xs font-semibold text-slate-500">展示给用户看的注意事项，不会影响实际转发。</span>
+                <textarea v-model="channelDraftOf(channel).remark" class="input mt-2 min-h-24 rounded-2xl py-3" placeholder="例如：该渠道仅支持图片模型，请勿用于聊天请求。"></textarea>
+              </label>
+              <label class="block">
                 <span class="text-sm font-black text-slate-800">优先级</span>
                 <span class="mt-1 block text-xs font-semibold text-slate-500">数字越小越优先。</span>
                 <input v-model.number="channelDraftOf(channel).priority" class="input mt-2 h-12 rounded-2xl" type="number" />
@@ -667,6 +744,24 @@ onMounted(load)
                 <span class="mt-1 block text-xs font-semibold text-slate-500">用于记录渠道成本差异，不参与用户扣费。</span>
                 <input v-model.number="channelDraftOf(channel).priceMultiplier" class="input mt-2 h-12 rounded-2xl" type="number" step="0.0001" />
               </label>
+            </div>
+            <div class="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-sm font-black text-slate-800">渠道模型绑定</p>
+                  <p class="mt-1 text-xs font-semibold text-slate-500">已启用 {{ enabledChannelModelCount(channel) }} / {{ models.length }}，上游模型 ID 可与对外模型不同。</p>
+                </div>
+                <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="selectAllChannelModels(channelDraftOf(channel))">全选</button>
+              </div>
+              <div class="grid max-h-72 gap-2 overflow-y-auto lg:grid-cols-2">
+                <label v-for="model in models" :key="model.id" class="grid gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">
+                  <span class="flex min-w-0 items-center gap-2">
+                    <input v-model="channelModelDraft(channelDraftOf(channel), model).enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
+                    <span class="truncate">{{ modelOptionLabel(model) }}</span>
+                  </span>
+                  <input v-model="channelModelDraft(channelDraftOf(channel), model).upstreamModel" class="input h-9 rounded-md text-xs" placeholder="上游模型 ID" />
+                </label>
+              </div>
             </div>
             <button class="mt-4 h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="saving === `channel-${channel.id}`" @click="saveChannel(channel)">
               {{ saving === `channel-${channel.id}` ? '保存中' : '保存渠道' }}
@@ -1024,7 +1119,7 @@ onMounted(load)
                           type="button"
                           @click="toggleGroupModel(groupDraftOf(group), model.id)"
                         >
-                          {{ model.model }}
+                          {{ modelOptionLabel(model) }}
                         </button>
                       </div>
                     </div>
@@ -1079,7 +1174,7 @@ onMounted(load)
                     type="button"
                     @click="toggleGroupModel(newGroup, model.id)"
                   >
-                    {{ model.model }}
+                    {{ modelOptionLabel(model) }}
                   </button>
                 </div>
               </div>

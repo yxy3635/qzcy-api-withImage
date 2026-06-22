@@ -5,25 +5,15 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("relay_channel")
-public class RelayChannel {
+@TableName("relay_channel_model")
+public class RelayChannelModel {
     private Long id;
-    private String name;
-    private String provider;
-    private String apiBaseUrl;
-    private String apiKey;
-    private String groupNames;
-    private String remark;
-    private String status;
-    private Integer priority;
-    private Integer weight;
-    private Integer rpmLimit;
-    private Integer tpmLimit;
-    private BigDecimal priceMultiplier;
+    private Long channelId;
+    private Long modelId;
+    private String upstreamModel;
     private Boolean enabled;
 
     @TableField(fill = FieldFill.INSERT)

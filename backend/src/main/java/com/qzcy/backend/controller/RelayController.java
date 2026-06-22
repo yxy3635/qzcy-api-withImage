@@ -17,6 +17,7 @@ import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayGroupMapper;
 import com.qzcy.backend.mapper.RelayGroupModelMapper;
+import com.qzcy.backend.mapper.RelayChannelModelMapper;
 import com.qzcy.backend.mapper.RelayModelMapper;
 import com.qzcy.backend.service.RelayChannelStatusService;
 import com.qzcy.backend.service.RelayDispatchService;
@@ -54,6 +55,7 @@ public class RelayController {
     private final RelayModelMapper modelMapper;
     private final RelayGroupMapper groupMapper;
     private final RelayGroupModelMapper groupModelMapper;
+    private final RelayChannelModelMapper channelModelMapper;
     private final ObjectMapper objectMapper;
 
     @GetMapping("/relay/overview")
@@ -99,6 +101,7 @@ public class RelayController {
         Set<String> groupModels = accessibleModelsForGroups(access.getGroupNames());
         ObjectNode body = objectMapper.createObjectNode();
         ArrayNode data = objectMapper.createArrayNode();
+        Set<String> returnedModels = new HashSet<>();
         modelMapper.selectList(new QueryWrapper<RelayModel>()
                         .eq("enabled", true)
                         .orderByAsc("sort_order")
@@ -106,6 +109,7 @@ public class RelayController {
                 .stream()
                 .filter(model -> groupModels.contains(model.getModel()))
                 .filter(model -> containsCsv(access.getAllowedModels(), model.getModel()))
+                .filter(model -> returnedModels.add(model.getModel()))
                 .forEach(model -> {
                     ObjectNode item = objectMapper.createObjectNode();
                     item.put("id", model.getModel());
@@ -280,22 +284,15 @@ public class RelayController {
             if (group != null) {
                 Long configuredModels = groupModelMapper.countEnabledModelsForGroup(group.getId());
                 if (configuredModels == null || configuredModels == 0 || "default".equalsIgnoreCase(group.getCode())) {
-                    models.addAll(allEnabledModelNames());
+                    models.addAll(channelModelMapper.enabledModelNamesForGroup(group.getCode()));
                 } else {
-                    models.addAll(groupModelMapper.modelsForGroup(group.getId()));
+                    Set<String> channelModels = new HashSet<>(channelModelMapper.enabledModelNamesForGroup(group.getCode()));
+                    groupModelMapper.modelsForGroup(group.getId()).stream()
+                            .filter(channelModels::contains)
+                            .forEach(models::add);
                 }
             }
         });
-        return models;
-    }
-
-    private Set<String> allEnabledModelNames() {
-        Set<String> models = new HashSet<>();
-        modelMapper.selectList(new QueryWrapper<RelayModel>()
-                        .eq("enabled", true)
-                        .orderByAsc("sort_order")
-                        .orderByAsc("id"))
-                .forEach(model -> models.add(model.getModel()));
         return models;
     }
 

@@ -14,9 +14,11 @@ public interface RelayPolicyService {
     RelayToken requireRelayToken(String authorization, String apiKeyHeader, String queryKey);
     void enforceIpAccess(RelayToken access, String clientIp);
     RelayModel requireModel(String model, String endpointType);
+    RelayModel requireModelForGroup(String model, String endpointType, RelayGroup group);
     void enforceTokenModelAccess(RelayToken access, String model);
+    RelayGroup resolveGroup(String groupNames, String model, String endpointType);
     RelayGroup resolveGroup(String groupNames, RelayModel model);
-    RelayChannel chooseChannel(RelayModel model, RelayGroup group);
+    RelayContext chooseChannel(RelayToken access, RelayModel model, RelayGroup group, String endpointType);
     void enforceRateLimits(RelayToken access, RelayChannel channel);
     void ensureBalance(Long userId);
     void enforceQuota(RelayToken access, BigDecimal nextCost);
