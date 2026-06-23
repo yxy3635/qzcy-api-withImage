@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qzcy.backend.dto.ErrorRequestLogDto;
 import com.qzcy.backend.dto.RelayAdminOverviewDto;
 import com.qzcy.backend.dto.RelayChannelDto;
 import com.qzcy.backend.dto.RelayChannelModelDto;
@@ -30,6 +31,7 @@ import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.entity.RelayUsageLog;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
+import com.qzcy.backend.mapper.ImageRecordMapper;
 import com.qzcy.backend.mapper.RelayChannelMapper;
 import com.qzcy.backend.mapper.RelayChannelModelMapper;
 import com.qzcy.backend.mapper.RelayGroupMapper;
@@ -55,6 +57,7 @@ import java.util.HexFormat;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Comparator;
 
 @Service
 @RequiredArgsConstructor
@@ -66,6 +69,7 @@ public class RelayServiceImpl implements RelayService {
     private final RelayModelMapper modelMapper;
     private final RelayTokenMapper tokenMapper;
     private final RelayUsageLogMapper usageLogMapper;
+    private final ImageRecordMapper imageRecordMapper;
     private final UserMapper userMapper;
     private final ObjectMapper objectMapper;
     private final SecureRandom random = new SecureRandom();
@@ -349,6 +353,21 @@ public class RelayServiceImpl implements RelayService {
                                 .eq("user_id", userId)
                                 .orderByDesc("created_at"))
                 .getRecords().stream().map(this::toUsageDto).toList();
+        List<ErrorRequestLogDto> relayErrorLogs = usageLogMapper.selectPage(
+                        Page.of(1, 50),
+                        new QueryWrapper<RelayUsageLog>()
+                                .eq("user_id", userId)
+                                .and(wrapper -> wrapper
+                                        .eq("status", "failed")
+                                        .or()
+                                        .notBetween("status_code", 200, 299))
+                                .orderByDesc("created_at"))
+                .getRecords().stream().map(this::toErrorRequestLogDto).toList();
+        List<ErrorRequestLogDto> imageErrorLogs = imageRecordMapper.imageErrorLogs(userId, 50);
+        List<ErrorRequestLogDto> errorLogs = java.util.stream.Stream.concat(relayErrorLogs.stream(), imageErrorLogs.stream())
+                .sorted(Comparator.comparing(ErrorRequestLogDto::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                .limit(50)
+                .toList();
         List<RelayModelUsageDto> modelUsage = usageLogMapper.modelUsage(userId);
         List<RelayGroupDto> groups = groupMapper.selectList(new QueryWrapper<RelayGroup>()
                         .eq("enabled", true)
@@ -364,7 +383,7 @@ public class RelayServiceImpl implements RelayService {
         LocalDateTime minuteStart = LocalDateTime.now().minusMinutes(1);
 
         return new RelayUserOverviewDto(
-                user.getBalance(), models, tokens, channels, logs, modelUsage, usageLogMapper.userTrend(userId), groups,
+                user.getBalance(), models, tokens, channels, logs, errorLogs, modelUsage, usageLogMapper.userTrend(userId), groups,
                 totalRequests, totalTokens, totalCost, usageLogMapper.averageDurationMs(userId),
                 usageLogMapper.userPromptTokens(userId),
                 usageLogMapper.userCompletionTokens(userId),
@@ -585,7 +604,46 @@ public class RelayServiceImpl implements RelayService {
                 item.getCompletionTokens(), item.getCachedTokens(), item.getCacheCreationTokens(), item.getTotalTokens(),
                 item.getInputCost(), item.getOutputCost(), item.getCacheReadCost(), item.getCacheCreationCost(),
                 item.getRequestCost(), item.getGroupRatio(), item.getChannelRatio(), item.getCost(), item.getStatusCode(),
-                item.getDurationMs(), item.getUserAgent(), item.getStatus(), item.getCreatedAt());
+                item.getDurationMs(), item.getUserAgent(), item.getStatus(), item.getMessage(), item.getCreatedAt());
+    }
+
+    private ErrorRequestLogDto toErrorRequestLogDto(RelayUsageLog item) {
+        return new ErrorRequestLogDto(
+                item.getId(),
+                "relay",
+                item.getTokenName(),
+                item.getChannelName(),
+                item.getGroupNames(),
+                item.getEndpoint(),
+                "",
+                item.getModel(),
+                item.getModelType(),
+                item.getStatusCode(),
+                item.getDurationMs(),
+                item.getUserAgent(),
+                item.getStatus(),
+                errorTypeFromMessage(item.getMessage()),
+                item.getMessage(),
+                "",
+                item.getCreatedAt()
+        );
+    }
+
+    private String errorTypeFromMessage(String message) {
+        if (message == null || message.isBlank()) return "";
+        try {
+            JsonNode root = objectMapper.readTree(message);
+            JsonNode error = root.path("error");
+            if (!error.isMissingNode() && !error.isNull()) {
+                String type = error.path("type").asText("");
+                if (!type.isBlank()) return type;
+                String code = error.path("code").asText("");
+                if (!code.isBlank()) return code;
+            }
+        } catch (Exception ignored) {
+            if (message.toLowerCase().contains("<html")) return "html_error";
+        }
+        return "";
     }
 
     private BigDecimal nonNegative(BigDecimal value) {

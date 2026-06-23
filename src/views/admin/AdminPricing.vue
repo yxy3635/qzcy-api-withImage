@@ -1,6 +1,7 @@
 ﻿<script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import type { ImageGenerationConfig } from '@/types'
@@ -73,7 +74,7 @@ async function save(config: ImageGenerationConfig) {
       name: draft.name,
       model: draft.model,
       apiBaseUrl: draft.apiBaseUrl,
-      endpointPath: draft.endpointPath,
+      endpointPath: '/v1/images/generations',
       apiKey: draft.apiKey.trim() || undefined,
       size: draft.size,
       quality: draft.quality,
@@ -111,8 +112,8 @@ onMounted(load)
 
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
-      <div v-if="loading" class="mt-8 rounded-3xl border border-slate-100 bg-white p-10 text-center text-sm font-bold text-slate-500 shadow-sm">
-        正在读取配置
+      <div v-if="loading" class="mt-8 rounded-3xl border border-slate-100 bg-white p-10 shadow-sm">
+        <RequestLoader label="正在读取配置" :cell-size="18" />
       </div>
 
       <div v-else class="mt-6 grid gap-5 sm:mt-8 xl:grid-cols-3">
@@ -150,19 +151,10 @@ onMounted(load)
               <input v-model="draftOf(config).apiBaseUrl" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-semibold outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="https://api.openai.com" />
             </label>
 
-            <div class="grid gap-3 sm:grid-cols-2">
-              <label class="block">
-                <span class="text-xs font-black text-slate-500">模型</span>
-                <input v-model="draftOf(config).model" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-semibold outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="dall-e-3" />
-              </label>
-              <label class="block">
-                <span class="text-xs font-black text-slate-500">图像路径</span>
-                <select v-model="draftOf(config).endpointPath" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-semibold outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100">
-                  <option value="/v1/images/generations">/v1/images/generations</option>
-                  <option value="/v1/responses">/v1/responses</option>
-                </select>
-              </label>
-            </div>
+            <label class="block">
+              <span class="text-xs font-black text-slate-500">模型</span>
+              <input v-model="draftOf(config).model" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-semibold outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="dall-e-3" />
+            </label>
 
             <div class="grid gap-3 sm:grid-cols-2">
               <label class="block">

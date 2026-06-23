@@ -54,6 +54,34 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     @Transactional
+    public void deductBalanceOnly(Long userId, BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(400, "扣费金额无效");
+        }
+        int updated = userMapper.deductBalance(userId, amount);
+        if (updated == 0) {
+            throw new BusinessException(402, "余额不足，请先充值");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void refundBalance(Long userId, BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        userMapper.addBalance(userId, amount);
+        PaymentRecord record = new PaymentRecord();
+        record.setUserId(userId);
+        record.setAmount(amount);
+        record.setType("image_refund");
+        record.setStatus("completed");
+        record.setCreatedAt(LocalDateTime.now());
+        paymentRecordMapper.insert(record);
+    }
+
+    @Override
+    @Transactional
     public Map<String, Object> recharge(Long userId, RechargeDto dto, String backendBaseUrl, String frontendBaseUrl) {
         BigDecimal amount = dto.getAmount();
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {

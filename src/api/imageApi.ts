@@ -2,8 +2,8 @@ import http from './http'
 import type { ApiResponse, ImageEstimate, ImageGenerationConfig, ImageRecord, PageResult } from '@/types'
 
 export const imageApi = {
-  generate(prompt: string, qualityCode: string, size?: string) {
-    return http.post<ApiResponse<ImageRecord>>('/image/generate', { prompt, qualityCode, size })
+  generate(prompt: string, qualityCode: string, size?: string, referenceImages: string[] = []) {
+    return http.post<ApiResponse<ImageRecord>>('/image/generate', { prompt, qualityCode, size, referenceImages })
   },
   detail(id: number) {
     return http.get<ApiResponse<ImageRecord>>(`/image/${id}`)

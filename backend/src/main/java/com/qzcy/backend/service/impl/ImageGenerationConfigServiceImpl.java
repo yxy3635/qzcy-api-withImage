@@ -131,7 +131,7 @@ public class ImageGenerationConfigServiceImpl implements ImageGenerationConfigSe
         if (!normalized.startsWith("/")) {
             normalized = "/" + normalized;
         }
-        if (!"/v1/images/generations".equals(normalized) && !"/v1/responses".equals(normalized)) {
+        if (!"/v1/images/generations".equals(normalized) && !"/v1/images/edits".equals(normalized)) {
             throw new BusinessException(400, "图像路径只支持 /v1/images/generations 或 /v1/responses");
         }
         return normalized;

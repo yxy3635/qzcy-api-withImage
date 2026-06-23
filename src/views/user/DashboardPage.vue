@@ -115,17 +115,23 @@ onMounted(async () => {
       </div>
     </section>
 
-    <div v-if="selectedAnnouncement" class="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-4 backdrop-blur-sm" @click.self="selectedAnnouncement = null">
-      <section class="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-[0_28px_90px_rgba(15,23,42,0.24)]">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h2 class="text-2xl font-black text-slate-950">{{ selectedAnnouncement.title }}</h2>
-            <p class="mt-2 text-xs font-semibold text-slate-400">{{ (selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt || '').replace('T', ' ') }}</p>
+    <Teleport to="body">
+      <div
+        v-if="selectedAnnouncement"
+        class="fixed inset-0 z-[70] flex min-h-dvh items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"
+        @click.self="selectedAnnouncement = null"
+      >
+        <section class="max-h-[calc(100dvh-32px)] w-full max-w-2xl overflow-y-auto rounded-[24px] bg-white p-5 shadow-[0_28px_90px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-6">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-black text-slate-950 sm:text-2xl">{{ selectedAnnouncement.title }}</h2>
+              <p class="mt-2 text-xs font-semibold text-slate-400">{{ (selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt || '').replace('T', ' ') }}</p>
+            </div>
+            <button class="rounded-xl px-3 py-2 text-xl font-black text-slate-400 hover:bg-slate-50" @click="selectedAnnouncement = null">×</button>
           </div>
-          <button class="rounded-xl px-3 py-2 text-xl font-black text-slate-400 hover:bg-slate-50" @click="selectedAnnouncement = null">×</button>
-        </div>
-        <div class="mt-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{{ selectedAnnouncement.content }}</div>
-      </section>
-    </div>
+          <div class="mt-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{{ selectedAnnouncement.content }}</div>
+        </section>
+      </div>
+    </Teleport>
   </AppLayout>
 </template>

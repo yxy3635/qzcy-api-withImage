@@ -16,6 +16,7 @@ public class RelayUserOverviewDto {
     private List<RelayTokenDto> tokens;
     private List<RelayChannelDto> channels;
     private List<RelayUsageLogDto> logs;
+    private List<ErrorRequestLogDto> errorLogs;
     private List<RelayModelUsageDto> modelUsage;
     private List<RelayTrendDto> trend;
     private List<RelayGroupDto> groups;

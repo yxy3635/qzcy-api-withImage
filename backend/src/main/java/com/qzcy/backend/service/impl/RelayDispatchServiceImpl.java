@@ -7,6 +7,7 @@ import com.qzcy.backend.dto.relay.RelayContext;
 import com.qzcy.backend.dto.relay.RelayCostBreakdown;
 import com.qzcy.backend.dto.relay.RelayDispatchRequest;
 import com.qzcy.backend.dto.relay.RelayDispatchResult;
+import com.qzcy.backend.dto.relay.RelayMultipartFile;
 import com.qzcy.backend.dto.relay.RelayStreamDispatchResult;
 import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayChannelModel;
@@ -24,15 +25,20 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -47,6 +53,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     private final RelayTokenMapper tokenMapper;
     private final PaymentService paymentService;
     private final ObjectMapper objectMapper;
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(30))
+            .build();
 
     @Override
     public RelayDispatchResult dispatch(RelayDispatchRequest request) throws Exception {
@@ -60,7 +69,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 model
         );
         long startedAt = System.currentTimeMillis();
-        HttpResponse<String> response = relayString(request.body(), context, request.upstreamPath());
+        HttpResponse<String> response = hasFiles(request.files())
+                ? relayMultipart(request.body(), request.files(), context, request.upstreamPath())
+                : relayString(request.body(), context, request.upstreamPath());
         JsonNode responseBody = parseResponseBody(response.body());
         if (response.statusCode() >= 200 && response.statusCode() < 300 && !hasBillableUsage(responseBody)) {
             responseBody = withEstimatedUsage(request.body(), response.body());
@@ -84,13 +95,24 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         );
         long startedAt = System.currentTimeMillis();
         HttpResponse<InputStream> response = relayStream(request.body(), context, request.upstreamPath());
-        JsonNode responseBody = emptyResponseBody();
-        RelayCostBreakdown cost = relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), responseBody);
-        chargeIfSuccessful(response.statusCode(), context, cost);
         StreamingResponseBody stream = outputStream -> {
+            ByteArrayOutputStream captured = new ByteArrayOutputStream();
             try (InputStream inputStream = response.body()) {
-                inputStream.transferTo(outputStream);
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = inputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, read);
+                    outputStream.flush();
+                    captured.write(buffer, 0, read);
+                }
             } finally {
+                String responseText = captured.toString(StandardCharsets.UTF_8);
+                JsonNode responseBody = parseResponseBody(responseText);
+                if (response.statusCode() >= 200 && response.statusCode() < 300 && !hasBillableUsage(responseBody)) {
+                    responseBody = withEstimatedUsage(request.body(), responseText);
+                }
+                RelayCostBreakdown cost = relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), responseBody);
+                chargeIfSuccessful(response.statusCode(), context, cost);
                 saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(),
                         responseBody, cost, System.currentTimeMillis() - startedAt);
             }
@@ -103,21 +125,19 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             return;
         }
         relayPolicyService.enforceQuota(context.token(), cost.total());
-        paymentService.deductBalance(context.token().getUserId(), cost.total());
+        paymentService.deductBalanceOnly(context.token().getUserId(), cost.total());
     }
 
     private HttpResponse<String> relayString(ObjectNode body, RelayContext context, String path) throws Exception {
-        return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(30))
-                .build()
-                .send(upstreamRequest(body, context, path), HttpResponse.BodyHandlers.ofString());
+        return httpClient.send(upstreamRequest(body, context, path), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> relayMultipart(ObjectNode body, List<RelayMultipartFile> files, RelayContext context, String path) throws Exception {
+        return httpClient.send(upstreamMultipartRequest(body, files, context, path), HttpResponse.BodyHandlers.ofString());
     }
 
     private HttpResponse<InputStream> relayStream(ObjectNode body, RelayContext context, String path) throws Exception {
-        return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(30))
-                .build()
-                .send(upstreamRequest(body, context, path), HttpResponse.BodyHandlers.ofInputStream());
+        return httpClient.send(upstreamRequest(body, context, path), HttpResponse.BodyHandlers.ofInputStream());
     }
 
     private HttpRequest upstreamRequest(ObjectNode body, RelayContext context, String path) throws Exception {
@@ -129,6 +149,20 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .header(HttpHeaders.ACCEPT, acceptHeader(body))
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(outboundBody)))
+                .build();
+    }
+
+    private HttpRequest upstreamMultipartRequest(ObjectNode body, List<RelayMultipartFile> files, RelayContext context, String path) throws Exception {
+        RelayChannel channel = context.channel();
+        ObjectNode outboundBody = prepareOutboundBody(body, context, path);
+        String boundary = "----imageCreaterBoundary" + UUID.randomUUID();
+        byte[] multipartBody = multipartBody(outboundBody, files, boundary);
+        return HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), path)))
+                .timeout(RELAY_TIMEOUT)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + channel.getApiKey())
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.MULTIPART_FORM_DATA_VALUE + "; boundary=" + boundary)
+                .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(multipartBody))
                 .build();
     }
 
@@ -155,6 +189,49 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
 
     private String acceptHeader(ObjectNode body) {
         return body.path("stream").asBoolean(false) ? MediaType.TEXT_EVENT_STREAM_VALUE : MediaType.APPLICATION_JSON_VALUE;
+    }
+
+    private boolean hasFiles(List<RelayMultipartFile> files) {
+        return files != null && !files.isEmpty();
+    }
+
+    private byte[] multipartBody(ObjectNode fields, List<RelayMultipartFile> files, String boundary) throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Iterator<String> names = fields.fieldNames();
+        while (names.hasNext()) {
+            String name = names.next();
+            JsonNode value = fields.get(name);
+            if (value == null || value.isNull() || value.isContainerNode()) {
+                continue;
+            }
+            writeAscii(output, "--" + boundary + "\r\n");
+            writeAscii(output, "Content-Disposition: form-data; name=\"" + escapeMultipartName(name) + "\"\r\n\r\n");
+            output.write(value.asText("").getBytes(StandardCharsets.UTF_8));
+            writeAscii(output, "\r\n");
+        }
+        if (files != null) {
+            for (RelayMultipartFile file : files) {
+                writeAscii(output, "--" + boundary + "\r\n");
+                writeAscii(output, "Content-Disposition: form-data; name=\"" + escapeMultipartName(file.fieldName()) + "\"; filename=\"" + escapeMultipartName(file.filename()) + "\"\r\n");
+                writeAscii(output, "Content-Type: " + safeContentType(file.contentType()) + "\r\n\r\n");
+                output.write(file.content());
+                writeAscii(output, "\r\n");
+            }
+        }
+        writeAscii(output, "--" + boundary + "--\r\n");
+        return output.toByteArray();
+    }
+
+    private void writeAscii(ByteArrayOutputStream output, String text) throws Exception {
+        output.write(text.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    private String escapeMultipartName(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private String safeContentType(String value) {
+        return value == null || value.isBlank() ? MediaType.APPLICATION_OCTET_STREAM_VALUE : value;
     }
 
     private void saveUsage(RelayContext context, String endpoint, String userAgent,
@@ -381,9 +458,14 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
 
     private String logMessage(int statusCode, JsonNode responseBody) {
         if (statusCode < 200 || statusCode >= 300) {
-            return responseBody.toString();
+            return truncateMessage(responseBody.toString());
         }
         return responseBody.path("usage").path("estimated").asBoolean(false) ? "usage estimated from request/response text" : "";
+    }
+
+    private String truncateMessage(String value) {
+        if (value == null) return "";
+        return value.length() <= 1000 ? value : value.substring(0, 997) + "...";
     }
 
     private String contentType(HttpResponse<?> response) {

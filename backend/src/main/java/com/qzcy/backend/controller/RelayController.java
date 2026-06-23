@@ -11,6 +11,7 @@ import com.qzcy.backend.dto.RelayTokenDto;
 import com.qzcy.backend.dto.RelayUserOverviewDto;
 import com.qzcy.backend.dto.relay.RelayDispatchRequest;
 import com.qzcy.backend.dto.relay.RelayDispatchResult;
+import com.qzcy.backend.dto.relay.RelayMultipartFile;
 import com.qzcy.backend.entity.RelayGroup;
 import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayToken;
@@ -39,7 +40,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -142,7 +146,7 @@ public class RelayController {
                                        @RequestParam(value = "key", required = false) String queryKey,
                                        HttpServletRequest request,
                                        @RequestBody ObjectNode body) throws Exception {
-        return relayJson(authorization, apiKeyHeader, queryKey, userAgent, clientIp(request), "chat", "/v1/responses", body);
+        return relayJson(authorization, apiKeyHeader, queryKey, userAgent, clientIp(request), responsesEndpointType(body), "/v1/responses", body);
     }
 
     @PostMapping("/v1/responses/compact")
@@ -175,7 +179,7 @@ public class RelayController {
         return relayJson(authorization, apiKeyHeader, queryKey, userAgent, clientIp(request), "embedding", "/v1/embeddings", body);
     }
 
-    @PostMapping("/v1/images/generations")
+    @PostMapping(value = "/v1/images/generations", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> imageGenerations(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
                                               @RequestHeader(value = "x-api-key", required = false) String apiKeyHeader,
                                               @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String userAgent,
@@ -183,6 +187,49 @@ public class RelayController {
                                               HttpServletRequest request,
                                               @RequestBody ObjectNode body) throws Exception {
         return relayJson(authorization, apiKeyHeader, queryKey, userAgent, clientIp(request), "image", "/v1/images/generations", body);
+    }
+
+    @PostMapping(value = "/v1/images/generations", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> imageGenerationsMultipart(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+                                                       @RequestHeader(value = "x-api-key", required = false) String apiKeyHeader,
+                                                       @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String userAgent,
+                                                       @RequestParam(value = "key", required = false) String queryKey,
+                                                       HttpServletRequest request,
+                                                       @RequestParam Map<String, String> form,
+                                                       @RequestParam(value = "image", required = false) List<MultipartFile> imageFiles) throws Exception {
+        ObjectNode body = objectMapper.createObjectNode();
+        form.forEach(body::put);
+        List<RelayMultipartFile> files = imageFiles == null ? List.of() : imageFiles.stream()
+                .filter(file -> file != null && !file.isEmpty())
+                .map(file -> {
+                    try {
+                        return new RelayMultipartFile(
+                                "image",
+                                file.getOriginalFilename() == null || file.getOriginalFilename().isBlank() ? "reference.png" : file.getOriginalFilename(),
+                                file.getContentType() == null || file.getContentType().isBlank() ? MediaType.APPLICATION_OCTET_STREAM_VALUE : file.getContentType(),
+                                file.getBytes()
+                        );
+                    } catch (Exception ex) {
+                        throw new BusinessException(400, "参考图读取失败：" + ex.getMessage());
+                    }
+                })
+                .toList();
+        return relayMultipart(authorization, apiKeyHeader, queryKey, userAgent, clientIp(request), "image", "/v1/images/generations", body, files);
+    }
+
+    @PostMapping(value = "/v1/images/edits", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> imageEditsMultipart(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+                                                 @RequestHeader(value = "x-api-key", required = false) String apiKeyHeader,
+                                                 @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String userAgent,
+                                                 @RequestParam(value = "key", required = false) String queryKey,
+                                                 HttpServletRequest request,
+                                                 @RequestParam Map<String, String> form,
+                                                 @RequestParam(value = "image", required = false) List<MultipartFile> imageFiles,
+                                                 @RequestParam(value = "image[]", required = false) List<MultipartFile> imageArrayFiles) throws Exception {
+        ObjectNode body = objectMapper.createObjectNode();
+        form.forEach(body::put);
+        List<RelayMultipartFile> files = multipartFiles(imageFiles, imageArrayFiles);
+        return relayMultipart(authorization, apiKeyHeader, queryKey, userAgent, clientIp(request), "image", "/v1/images/edits", body, files);
     }
 
     @PostMapping("/v1/moderations")
@@ -254,6 +301,60 @@ public class RelayController {
         } catch (BusinessException ex) {
             return relayError(ex.getCode(), ex.getMessage());
         }
+    }
+
+    private ResponseEntity<?> relayMultipart(String authorization, String apiKeyHeader, String queryKey, String userAgent, String clientIp, String endpointType, String path, ObjectNode body, List<RelayMultipartFile> files) throws Exception {
+        try {
+            RelayDispatchResult result = relayDispatchService.dispatch(new RelayDispatchRequest(
+                    authorization,
+                    apiKeyHeader,
+                    queryKey,
+                    userAgent,
+                    clientIp,
+                    endpointType,
+                    path,
+                    body,
+                    files
+            ));
+            return ResponseEntity.status(result.statusCode())
+                    .contentType(mediaType(result.contentType()))
+                    .body(result.body());
+        } catch (BusinessException ex) {
+            return relayError(ex.getCode(), ex.getMessage());
+        }
+    }
+
+    private List<RelayMultipartFile> multipartFiles(List<MultipartFile> imageFiles, List<MultipartFile> imageArrayFiles) {
+        List<MultipartFile> source = new java.util.ArrayList<>();
+        if (imageFiles != null) source.addAll(imageFiles);
+        if (imageArrayFiles != null) source.addAll(imageArrayFiles);
+        return source.stream()
+                .filter(file -> file != null && !file.isEmpty())
+                .map(file -> {
+                    try {
+                        return new RelayMultipartFile(
+                                "image",
+                                file.getOriginalFilename() == null || file.getOriginalFilename().isBlank() ? "reference.png" : file.getOriginalFilename(),
+                                file.getContentType() == null || file.getContentType().isBlank() ? MediaType.APPLICATION_OCTET_STREAM_VALUE : file.getContentType(),
+                                file.getBytes()
+                        );
+                    } catch (Exception ex) {
+                        throw new BusinessException(400, "参考图读取失败：" + ex.getMessage());
+                    }
+                })
+                .toList();
+    }
+
+    private String responsesEndpointType(ObjectNode body) {
+        JsonNode tools = body == null ? null : body.path("tools");
+        if (tools != null && tools.isArray()) {
+            for (JsonNode tool : tools) {
+                if ("image_generation".equalsIgnoreCase(tool.path("type").asText(""))) {
+                    return "image";
+                }
+            }
+        }
+        return "chat";
     }
 
     private ResponseEntity<JsonNode> relayError(int code, String message) {

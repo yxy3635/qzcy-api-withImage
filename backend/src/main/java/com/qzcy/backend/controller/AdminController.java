@@ -2,6 +2,7 @@ package com.qzcy.backend.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminImageRecordDto;
+import com.qzcy.backend.dto.AdminRelayUsageLogDto;
 import com.qzcy.backend.dto.AdminUserUpdateDto;
 import com.qzcy.backend.dto.AnnouncementDto;
 import com.qzcy.backend.dto.AnnouncementUpdateDto;
@@ -104,6 +105,14 @@ public class AdminController {
                                                                @RequestParam(required = false) String keyword,
                                                                @RequestParam(required = false) String status) {
         return ApiResponse.success(adminService.imageRecords(page, size, keyword, status));
+    }
+
+    @GetMapping("/relay/usage-records")
+    public ApiResponse<Page<AdminRelayUsageLogDto>> relayUsageRecords(@RequestParam(defaultValue = "1") long page,
+                                                                      @RequestParam(defaultValue = "10") long size,
+                                                                      @RequestParam(required = false) String keyword,
+                                                                      @RequestParam(required = false) String status) {
+        return ApiResponse.success(adminService.relayUsageRecords(page, size, keyword, status));
     }
 
     @GetMapping("/image-configs")

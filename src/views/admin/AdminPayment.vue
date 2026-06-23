@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import type { PaymentConfig } from '@/types'
@@ -116,7 +117,7 @@ onMounted(load)
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
       <section class="mt-6 rounded-[28px] border border-white/80 bg-white/86 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-2xl sm:mt-8 sm:p-6">
-        <div v-if="loading" class="p-10 text-center text-sm font-bold text-slate-500">正在读取配置</div>
+        <RequestLoader v-if="loading" class="p-10" label="正在读取配置" :cell-size="18" />
         <div v-else class="grid gap-5 lg:grid-cols-[1fr_320px]">
           <div class="space-y-4">
             <label class="block">
@@ -139,7 +140,7 @@ onMounted(load)
               <span class="text-xs font-black text-slate-500">新用户注册赠送余额</span>
               <div class="relative mt-2">
                 <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">￥</span>
-                <input v-model.number="draft.registerGiftAmount" class="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 pl-9 pr-4 text-sm font-black outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" min="0" step="0.01" type="number" />
+                <input v-model.number="draft.registerGiftAmount" class="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 pl-9 pr-4 text-sm font-black outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" min="0" step="0.000001" type="number" />
               </div>
             </label>
 
@@ -198,7 +199,7 @@ onMounted(load)
               <div class="flex justify-between gap-3"><span>支付宝</span><span class="font-black" :class="config?.alipayEnabled ? 'text-emerald-600' : 'text-slate-400'">{{ config?.alipayEnabled ? '开启' : '关闭' }}</span></div>
               <div class="flex justify-between gap-3"><span>微信</span><span class="font-black" :class="config?.wxpayEnabled ? 'text-emerald-600' : 'text-slate-400'">{{ config?.wxpayEnabled ? '开启' : '关闭' }}</span></div>
               <div class="flex justify-between gap-3"><span>QQ</span><span class="font-black" :class="config?.qqpayEnabled ? 'text-emerald-600' : 'text-slate-400'">{{ config?.qqpayEnabled ? '开启' : '关闭' }}</span></div>
-              <div class="flex justify-between gap-3"><span>注册赠送</span><span class="font-black text-slate-950">￥{{ Number(config?.registerGiftAmount || 0).toFixed(2) }}</span></div>
+              <div class="flex justify-between gap-3"><span>注册赠送</span><span class="font-black text-slate-950">￥{{ Number(config?.registerGiftAmount || 0).toFixed(6) }}</span></div>
               <div class="flex justify-between gap-3"><span>邀请返利</span><span class="font-black text-slate-950">{{ Number(config?.referralRebateRate || 0).toFixed(2) }}%</span></div>
             </div>
             <p class="mt-5 text-xs font-semibold leading-6 text-slate-500">回调地址必须是公网可访问域名，localhost 只能本机访问，第三方支付平台无法回调。</p>

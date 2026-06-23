@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { imageApi } from '@/api/imageApi'
 import { useAuthStore } from '@/store/authStore'
 import { useToast } from '@/composables/useToast'
@@ -12,9 +13,13 @@ const router = useRouter()
 const toast = useToast()
 const prompt = ref('')
 const loading = ref(false)
+const submitLoading = ref(false)
 const error = ref('')
 const result = ref<ImageRecord | null>(null)
 const previewRecord = ref<ImageRecord | null>(null)
+const errorRecord = ref<ImageRecord | null>(null)
+const reusingRecordId = ref<number | null>(null)
+const editingRecordId = ref<number | null>(null)
 const recent = ref<ImageRecord[]>([])
 const configs = ref<ImageGenerationConfig[]>([])
 const selectedQuality = ref('1k')
@@ -28,7 +33,7 @@ const imageFormat = ref('PNG')
 const elapsedSeconds = ref(0)
 const estimatedSeconds = ref(45)
 const fileInput = ref<HTMLInputElement | null>(null)
-const uploadedImages = ref<Array<{ name: string; url: string }>>([])
+const uploadedImages = ref<UploadedImage[]>([])
 const sizeMode = ref<'auto' | 'ratio' | 'custom'>('auto')
 const selectedRatio = ref('1:1')
 const customRatioActive = ref(false)
@@ -38,7 +43,13 @@ const customHeight = ref(720)
 let timer: number | undefined
 let activePollId = 0
 const POLL_INTERVAL_MS = 2000
-const unsupportedUploadMessage = '当前模型 gpt-image-2 不支持上传参考图，请切换其他模型后再上传。'
+const MAX_UPLOAD_IMAGES = 4
+
+interface UploadedImage {
+  name: string
+  url: string
+  dataUrl: string
+}
 
 const promptPresets = [
   '未来主义建筑，清晨薄雾，广角镜头，超写实',
@@ -63,7 +74,7 @@ const ratioOptions = ['1:1', '3:2', '2:3', '16:9', '9:16', '4:3', '3:4', '21:9']
 
 const selectedConfig = computed(() => configs.value.find((item) => item.code === selectedQuality.value))
 const selectedFilterLabel = computed(() => filterOptions.find((item) => item.value === galleryFilter.value)?.label || '全部')
-const uploadDisabled = computed(() => (selectedConfig.value?.model || '').trim().toLowerCase() === 'gpt-image-2')
+const requestLoading = computed(() => submitLoading.value || reusingRecordId.value !== null || editingRecordId.value !== null)
 const selectedSizeScale = computed(() => {
   const code = (selectedConfig.value?.code || selectedQuality.value).toLowerCase()
   if (code.includes('4k')) return sizeScales[2]
@@ -131,12 +142,14 @@ async function loadEstimate() {
 }
 
 async function generate() {
+  if (loading.value || submitLoading.value) return
   error.value = ''
   if (!prompt.value.trim()) {
     error.value = '请输入提示词'
     toast.warning(error.value)
     return
   }
+  submitLoading.value = true
   await loadEstimate()
   elapsedSeconds.value = 0
   window.clearInterval(timer)
@@ -148,7 +161,12 @@ async function generate() {
   const submittedPrompt = prompt.value
   prompt.value = ''
   try {
-    const { data } = await imageApi.generate(submittedPrompt, selectedQuality.value, selectedImageSize.value)
+    const referenceImages = uploadedImages.value.map((item) => item.dataUrl)
+    const { data } = await imageApi.generate(submittedPrompt, selectedQuality.value, selectedImageSize.value, referenceImages)
+    submitLoading.value = false
+    if (referenceImages.length) {
+      clearUploads()
+    }
     result.value = data.data
     recent.value = [data.data, ...recent.value.filter((item) => item.id !== data.data.id)]
     const completed = await waitForGeneration(data.data.id, pollId)
@@ -158,13 +176,14 @@ async function generate() {
       previewRecord.value = completed
       toast.success('图像生成完成')
     } else if (completed.status === 'failed') {
-      error.value = '图像生成失败，请稍后重试或更换服务商线路'
+      error.value = imageErrorText(completed)
       toast.error(error.value)
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '生成失败'
     toast.error(error.value)
   } finally {
+    submitLoading.value = false
     window.clearInterval(timer)
     await Promise.allSettled([auth.refreshUser(), loadRecent(), loadEstimate()])
     loading.value = false
@@ -208,8 +227,40 @@ async function remove(record: ImageRecord) {
   }
 }
 
+async function reusePrompt(record: ImageRecord) {
+  reusingRecordId.value = record.id
+  prompt.value = record.prompt
+  await sleep(180)
+  if (reusingRecordId.value === record.id) {
+    reusingRecordId.value = null
+  }
+}
+
 function usePreset(text: string) {
   prompt.value = text
+}
+
+function imageErrorText(record?: ImageRecord | null) {
+  const message = extractErrorMessage(record?.errorMessage)
+  const details = [
+    record?.errorStatusCode ? `状态码 ${record.errorStatusCode}` : '',
+    record?.errorType ? `类型 ${record.errorType}` : ''
+  ].filter(Boolean).join('，')
+  if (message && details) return `图像生成失败：${message}（${details}）`
+  if (message) return `图像生成失败：${message}`
+  if (details) return `图像生成失败（${details}）`
+  return '图像生成失败，请稍后重试或更换服务商线路'
+}
+
+function extractErrorMessage(value?: string) {
+  if (!value) return ''
+  const text = String(value).trim()
+  try {
+    const parsed = JSON.parse(text)
+    return parsed?.error?.message || parsed?.message || text
+  } catch {
+    return text
+  }
 }
 
 function selectSpec(code: string) {
@@ -218,23 +269,77 @@ function selectSpec(code: string) {
 }
 
 function openUpload() {
-  if (uploadDisabled.value) {
-    toast.warning(unsupportedUploadMessage)
-    return
-  }
   fileInput.value?.click()
 }
 
-function handleUpload(event: Event) {
+async function handleUpload(event: Event) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files || [])
-  if (!files.length) return
-  uploadedImages.value.forEach((item) => URL.revokeObjectURL(item.url))
-  uploadedImages.value = files
-    .filter((file) => file.type.startsWith('image/'))
-    .slice(0, 4)
-    .map((file) => ({ name: file.name, url: URL.createObjectURL(file) }))
+  await addImageFiles(files, true)
   input.value = ''
+}
+
+async function handlePaste(event: ClipboardEvent) {
+  const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith('image/'))
+  if (!files.length) return
+  event.preventDefault()
+  await addImageFiles(files)
+}
+
+async function addImageFiles(files: File[], replace = false) {
+  const imageFiles = files.filter((file) => file.type.startsWith('image/'))
+  if (!imageFiles.length) return
+  if (replace) {
+    clearUploads()
+  }
+  const slots = MAX_UPLOAD_IMAGES - uploadedImages.value.length
+  if (slots <= 0) {
+    toast.warning(`最多上传 ${MAX_UPLOAD_IMAGES} 张参考图`)
+    return
+  }
+  const nextImages = await Promise.all(
+    imageFiles.slice(0, slots).map(async (file) => ({
+      name: file.name || `pasted-${Date.now()}.png`,
+      url: URL.createObjectURL(file),
+      dataUrl: await fileToDataUrl(file)
+    }))
+  )
+  uploadedImages.value = [...uploadedImages.value, ...nextImages]
+  if (imageFiles.length > slots) {
+    toast.warning(`最多上传 ${MAX_UPLOAD_IMAGES} 张参考图`)
+  }
+}
+
+async function addRecordToUploads(record: ImageRecord) {
+  if (!record.generatedImageUrl || record.status !== 'success') return
+  if (uploadedImages.value.length >= MAX_UPLOAD_IMAGES) {
+    toast.warning(`最多上传 ${MAX_UPLOAD_IMAGES} 张参考图`)
+    return
+  }
+  editingRecordId.value = record.id
+  try {
+    const response = await fetch(record.generatedImageUrl)
+    if (!response.ok) throw new Error('图片读取失败')
+    const blob = await response.blob()
+    const file = new File([blob], `record-${record.id}.png`, { type: blob.type || 'image/png' })
+    await addImageFiles([file])
+    toast.success('已添加到参考图')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '图片添加失败')
+  } finally {
+    if (editingRecordId.value === record.id) {
+      editingRecordId.value = null
+    }
+  }
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('参考图读取失败'))
+    reader.readAsDataURL(file)
+  })
 }
 
 function clearUploads() {
@@ -285,13 +390,6 @@ onMounted(() => {
   void Promise.all([auth.refreshUser(), loadRecent(), loadConfigs(), loadEstimate()])
 })
 
-watch(uploadDisabled, (disabled) => {
-  if (disabled && uploadedImages.value.length) {
-    clearUploads()
-    toast.warning(unsupportedUploadMessage)
-  }
-})
-
 onBeforeUnmount(() => {
   activePollId += 1
   window.clearInterval(timer)
@@ -300,7 +398,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#fbfbfc] pb-32 text-slate-950 md:pb-56">
+  <div class="min-h-screen bg-[#fbfbfc] pb-32 text-slate-950 md:pb-56" @paste="handlePaste">
     <header class="sticky top-0 z-30 border-b border-slate-100 bg-white/86 backdrop-blur-2xl">
       <div class="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-4 md:px-8">
         <div class="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -311,7 +409,7 @@ onBeforeUnmount(() => {
           <RouterLink class="rounded-2xl bg-slate-950 px-3 py-2 text-xs font-black text-white sm:px-4 sm:text-sm" to="/user/history">画廊</RouterLink>
           <RouterLink class="rounded-2xl px-3 py-2 text-xs font-bold text-slate-500 transition hover:bg-slate-100 sm:px-4 sm:text-sm" to="/user/dashboard">资产</RouterLink>
           <span class="hidden rounded-2xl border border-sky-100 bg-sky-50 px-3 py-2 text-sm font-black text-sky-700 md:inline-flex">
-            ￥{{ Number(auth.userInfo?.balance || 0).toFixed(2) }}
+            ￥{{ Number(auth.userInfo?.balance || 0).toFixed(6) }}
           </span>
           <button class="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50 sm:px-4 sm:text-sm" @click="logout">退出</button>
         </div>
@@ -343,16 +441,15 @@ onBeforeUnmount(() => {
           />
           <input ref="fileInput" class="hidden" type="file" accept="image/*" multiple @change="handleUpload" />
           <button
-            class="grid h-12 w-12 place-items-center rounded-2xl border transition disabled:cursor-not-allowed disabled:opacity-60"
-            :class="uploadDisabled ? 'border-rose-100 bg-rose-50 text-rose-400 hover:bg-rose-100' : 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200'"
+            class="grid h-12 w-12 place-items-center rounded-2xl border border-slate-200 bg-slate-100 text-slate-500 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="loading"
-            :title="uploadDisabled ? unsupportedUploadMessage : '上传参考图'"
+            title="上传参考图"
             type="button"
             @click="openUpload"
           >
             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 8.5-9.6 9.6a5 5 0 0 1-7.1-7.1l9.2-9.2a3.5 3.5 0 1 1 5 5l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" /></svg>
           </button>
-          <button class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white shadow-[0_14px_34px_rgba(37,99,235,0.26)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="loading || configs.length === 0" @click="generate">
+          <button class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white shadow-[0_14px_34px_rgba(37,99,235,0.26)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="loading || submitLoading || configs.length === 0" @click="generate">
             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m0 0-5-5m5 5-5 5" /></svg>
           </button>
         </div>
@@ -523,13 +620,19 @@ onBeforeUnmount(() => {
                 <span class="text-base font-black leading-none text-slate-950">{{ elapsedSeconds }}s</span>
                 <span>预计约 {{ estimatedSeconds }}s</span>
               </div>
+              <button v-else-if="record.status === 'failed'" class="inline-flex w-fit rounded-lg bg-red-50 px-3 py-1.5 text-xs font-black text-red-600 transition hover:bg-red-100" type="button" @click="errorRecord = record">
+                失败原因
+              </button>
               <span v-else class="inline-flex rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">默认配置</span>
               <div class="mt-4 flex items-center justify-end gap-3 text-slate-400">
-                <button class="transition hover:text-sky-600" title="复用提示词" @click="prompt = record.prompt">
+                <button class="transition hover:text-sky-600" title="复用提示词" @click="reusePrompt(record)">
                   <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h11a5 5 0 0 1 0 10H9m0 0 3-3m-3 3 3 3" /></svg>
                 </button>
                 <button class="transition hover:text-sky-600" title="预览" @click="previewRecord = record">
                   <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /></svg>
+                </button>
+                <button v-if="record.status === 'success' && record.generatedImageUrl" class="transition hover:text-emerald-600" title="编辑图片" @click="addRecordToUploads(record)">
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m16.9 3.6 3.5 3.5M4 20h4.2L19.4 8.8a2.5 2.5 0 0 0-3.5-3.5L4.7 16.5 4 20Z" /></svg>
                 </button>
                 <button class="transition hover:text-red-600" title="删除" @click="remove(record)">
                   <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 7h12M9 7V5h6v2m-7 3v8m4-8v8m4-8v8M8 7l1 13h6l1-13" /></svg>
@@ -546,6 +649,30 @@ onBeforeUnmount(() => {
 
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
     </main>
+
+    <Transition name="zoom-fade">
+      <div v-if="requestLoading" class="fixed inset-0 z-[70] grid place-items-center bg-white/45 backdrop-blur-[2px]">
+        <RequestLoader label="" :cell-size="20" />
+      </div>
+    </Transition>
+
+    <div v-if="errorRecord" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6 backdrop-blur-sm" @click.self="errorRecord = null">
+      <section class="w-full max-w-lg rounded-[24px] bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="text-xs font-black uppercase tracking-[0.18em] text-red-500">Generation Failed</p>
+            <h2 class="mt-2 text-xl font-black text-slate-950">失败原因</h2>
+          </div>
+          <button class="grid h-9 w-9 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" type="button" @click="errorRecord = null">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+        <p class="mt-4 max-h-[52vh] overflow-y-auto whitespace-pre-wrap rounded-2xl bg-red-50 p-4 text-sm font-semibold leading-7 text-red-600">{{ imageErrorText(errorRecord) }}</p>
+        <button class="mt-5 h-11 w-full rounded-2xl bg-slate-950 text-sm font-black text-white transition hover:bg-sky-600" type="button" @click="errorRecord = null">关闭</button>
+      </section>
+    </div>
 
     <div v-if="sizeModalOpen" class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-4 backdrop-blur-sm sm:py-6" @click.self="sizeModalOpen = false">
       <section class="flex max-h-[calc(100vh-32px)] w-full max-w-xl flex-col overflow-hidden rounded-[28px] bg-white text-slate-950 shadow-[0_28px_90px_rgba(15,23,42,0.24)] sm:max-h-[calc(100vh-48px)]">

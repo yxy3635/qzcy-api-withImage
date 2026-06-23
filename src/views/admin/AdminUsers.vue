@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import Pagination from '@/components/Pagination.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import type { RelayUserOverview, Role, UserInfo } from '@/types'
@@ -23,6 +24,7 @@ const total = ref(0)
 const error = ref('')
 const savingId = ref<number | null>(null)
 const apiLoadingUserId = ref<number | null>(null)
+const editingUser = ref<UserInfo | null>(null)
 const selectedUser = ref<UserInfo | null>(null)
 const selectedOverview = ref<RelayUserOverview | null>(null)
 
@@ -58,6 +60,15 @@ function draftOf(user: UserInfo): UserDraft {
   return drafts[user.id] as UserDraft
 }
 
+function openEditUser(user: UserInfo) {
+  setDraft(user)
+  editingUser.value = user
+}
+
+function closeEditUser() {
+  editingUser.value = null
+}
+
 async function load(page = 1) {
   error.value = ''
   const { data } = await adminApi.users(page, 10, keyword.value)
@@ -91,6 +102,7 @@ async function saveUser(user: UserInfo) {
     })
     draft.password = ''
     toast.success(`用户 ${user.username} 已更新`)
+    editingUser.value = null
     await load(current.value)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存失败'
@@ -211,7 +223,7 @@ onMounted(load)
         </div>
         <div class="rounded-lg border border-slate-100 bg-white p-4 shadow-sm">
           <p class="text-xs font-black text-slate-400">当前页余额</p>
-          <p class="mt-2 text-2xl font-black text-sky-600">${{ pageBalance.toFixed(2) }}</p>
+          <p class="mt-2 text-2xl font-black text-sky-600">${{ pageBalance.toFixed(6) }}</p>
         </div>
       </div>
 
@@ -221,7 +233,7 @@ onMounted(load)
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-5 sm:px-6">
           <div>
             <p class="text-lg font-black text-slate-950">用户列表</p>
-            <p class="mt-1 text-xs font-semibold text-slate-500">当前页 {{ users.length }} 位用户，可直接编辑后保存。</p>
+            <p class="mt-1 text-xs font-semibold text-slate-500">当前页 {{ users.length }} 位用户，列表仅展示基础信息。</p>
           </div>
           <div class="rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-xs font-black text-sky-700">
             第 {{ current }} 页 / 共 {{ Math.max(pages, 1) }} 页
@@ -229,14 +241,15 @@ onMounted(load)
         </div>
 
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[1180px] text-left text-sm">
+          <table class="w-full min-w-[1120px] text-left text-sm">
             <thead class="bg-slate-50 text-xs font-black text-slate-500">
               <tr>
                 <th class="px-5 py-4">用户</th>
                 <th class="px-5 py-4">邮箱</th>
                 <th class="px-5 py-4">角色</th>
                 <th class="px-5 py-4">余额</th>
-                <th class="px-5 py-4">新密码</th>
+                <th class="px-5 py-4">邀请码</th>
+                <th class="px-5 py-4">邀请人 ID</th>
                 <th class="px-5 py-4">注册时间</th>
                 <th class="px-5 py-4 text-right">操作</th>
               </tr>
@@ -254,34 +267,28 @@ onMounted(load)
                     </div>
                   </div>
                 </td>
+                <td class="px-5 py-4 font-semibold text-slate-600">{{ user.email || '-' }}</td>
                 <td class="px-5 py-4">
-                  <input v-model="draftOf(user).email" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold outline-none focus:border-sky-300" type="email" placeholder="用户邮箱" />
+                  <span class="inline-flex rounded-full px-2 py-1 text-xs font-black ring-1" :class="roleBadge(user.role)">{{ user.role }}</span>
                 </td>
-                <td class="px-5 py-4">
-                  <select v-model="draftOf(user).role" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-black outline-none focus:border-sky-300">
-                    <option value="USER">普通用户</option>
-                    <option value="ADMIN">管理员</option>
-                  </select>
-                  <span class="mt-2 inline-flex rounded-full px-2 py-1 text-xs font-black ring-1" :class="roleBadge(draftOf(user).role)">{{ draftOf(user).role }}</span>
-                </td>
-                <td class="px-5 py-4">
-                  <input v-model.number="draftOf(user).balance" class="h-10 w-28 rounded-lg border border-slate-200 bg-white px-3 text-sm font-black outline-none focus:border-sky-300" min="0" step="0.01" type="number" />
-                </td>
-                <td class="px-5 py-4">
-                  <input v-model="draftOf(user).password" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold outline-none focus:border-sky-300" type="password" placeholder="留空不修改" />
-                </td>
+                <td class="px-5 py-4 font-black text-slate-900">${{ Number(user.balance || 0).toFixed(6) }}</td>
+                <td class="px-5 py-4 font-semibold text-slate-600">{{ user.invitationCode || '-' }}</td>
+                <td class="px-5 py-4 font-semibold text-slate-600">{{ user.inviterId || '-' }}</td>
                 <td class="px-5 py-4 font-semibold text-slate-500">{{ formatDate(user.createdAt) }}</td>
                 <td class="px-5 py-4">
                   <div class="flex items-center justify-end gap-2">
+                    <button
+                      class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700"
+                      @click="openEditUser(user)"
+                    >
+                      编辑
+                    </button>
                     <button
                       class="h-10 rounded-lg border border-sky-100 bg-sky-50 px-3 text-xs font-black text-sky-700 transition hover:border-sky-200 hover:bg-sky-100 disabled:opacity-60"
                       :disabled="apiLoadingUserId === user.id"
                       @click="openApiUsage(user)"
                     >
                       {{ apiLoadingUserId === user.id ? '查询中' : '查询 API 使用' }}
-                    </button>
-                    <button class="h-10 rounded-lg bg-slate-950 px-3 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="savingId === user.id" @click="saveUser(user)">
-                      {{ savingId === user.id ? '保存中' : '保存' }}
                     </button>
                     <button class="grid h-10 w-10 place-items-center rounded-lg border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100" title="删除用户" @click="remove(user)">
                       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -306,6 +313,77 @@ onMounted(load)
       </section>
 
       <Teleport to="body">
+        <div v-if="editingUser" class="fixed inset-0 z-[9998] grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm" @click.self="closeEditUser">
+          <section class="w-full max-w-2xl rounded-lg bg-white shadow-2xl">
+            <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+              <div class="min-w-0">
+                <p class="text-xs font-black uppercase tracking-[0.18em] text-sky-600">Edit User</p>
+                <h2 class="mt-1 truncate text-2xl font-black text-slate-950">编辑用户信息</h2>
+                <p class="mt-1 text-sm font-semibold text-slate-500">{{ editingUser.username }} · ID {{ editingUser.id }}</p>
+              </div>
+              <button class="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-xl font-black text-slate-400 transition hover:border-red-100 hover:bg-red-50 hover:text-red-600" @click="closeEditUser">×</button>
+            </div>
+
+            <div class="space-y-5 px-6 py-5">
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-xs font-black text-slate-500">用户名</span>
+                  <input :value="editingUser.username" class="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-500 outline-none" readonly />
+                </label>
+                <label class="block">
+                  <span class="text-xs font-black text-slate-500">用户 ID</span>
+                  <input :value="editingUser.id" class="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-500 outline-none" readonly />
+                </label>
+              </div>
+
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-xs font-black text-slate-500">邮箱</span>
+                  <input v-model="draftOf(editingUser).email" class="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100" type="email" placeholder="用户邮箱" />
+                </label>
+                <label class="block">
+                  <span class="text-xs font-black text-slate-500">角色</span>
+                  <select v-model="draftOf(editingUser).role" class="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100">
+                    <option value="USER">普通用户</option>
+                    <option value="ADMIN">管理员</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-xs font-black text-slate-500">余额</span>
+                  <input v-model.number="draftOf(editingUser).balance" class="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100" min="0" step="0.000001" type="number" />
+                </label>
+                <label class="block">
+                  <span class="text-xs font-black text-slate-500">新密码</span>
+                  <input v-model="draftOf(editingUser).password" class="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100" type="password" placeholder="留空不修改" />
+                </label>
+              </div>
+
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-xs font-black text-slate-500">邀请码</span>
+                  <input :value="editingUser.invitationCode || '-'" class="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-500 outline-none" readonly />
+                </label>
+                <label class="block">
+                  <span class="text-xs font-black text-slate-500">邀请人 ID</span>
+                  <input :value="editingUser.inviterId || '-'" class="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-500 outline-none" readonly />
+                </label>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-5">
+              <button class="h-11 rounded-lg border border-slate-200 bg-white px-5 text-sm font-black text-slate-600 transition hover:bg-slate-50" @click="closeEditUser">取消</button>
+              <button class="h-11 rounded-lg bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="savingId === editingUser.id" @click="saveUser(editingUser)">
+                {{ savingId === editingUser.id ? '保存中' : '保存修改' }}
+              </button>
+            </div>
+          </section>
+        </div>
+      </Teleport>
+
+      <Teleport to="body">
         <div v-if="selectedUser" class="fixed inset-0 z-[9999] h-screen w-screen bg-slate-950/35 backdrop-blur-sm" @click.self="closeApiUsage">
         <section class="flex h-screen w-screen flex-col bg-slate-50 shadow-2xl">
           <div class="sticky top-0 z-10 border-b border-slate-200 bg-white px-6 py-5">
@@ -316,6 +394,8 @@ onMounted(load)
                 <div class="mt-2 flex flex-wrap items-center gap-2 text-xs font-black text-slate-500">
                   <span class="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">余额 ${{ Number(selectedOverview?.balance || selectedUser.balance || 0).toFixed(6) }}</span>
                   <span class="rounded-full bg-slate-100 px-3 py-1">ID {{ selectedUser.id }}</span>
+                  <span class="rounded-full bg-indigo-50 px-3 py-1 text-indigo-700">邀请码 {{ selectedUser.invitationCode || '-' }}</span>
+                  <span v-if="selectedUser.inviterId" class="rounded-full bg-amber-50 px-3 py-1 text-amber-700">邀请人 ID {{ selectedUser.inviterId }}</span>
                   <span class="rounded-full bg-sky-50 px-3 py-1 text-sky-700">{{ tokens.length }} 个密钥</span>
                 </div>
               </div>
@@ -324,10 +404,7 @@ onMounted(load)
           </div>
 
           <div v-if="!selectedOverview" class="grid flex-1 place-items-center p-8">
-            <div class="text-center">
-              <div class="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-100 border-t-sky-500"></div>
-              <p class="mt-4 text-sm font-black text-slate-500">正在加载真实 API 使用数据</p>
-            </div>
+            <RequestLoader label="正在加载真实 API 使用数据" :cell-size="18" />
           </div>
 
           <div v-else class="flex-1 space-y-5 overflow-y-auto p-5 lg:p-6">

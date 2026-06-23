@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 
@@ -104,8 +105,8 @@ onMounted(load)
 
     <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
-    <div v-if="loading" class="mt-8 rounded-3xl border border-slate-100 bg-white p-10 text-center text-sm font-bold text-slate-500 shadow-sm">
-      正在读取邮箱配置
+    <div v-if="loading" class="mt-8 rounded-3xl border border-slate-100 bg-white p-10 shadow-sm">
+      <RequestLoader label="正在读取邮箱配置" :cell-size="18" />
     </div>
 
     <section v-else class="mt-6 grid gap-5 sm:mt-8 lg:grid-cols-[1.25fr_0.75fr]">

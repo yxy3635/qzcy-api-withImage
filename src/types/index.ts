@@ -12,6 +12,9 @@ export interface UserInfo {
   email?: string
   role: Role
   balance: number
+  invitationCode?: string
+  inviterId?: number
+  referralBalance?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -22,6 +25,11 @@ export interface ImageRecord {
   prompt: string
   generatedImageUrl?: string
   status: 'pending' | 'success' | 'failed'
+  generationModel?: string
+  requestUrl?: string
+  errorStatusCode?: number
+  errorType?: string
+  errorMessage?: string
   cost: number
   createdAt: string
 }
@@ -272,6 +280,7 @@ export interface RelayUserOverview {
   tokens: RelayToken[]
   channels: RelayChannel[]
   logs: RelayUsageLog[]
+  errorLogs: ErrorRequestLog[]
   modelUsage: RelayModelUsage[]
   trend: RelayTrend[]
   groups: RelayGroup[]
@@ -290,6 +299,26 @@ export interface RelayUserOverview {
   todayCost: number
   currentRpm: number
   currentTpm: number
+}
+
+export interface ErrorRequestLog {
+  id: number
+  source: 'relay' | 'image' | string
+  tokenName: string
+  channelName: string
+  groupNames: string
+  endpoint: string
+  requestUrl: string
+  model: string
+  modelType: string
+  statusCode: number
+  durationMs: number
+  userAgent: string
+  status: string
+  errorType: string
+  message?: string
+  prompt?: string
+  createdAt: string
 }
 
 export interface RelayModel {
@@ -339,7 +368,13 @@ export interface RelayUsageLog {
   durationMs: number
   userAgent: string
   status: string
+  message?: string
   createdAt: string
+}
+
+export interface AdminRelayUsageLog extends RelayUsageLog {
+  userId: number
+  username?: string
 }
 
 export interface RelayTrend {

@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import Pagination from '@/components/Pagination.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { userApi } from '@/api/userApi'
 import { useToast } from '@/composables/useToast'
 import type { PageResult, ReferralInvitee, ReferralOverview, ReferralRebate, ReferralWithdrawRequest } from '@/types'
@@ -250,22 +251,22 @@ onMounted(load)
         </div>
         <div class="soft-card p-5">
           <p class="text-sm font-black text-slate-500">累计返利</p>
-          <p class="mt-3 text-3xl font-black text-emerald-600">￥{{ Number(overview?.rebateTotal || 0).toFixed(2) }}</p>
+          <p class="mt-3 text-3xl font-black text-emerald-600">￥{{ Number(overview?.rebateTotal || 0).toFixed(6) }}</p>
         </div>
         <div class="soft-card p-5">
           <p class="text-sm font-black text-slate-500">返利账户</p>
-          <p class="mt-3 text-3xl font-black text-emerald-600">￥{{ Number(overview?.referralBalance || 0).toFixed(2) }}</p>
+          <p class="mt-3 text-3xl font-black text-emerald-600">￥{{ Number(overview?.referralBalance || 0).toFixed(6) }}</p>
           <button class="mt-4 h-10 w-full rounded-xl bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50" :disabled="Number(overview?.referralBalance || 0) <= 0" @click="openWithdrawModal">
             提现余额
           </button>
         </div>
         <div class="soft-card p-5">
           <p class="text-sm font-black text-slate-500">正在审核</p>
-          <p class="mt-3 text-3xl font-black text-amber-600">￥{{ Number(overview?.pendingReviewAmount || 0).toFixed(2) }}</p>
+          <p class="mt-3 text-3xl font-black text-amber-600">￥{{ Number(overview?.pendingReviewAmount || 0).toFixed(6) }}</p>
         </div>
         <div class="soft-card p-5">
           <p class="text-sm font-black text-slate-500">提现中</p>
-          <p class="mt-3 text-3xl font-black text-sky-600">￥{{ Number(overview?.withdrawingAmount || 0).toFixed(2) }}</p>
+          <p class="mt-3 text-3xl font-black text-sky-600">￥{{ Number(overview?.withdrawingAmount || 0).toFixed(6) }}</p>
         </div>
       </section>
     </div>
@@ -291,9 +292,9 @@ onMounted(load)
           <tbody class="divide-y divide-slate-100">
             <tr v-for="item in rebates.records" :key="item.id" class="hover:bg-slate-50/80">
               <td class="px-5 py-4 font-black text-slate-900">{{ item.inviteeUsername }}</td>
-              <td class="px-5 py-4 font-semibold text-slate-700">￥{{ Number(item.rechargeAmount || 0).toFixed(2) }}</td>
+              <td class="px-5 py-4 font-semibold text-slate-700">￥{{ Number(item.rechargeAmount || 0).toFixed(6) }}</td>
               <td class="px-5 py-4 font-semibold text-slate-700">{{ Number(item.rebateRate || 0).toFixed(2) }}%</td>
-              <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.rebateAmount || 0).toFixed(2) }}</td>
+              <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.rebateAmount || 0).toFixed(6) }}</td>
               <td class="px-5 py-4">
                 <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{{ rebateStatusText(item.status) }}</span>
                 <p v-if="item.rejectReason" class="mt-2 text-xs font-semibold text-rose-600">{{ item.rejectReason }}</p>
@@ -333,7 +334,7 @@ onMounted(load)
           </thead>
           <tbody class="divide-y divide-slate-100">
             <tr v-for="item in withdraws.records" :key="item.id" class="hover:bg-slate-50/80">
-              <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.amount || 0).toFixed(2) }}</td>
+              <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.amount || 0).toFixed(6) }}</td>
               <td class="px-5 py-4 font-semibold text-slate-700">{{ channelText(item.channel) }}</td>
               <td class="px-5 py-4">
                 <a class="font-black text-sky-600 underline" :href="item.qrCodeUrl" target="_blank">查看二维码</a>
@@ -359,11 +360,11 @@ onMounted(load)
           <p class="mt-1 text-sm font-semibold text-slate-500">累计充值量只统计已完成的第三方充值订单。</p>
         </div>
         <p class="rounded-full bg-sky-50 px-4 py-2 text-sm font-black text-sky-700">
-          总充值 ￥{{ Number(overview?.inviteeRechargeTotal || 0).toFixed(2) }}
+          总充值 ￥{{ Number(overview?.inviteeRechargeTotal || 0).toFixed(6) }}
         </p>
       </div>
 
-      <div v-if="loading" class="p-10 text-center text-sm font-bold text-slate-500">正在读取邀请数据</div>
+      <RequestLoader v-if="loading" class="p-10" label="正在读取邀请数据" :cell-size="18" />
       <div v-else-if="!invitees?.records.length" class="p-10 text-center text-sm font-bold text-slate-500">暂无邀请用户</div>
       <div v-else class="overflow-x-auto">
         <table class="w-full min-w-[640px] text-left text-sm">
@@ -377,7 +378,7 @@ onMounted(load)
           <tbody class="divide-y divide-slate-100">
             <tr v-for="item in invitees.records" :key="item.userId" class="hover:bg-slate-50/80">
               <td class="px-5 py-4 font-black text-slate-900">{{ item.username }}</td>
-              <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.totalRecharge || 0).toFixed(2) }}</td>
+              <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.totalRecharge || 0).toFixed(6) }}</td>
               <td class="px-5 py-4 font-semibold text-slate-500">{{ item.registeredAt ? new Date(item.registeredAt).toLocaleString() : '-' }}</td>
             </tr>
           </tbody>
@@ -394,14 +395,14 @@ onMounted(load)
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-xl font-black text-slate-950">提现返利余额</h2>
-            <p class="mt-1 text-sm font-semibold text-slate-500">可提现 ￥{{ Number(overview?.referralBalance || 0).toFixed(2) }}</p>
+            <p class="mt-1 text-sm font-semibold text-slate-500">可提现 ￥{{ Number(overview?.referralBalance || 0).toFixed(6) }}</p>
           </div>
           <button class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50" @click="closeWithdrawModal">关闭</button>
         </div>
 
         <label class="mt-5 block">
           <span class="text-xs font-black text-slate-500">提现金额</span>
-          <input v-model.number="withdrawForm.amount" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-black outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" min="0.01" :max="Number(overview?.referralBalance || 0)" step="0.01" type="number" />
+          <input v-model.number="withdrawForm.amount" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-black outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" min="0.000001" :max="Number(overview?.referralBalance || 0)" step="0.000001" type="number" />
         </label>
 
         <div class="mt-5">

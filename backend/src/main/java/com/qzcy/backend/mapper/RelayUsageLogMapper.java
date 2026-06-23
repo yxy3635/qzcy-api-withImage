@@ -1,6 +1,8 @@
 package com.qzcy.backend.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.qzcy.backend.dto.AdminRelayUsageLogDto;
 import com.qzcy.backend.dto.RelayChannelProfitDto;
 import com.qzcy.backend.dto.RelayModelUsageDto;
 import com.qzcy.backend.dto.RelayTrendDto;
@@ -163,4 +165,52 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
             ORDER BY DATE(created_at)
             """)
     List<RelayTrendDto> userTrend(@Param("userId") Long userId);
+
+    @Select("""
+            SELECT r.id,
+                   r.user_id AS userId,
+                   u.username AS username,
+                   r.token_name AS tokenName,
+                   r.channel_name AS channelName,
+                   r.group_names AS groupNames,
+                   r.endpoint,
+                   r.model,
+                   r.model_type AS modelType,
+                   r.prompt_tokens AS promptTokens,
+                   r.completion_tokens AS completionTokens,
+                   r.cached_tokens AS cachedTokens,
+                   r.cache_creation_tokens AS cacheCreationTokens,
+                   r.total_tokens AS totalTokens,
+                   r.input_cost AS inputCost,
+                   r.output_cost AS outputCost,
+                   r.cache_read_cost AS cacheReadCost,
+                   r.cache_creation_cost AS cacheCreationCost,
+                   r.request_cost AS requestCost,
+                   r.group_ratio AS groupRatio,
+                   r.channel_ratio AS channelRatio,
+                   r.cost,
+                   r.status_code AS statusCode,
+                   r.duration_ms AS durationMs,
+                   r.user_agent AS userAgent,
+                   r.status,
+                   r.message,
+                   r.created_at AS createdAt
+            FROM relay_usage_log r
+            LEFT JOIN `user` u ON r.user_id = u.id
+            WHERE (#{keyword} IS NULL OR #{keyword} = ''
+                   OR u.username LIKE CONCAT('%', #{keyword}, '%')
+                   OR r.token_name LIKE CONCAT('%', #{keyword}, '%')
+                   OR r.channel_name LIKE CONCAT('%', #{keyword}, '%')
+                   OR r.group_names LIKE CONCAT('%', #{keyword}, '%')
+                   OR r.model LIKE CONCAT('%', #{keyword}, '%')
+                   OR r.endpoint LIKE CONCAT('%', #{keyword}, '%')
+                   OR r.user_agent LIKE CONCAT('%', #{keyword}, '%')
+                   OR r.message LIKE CONCAT('%', #{keyword}, '%'))
+              AND (#{status} IS NULL OR #{status} = '' OR r.status = #{status}
+                   OR (#{status} = 'error' AND (r.status = 'failed' OR r.status_code >= 400)))
+            ORDER BY r.created_at DESC
+            """)
+    Page<AdminRelayUsageLogDto> adminUsageLogs(Page<AdminRelayUsageLogDto> page,
+                                               @Param("keyword") String keyword,
+                                               @Param("status") String status);
 }

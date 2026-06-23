@@ -196,17 +196,8 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
 
     @Override
     public RelayContext chooseChannel(RelayToken access, RelayModel model, RelayGroup group, String endpointType) {
-        List<RelayChannel> candidates = channelMapper.selectList(new LambdaQueryWrapper<RelayChannel>()
-                .eq(RelayChannel::getEnabled, true)
-                .ne(RelayChannel::getStatus, "failed")
-                .orderByAsc(RelayChannel::getPriority)
-                .orderByDesc(RelayChannel::getWeight)
-                .orderByAsc(RelayChannel::getId));
-        candidates = candidates.stream()
-                .filter(this::isConfigured)
-                .filter(channel -> channelSupportsGroup(channel, group))
-                .filter(channel -> channelSupportsModel(channel, model))
-                .toList();
+        String groupCode = group == null || isBlank(group.getCode()) ? "default" : group.getCode();
+        List<RelayChannel> candidates = channelMapper.selectDispatchCandidates(model.getId(), groupCode);
         if (candidates.isEmpty()) {
             throw new BusinessException(400, "No available relay channel for current group and model");
         }
@@ -342,23 +333,6 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
             if (value.isNumber()) return value.asLong();
         }
         return 0;
-    }
-
-    private boolean isConfigured(RelayChannel channel) {
-        return !isBlank(channel.getApiKey()) && !isBlank(channel.getApiBaseUrl());
-    }
-
-    private boolean channelSupportsGroup(RelayChannel channel, RelayGroup group) {
-        String groupNames = channel.getGroupNames();
-        if (isBlank(groupNames)) return true;
-        String groupCode = group == null || isBlank(group.getCode()) ? "default" : group.getCode();
-        return containsCsv(groupNames, groupCode);
-    }
-
-    private boolean channelSupportsModel(RelayChannel channel, RelayModel model) {
-        if (channel == null || model == null || channel.getId() == null || model.getId() == null) return false;
-        RelayChannelModel binding = channelModelMapper.selectByChannelAndModel(channel.getId(), model.getId());
-        return binding != null && Boolean.TRUE.equals(binding.getEnabled());
     }
 
     private RelayChannel weightedPick(List<RelayChannel> channels) {

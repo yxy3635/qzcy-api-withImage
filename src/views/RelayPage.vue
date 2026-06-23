@@ -6,7 +6,8 @@ import { noticeApi } from '@/api/noticeApi'
 import { relayApi } from '@/api/relayApi'
 import { paymentApi } from '@/api/paymentApi'
 import { useToast } from '@/composables/useToast'
-import type { Announcement, PaymentRecord, RelayUserOverview } from '@/types'
+import RequestLoader from '@/components/RequestLoader.vue'
+import type { Announcement, ErrorRequestLog, PaymentRecord, RelayUsageLog, RelayUserOverview } from '@/types'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -19,6 +20,7 @@ const copied = ref('')
 const creatingKey = ref(false)
 const showKeyDialog = ref(false)
 const syncingStatus = ref(false)
+const showErrorLogsDialog = ref(false)
 const keySearch = ref('')
 const keyGroupFilter = ref('')
 const keyStatusFilter = ref('')
@@ -60,6 +62,27 @@ const tokens = computed(() => overview.value?.tokens || [])
 const channels = computed(() => overview.value?.channels || [])
 const availableChannels = computed(() => channels.value.filter((item) => item.status === 'available').length)
 const logs = computed(() => overview.value?.logs || [])
+const errorLogs = computed<ErrorRequestLog[]>(() => overview.value?.errorLogs || logs.value
+  .filter((item) => item.status === 'failed' || Number(item.statusCode || 0) >= 400)
+  .map((item) => ({
+    id: item.id,
+    source: 'relay',
+    tokenName: item.tokenName,
+    channelName: item.channelName,
+    groupNames: item.groupNames,
+    endpoint: item.endpoint,
+    requestUrl: '',
+    model: item.model,
+    modelType: item.modelType,
+    statusCode: item.statusCode,
+    durationMs: item.durationMs,
+    userAgent: item.userAgent,
+    status: item.status,
+    errorType: '',
+    message: item.message,
+    prompt: '',
+    createdAt: item.createdAt
+  })))
 const models = computed(() => overview.value?.models || [])
 const groups = computed(() => overview.value?.groups || [{ id: 0, code: 'default', name: '默认分组', ratio: 1, enabled: true }])
 const trend = computed(() => overview.value?.trend || [])
@@ -138,7 +161,7 @@ const menus = [
 const metricCards = computed(() => [
   { label: '总请求数', value: compact(totalRequests.value), sub: '当前账号累计', tone: 'blue' },
   { label: '总 Token', value: compact(totalTokens.value), sub: `输入 ${compact(promptTotal.value)} / 输出 ${compact(completionTotal.value)}`, tone: 'amber' },
-  { label: '总消费', value: `$${totalCost.value.toFixed(4)}`, sub: `余额 $${balance.value.toFixed(2)}`, tone: 'emerald' },
+  { label: '总消费', value: `$${totalCost.value.toFixed(4)}`, sub: `余额 $${balance.value.toFixed(6)}`, tone: 'emerald' },
   { label: '平均耗时', value: `${(avgDuration.value / 1000).toFixed(2)}s`, sub: '每次请求平均', tone: 'violet' }
 ])
 
@@ -259,6 +282,105 @@ function money(value: number) {
   return `$${Number(value || 0).toFixed(6)}`
 }
 
+function cacheHitRate(log: Pick<RelayUsageLog, 'promptTokens' | 'cachedTokens'>) {
+  const inputTokens = Number(log.promptTokens || 0)
+  if (inputTokens <= 0) return 0
+  return Math.min(100, Math.max(0, (Number(log.cachedTokens || 0) / inputTokens) * 100))
+}
+
+function cacheHitLabel(log: Pick<RelayUsageLog, 'promptTokens' | 'cachedTokens'>) {
+  return `${cacheHitRate(log).toFixed(1)}%`
+}
+
+function cacheHitTitle(log: Pick<RelayUsageLog, 'promptTokens' | 'cachedTokens' | 'cacheCreationTokens'>) {
+  return `缓存命中率 ${cacheHitLabel(log)}，缓存读 ${compact(log.cachedTokens || 0)}，缓存写 ${compact(log.cacheCreationTokens || 0)}`
+}
+
+function exportUsageCsv() {
+  if (!logs.value.length) {
+    toast.warning('暂无使用记录可导出')
+    return
+  }
+  const headers = [
+    'API 密钥',
+    '渠道',
+    '分组',
+    '模型',
+    '端点',
+    '类型',
+    '输入 Token',
+    '输出 Token',
+    '缓存读 Token',
+    '缓存建 Token',
+    '总 Token',
+    '输入费用',
+    '输出费用',
+    '缓存读费用',
+    '缓存建费用',
+    '请求费用',
+    '总费用',
+    '分组倍率',
+    '渠道倍率',
+    '状态码',
+    '状态',
+    '耗时秒',
+    '时间',
+    'User-Agent',
+    '错误信息'
+  ]
+  const rows = logs.value.map((log) => [
+    log.tokenName || '',
+    log.channelName || '',
+    log.groupNames || '',
+    log.model || '',
+    log.endpoint || '',
+    log.modelType || '',
+    log.promptTokens || 0,
+    log.completionTokens || 0,
+    log.cachedTokens || 0,
+    log.cacheCreationTokens || 0,
+    log.totalTokens || 0,
+    Number(log.inputCost || 0).toFixed(6),
+    Number(log.outputCost || 0).toFixed(6),
+    Number(log.cacheReadCost || 0).toFixed(6),
+    Number(log.cacheCreationCost || 0).toFixed(6),
+    Number(log.requestCost || 0).toFixed(6),
+    Number(log.cost || 0).toFixed(6),
+    Number(log.groupRatio || 1).toFixed(3),
+    Number(log.channelRatio || 1).toFixed(3),
+    log.statusCode || '',
+    log.status || '',
+    ((log.durationMs || 0) / 1000).toFixed(2),
+    formatCsvDate(log.createdAt),
+    log.userAgent || '',
+    log.message || ''
+  ])
+  const csv = [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n')
+  downloadTextFile(`usage-records-${localDateKey()}.csv`, `\uFEFF${csv}`, 'text/csv;charset=utf-8')
+  toast.success(`已导出 ${logs.value.length} 条使用记录`)
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? '')
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function formatCsvDate(value?: string) {
+  return value ? value.replace('T', ' ').slice(0, 19) : ''
+}
+
+function downloadTextFile(fileName: string, content: string, type: string) {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 function csvValues(value: string) {
   return String(value || '')
     .split(',')
@@ -267,7 +389,7 @@ function csvValues(value: string) {
 }
 
 function yuan(value: number) {
-  return `￥${Number(value || 0).toFixed(2)}`
+  return `￥${Number(value || 0).toFixed(6)}`
 }
 
 function selectRechargePreset(value: number | 'custom') {
@@ -283,6 +405,7 @@ function paymentTypeText(value: string) {
   if (value === 'qqpay') return 'QQ钱包'
   if (value === 'referral_rebate') return '邀请返利'
   if (value === 'balance') return '余额扣费'
+  if (value === 'image_refund') return '生图失败退款'
   return value || '-'
 }
 
@@ -481,7 +604,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-white text-slate-950">
+  <div class="relay-page min-h-screen bg-white text-slate-950">
     <aside class="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-slate-100 bg-white md:flex md:flex-col">
       <button class="flex h-20 items-center gap-3 px-6 text-left" @click="router.push('/')">
         <img class="h-10 w-10 rounded-xl" src="/favicon.ico" alt="logo" />
@@ -508,13 +631,13 @@ onMounted(async () => {
           <p class="mt-1 hidden text-sm font-semibold text-slate-500 md:block">独立 API 中转站，账号、余额与原项目互通。</p>
         </div>
         <div class="flex items-center gap-3">
-          <button class="rounded-full bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-700">${{ balance.toFixed(2) }}</button>
+          <button class="rounded-full bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-700">${{ balance.toFixed(6) }}</button>
           <button class="rounded-full border border-slate-200 px-4 py-2 text-sm font-black text-slate-700" @click="load">{{ loading ? '刷新中' : '刷新' }}</button>
           <button class="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-pink-100 to-sky-100 text-sm font-black">{{ auth.userInfo?.username?.slice(0, 1).toUpperCase() || 'U' }}</button>
         </div>
       </header>
 
-      <main class="min-h-[calc(100vh-80px)] bg-[linear-gradient(#e8edf3_1px,transparent_1px),linear-gradient(90deg,#e8edf3_1px,transparent_1px)] bg-[size:32px_32px] px-4 py-8 md:px-10">
+      <main class="relay-shell min-h-[calc(100vh-80px)] px-4 py-8 md:px-10">
         <div v-if="!auth.isAuthenticated" class="mx-auto max-w-xl rounded-2xl border border-amber-100 bg-amber-50 p-6 text-center">
           <p class="text-lg font-black text-amber-800">登录后查看中转站</p>
           <button class="mt-4 rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white" @click="router.push('/login')">登录账号</button>
@@ -848,24 +971,56 @@ onMounted(async () => {
             <div class="flex flex-wrap items-center justify-between gap-4">
               <h2 class="text-xl font-black">使用记录</h2>
               <div class="flex gap-2">
+                <button class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-black text-rose-700 transition hover:border-rose-300 hover:bg-rose-100" @click="showErrorLogsDialog = true">
+                  错误请求日志
+                  <span class="ml-1 rounded-full bg-white px-2 py-0.5 text-xs text-rose-600">{{ errorLogs.length }}</span>
+                </button>
                 <button class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-700" @click="load">刷新</button>
-                <button class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white">导出 CSV</button>
+                <button class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="!logs.length" @click="exportUsageCsv">导出 CSV</button>
               </div>
             </div>
             <div class="mt-5 overflow-x-auto">
-              <table class="w-full min-w-[1180px] text-left text-sm">
+              <table class="w-full min-w-[1120px] table-fixed text-left text-sm">
+                <colgroup>
+                  <col class="w-[150px]" />
+                  <col class="w-[210px]" />
+                  <col class="w-[170px]" />
+                  <col class="w-[80px]" />
+                  <col class="w-[210px]" />
+                  <col class="w-[150px]" />
+                  <col class="w-[90px]" />
+                  <col class="w-[170px]" />
+                  <col />
+                </colgroup>
                 <thead class="text-xs font-black text-slate-400">
                   <tr><th class="py-3">API 密钥</th><th>模型</th><th>端点</th><th>类型</th><th>Token</th><th>费用</th><th>耗时</th><th>时间</th><th>User-Agent</th></tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-semibold">
                   <tr v-for="log in logs" :key="log.id">
-                    <td class="py-4">{{ log.tokenName || '-' }}</td>
-                    <td>{{ log.model }}</td>
-                    <td>{{ log.endpoint }}</td>
+                    <td class="py-4 pr-4">{{ log.tokenName || '-' }}</td>
+                    <td class="pr-4"><p class="truncate font-black text-slate-900" :title="log.model">{{ log.model }}</p></td>
+                    <td class="pr-4"><p class="truncate font-mono text-xs text-slate-600" :title="log.endpoint">{{ log.endpoint }}</p></td>
                     <td><span class="rounded bg-blue-50 px-2 py-1 text-xs font-black text-blue-600">{{ log.modelType }}</span></td>
-                    <td>
+                    <td class="min-w-[190px]">
+                      <div class="mb-2 w-44" :title="cacheHitTitle(log)">
+                        <p><span class="text-emerald-600">↓ {{ compact(log.promptTokens || 0) }}</span> <span class="text-violet-600">↑ {{ compact(log.completionTokens || 0) }}</span></p>
+                        <div class="mt-2 flex items-center justify-between text-[11px] font-black">
+                          <span class="text-cyan-600">缓存命中</span>
+                          <span class="text-slate-600">{{ cacheHitLabel(log) }}</span>
+                        </div>
+                        <div class="mt-1 h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            class="h-full rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-teal-500 shadow-[0_0_14px_rgba(20,184,166,0.35)] transition-all duration-700 ease-out"
+                            :class="(log.cachedTokens || 0) > 0 ? 'animate-pulse' : ''"
+                            :style="{ width: `${cacheHitRate(log)}%` }"
+                          ></div>
+                        </div>
+                        <p class="mt-1 text-[11px] font-bold text-slate-400">读 {{ compact(log.cachedTokens || 0) }} · 写 {{ compact(log.cacheCreationTokens || 0) }} · 总 {{ compact(log.totalTokens || 0) }}</p>
+                      </div>
+                      <div class="hidden">
                       <p><span class="text-emerald-600">↓ {{ compact(log.promptTokens || 0) }}</span> <span class="text-violet-600">↑ {{ compact(log.completionTokens || 0) }}</span></p>
                       <p class="text-xs text-cyan-600">缓存读 {{ compact(log.cachedTokens || 0) }} · 缓存建 {{ compact(log.cacheCreationTokens || 0) }}</p>
+                      </div>
                     </td>
                     <td>
                       <p class="font-black text-emerald-600">{{ money(log.cost) }}</p>
@@ -892,10 +1047,7 @@ onMounted(async () => {
                 :disabled="syncingStatus"
                 @click="syncStatus"
               >
-                <span
-                  class="h-4 w-4 rounded-full border-2 border-white/40 border-t-white"
-                  :class="syncingStatus ? 'animate-spin' : 'hidden'"
-                ></span>
+                <RequestLoader v-if="syncingStatus" label="" :cell-size="4" />
                 {{ syncingStatus ? '正在检测渠道' : '检测可用状态' }}
               </button>
             </div>
@@ -1083,7 +1235,7 @@ onMounted(async () => {
 
           <section v-if="activeMenu === 'subscription' || activeMenu === 'orders' || activeMenu === 'profile'" class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <h2 class="text-xl font-black">{{ menus.find((item) => item.id === activeMenu)?.label }}</h2>
-            <p class="mt-3 text-sm font-semibold text-slate-500">这是中转站独立页面。账号、邮箱和余额与原项目互通；当前余额 ${{ balance.toFixed(2) }}。</p>
+            <p class="mt-3 text-sm font-semibold text-slate-500">这是中转站独立页面。账号、邮箱和余额与原项目互通；当前余额 ${{ balance.toFixed(6) }}。</p>
             <div v-if="activeMenu === 'profile'" class="mt-5 grid gap-3 text-sm font-semibold text-slate-600">
               <p>用户名：{{ auth.userInfo?.username }}</p>
               <p>邮箱：{{ auth.userInfo?.email || '未绑定' }}</p>
@@ -1164,17 +1316,73 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="selectedAnnouncement" class="fixed inset-0 z-[55] grid place-items-center bg-slate-950/40 px-4 backdrop-blur-sm" @click.self="selectedAnnouncement = null">
-      <section class="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-[0_28px_90px_rgba(15,23,42,0.24)]">
-        <div class="flex items-start justify-between gap-4">
+    <div v-if="showErrorLogsDialog" class="fixed inset-0 z-[54] grid place-items-center bg-slate-950/45 px-4 backdrop-blur-sm" @click.self="showErrorLogsDialog = false">
+      <section class="flex max-h-[86vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
           <div>
-            <h2 class="text-2xl font-black text-slate-950">{{ selectedAnnouncement.title }}</h2>
-            <p class="mt-2 text-xs font-semibold text-slate-400">{{ (selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt || '').replace('T', ' ') }}</p>
+            <h2 class="text-xl font-black text-slate-950">错误请求日志</h2>
+            <p class="mt-1 text-sm font-semibold text-slate-500">展示最近 {{ errorLogs.length }} 条失败请求记录。</p>
           </div>
-          <button class="rounded-xl px-3 py-2 text-xl font-black text-slate-400 hover:bg-slate-50" @click="selectedAnnouncement = null">×</button>
+          <div class="flex items-center gap-2">
+            <button class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700" @click="load">刷新</button>
+            <button class="grid h-10 w-10 place-items-center rounded-xl text-xl font-black text-slate-400 transition hover:bg-slate-50 hover:text-slate-700" @click="showErrorLogsDialog = false">×</button>
+          </div>
         </div>
-        <div class="mt-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{{ selectedAnnouncement.content }}</div>
+
+        <div class="overflow-auto p-6">
+          <div v-if="errorLogs.length" class="space-y-4">
+            <article v-for="log in errorLogs" :key="log.id" class="rounded-xl border border-rose-100 bg-rose-50/40 p-4">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="rounded-lg bg-slate-950 px-2.5 py-1 text-xs font-black text-white">{{ log.source === 'image' ? '生图' : '中转' }}</span>
+                    <span class="rounded-lg bg-rose-100 px-2.5 py-1 text-xs font-black text-rose-700">HTTP {{ log.statusCode || 0 }}</span>
+                    <span class="rounded-lg bg-white px-2.5 py-1 text-xs font-black text-slate-600">{{ log.status || 'failed' }}</span>
+                    <span v-if="log.errorType" class="rounded-lg bg-white px-2.5 py-1 text-xs font-black text-rose-600">{{ log.errorType }}</span>
+                    <span class="rounded-lg bg-white px-2.5 py-1 text-xs font-black text-slate-600">{{ log.modelType || '-' }}</span>
+                  </div>
+                  <p class="mt-3 break-all text-sm font-black text-slate-950">{{ log.model || '-' }}</p>
+                  <p class="mt-1 break-all text-xs font-semibold text-slate-500">{{ log.requestUrl || log.endpoint || '-' }}</p>
+                </div>
+                <div class="text-right text-xs font-semibold text-slate-500">
+                  <p class="font-black text-slate-700">{{ log.createdAt?.replace('T', ' ').slice(0, 19) }}</p>
+                  <p class="mt-1">{{ ((log.durationMs || 0) / 1000).toFixed(2) }}s</p>
+                </div>
+              </div>
+
+              <div class="mt-4 grid gap-3 text-sm font-semibold text-slate-600 md:grid-cols-3">
+                <p><span class="text-slate-400">API 密钥：</span>{{ log.tokenName || '-' }}</p>
+                <p><span class="text-slate-400">渠道：</span>{{ log.channelName || '-' }}</p>
+                <p><span class="text-slate-400">分组：</span>{{ log.groupNames || '-' }}</p>
+              </div>
+
+              <p v-if="log.prompt" class="mt-3 line-clamp-2 break-all text-xs font-semibold text-slate-500">提示词：{{ log.prompt }}</p>
+              <pre class="mt-4 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white p-4 text-xs font-semibold leading-6 text-rose-700">{{ log.message || '无错误详情' }}</pre>
+              <p class="mt-3 truncate text-xs font-semibold text-slate-400">{{ log.userAgent || '-' }}</p>
+            </article>
+          </div>
+          <div v-else class="rounded-xl border border-dashed border-slate-200 p-10 text-center text-sm font-black text-slate-500">暂无错误请求日志</div>
+        </div>
       </section>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="selectedAnnouncement"
+        class="fixed inset-0 z-[70] flex min-h-dvh items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"
+        @click.self="selectedAnnouncement = null"
+      >
+        <section class="max-h-[calc(100dvh-32px)] w-full max-w-2xl overflow-y-auto rounded-[24px] bg-white p-5 shadow-[0_28px_90px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-6">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-black text-slate-950 sm:text-2xl">{{ selectedAnnouncement.title }}</h2>
+              <p class="mt-2 text-xs font-semibold text-slate-400">{{ (selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt || '').replace('T', ' ') }}</p>
+            </div>
+            <button class="rounded-xl px-3 py-2 text-xl font-black text-slate-400 hover:bg-slate-50" @click="selectedAnnouncement = null">×</button>
+          </div>
+          <div class="mt-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{{ selectedAnnouncement.content }}</div>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>

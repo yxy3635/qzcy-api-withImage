@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import type { Announcement } from '@/types'
@@ -147,7 +148,7 @@ onMounted(load)
 
         <section class="rounded-[28px] border border-white/80 bg-white/86 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
           <h2 class="text-2xl font-black">公告列表</h2>
-          <div v-if="loading" class="py-10 text-center text-sm font-bold text-slate-500">正在加载公告</div>
+          <RequestLoader v-if="loading" class="py-10" label="正在加载公告" :cell-size="18" />
           <div v-else class="mt-5 space-y-3">
             <article v-for="item in announcements" :key="item.id" class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
               <div class="flex flex-wrap items-start justify-between gap-3">

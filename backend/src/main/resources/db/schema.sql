@@ -236,7 +236,8 @@ CREATE TABLE IF NOT EXISTS relay_token (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     INDEX idx_relay_token_user (user_id),
-    INDEX idx_relay_token_enabled (enabled)
+    INDEX idx_relay_token_enabled (enabled),
+    INDEX idx_relay_token_value_enabled (token, enabled)
     );
 
 SET @has_old_token_groups := (
@@ -300,6 +301,7 @@ CREATE TABLE IF NOT EXISTS relay_usage_log (
     message VARCHAR(500),
     created_at DATETIME NOT NULL,
     INDEX idx_relay_usage_user_created (user_id, created_at),
+    INDEX idx_relay_usage_token_created (token_id, created_at),
     INDEX idx_relay_usage_model_created (model, created_at),
     INDEX idx_relay_usage_channel_created (channel_id, created_at)
     );
@@ -332,6 +334,9 @@ SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHE
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'user_agent') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN user_agent VARCHAR(500) AFTER duration_ms', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'message') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN message VARCHAR(1000) AFTER status', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+ALTER TABLE relay_usage_log MODIFY COLUMN message VARCHAR(1000);
 
 ALTER TABLE relay_usage_log MODIFY COLUMN cost DECIMAL(12, 6) NOT NULL DEFAULT 0.000000;
 ALTER TABLE relay_token MODIFY COLUMN used_quota DECIMAL(12, 6) NOT NULL DEFAULT 0.000000;

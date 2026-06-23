@@ -30,7 +30,7 @@ public class ImageController {
     @PostMapping("/generate")
     public ApiResponse<ImageRecord> generate(@RequestBody GenerateDto dto) {
         JwtUserPrincipal principal = SecurityUtil.current();
-        return ApiResponse.success("任务已提交", imageService.submit(principal.userId(), principal.username(), dto.getPrompt(), dto.getQualityCode(), dto.getSize()));
+        return ApiResponse.success("任务已提交", imageService.submit(principal.userId(), principal.username(), dto.getPrompt(), dto.getQualityCode(), dto.getSize(), dto.getReferenceImages()));
     }
 
     @GetMapping("/{id}")

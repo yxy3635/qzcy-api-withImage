@@ -49,7 +49,7 @@ const title = "imageCreater"
       <div class="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-sky-50 p-4 shadow-sm">
         <p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">{{ admin ? '管理员空间' : '创作者空间' }}</p>
         <p class="mt-3 truncate text-lg font-black">{{ auth.userInfo?.username }}</p>
-        <p v-if="!admin" class="mt-1 text-sm font-semibold text-slate-500">￥{{ Number(auth.userInfo?.balance || 0).toFixed(2) }} 可用余额</p>
+        <p v-if="!admin" class="mt-1 text-sm font-semibold text-slate-500">￥{{ Number(auth.userInfo?.balance || 0).toFixed(6) }} 可用余额</p>
       </div>
       <nav class="mt-6 space-y-2">
         <RouterLink

@@ -23,6 +23,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         ensureGroupModelNamesUniqueWithinGroup();
         repairDefaultChannelUpstreamModelNames();
         ensureRelayPrecision();
+        ensureRelayTokenIndexes();
         ensureGptImage2Model();
         ensureEmptyGroupsHaveModels();
         ensureChannelsHaveModels();
@@ -137,6 +138,8 @@ public class RelaySchemaInitializer implements CommandLineRunner {
             addColumnIfMissing("relay_model", "fixed_request_billing", "TINYINT(1) NOT NULL DEFAULT 0");
         }
         if (tableExists("relay_usage_log")) {
+            addColumnIfMissing("relay_usage_log", "message", "VARCHAR(1000)");
+            jdbcTemplate.execute("ALTER TABLE relay_usage_log MODIFY COLUMN message VARCHAR(1000)");
             jdbcTemplate.execute("ALTER TABLE relay_usage_log MODIFY COLUMN cost DECIMAL(12, 6) NOT NULL DEFAULT 0.000000");
         }
         if (tableExists("relay_token")) {
@@ -148,6 +151,16 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         }
         if (tableExists("payment_record")) {
             jdbcTemplate.execute("ALTER TABLE payment_record MODIFY COLUMN amount DECIMAL(12, 6) NOT NULL");
+        }
+    }
+
+    private void ensureRelayTokenIndexes() {
+        if (!tableExists("relay_token")) {
+            return;
+        }
+        addIndexIfMissing("relay_token", "idx_relay_token_value_enabled", "CREATE INDEX idx_relay_token_value_enabled ON relay_token (token, enabled)");
+        if (tableExists("relay_usage_log")) {
+            addIndexIfMissing("relay_usage_log", "idx_relay_usage_token_created", "CREATE INDEX idx_relay_usage_token_created ON relay_usage_log (token_id, created_at)");
         }
     }
 

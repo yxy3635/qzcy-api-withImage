@@ -24,11 +24,119 @@ html {
   scroll-behavior: smooth;
 }
 
+#app {
+  min-height: 100vh;
+}
+
 button,
 input,
 textarea,
 select {
   font: inherit;
+}
+
+.app-ui-root {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.app-ui-root.glass-ui {
+  isolation: isolate;
+  background: #eef6ff;
+}
+
+.app-ui-root.portal-ui {
+  background: #f8fafc;
+}
+
+.app-glass-background {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(238, 246, 255, 0.08)),
+    var(--app-background-image);
+  background-position: center 42%;
+  background-size: cover;
+  background-repeat: no-repeat;
+  filter: saturate(1.18) contrast(1.04);
+}
+
+.app-glass-background::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.2), transparent 36%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.glass-ui > :not(.app-glass-background):not(.legacy-ui-toggle) {
+  position: relative;
+  z-index: 1;
+}
+
+.legacy-ui-toggle {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  padding: 6px 10px 6px 14px;
+  color: #334155;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(18px) saturate(1.16);
+  -webkit-backdrop-filter: blur(18px) saturate(1.16);
+  cursor: pointer;
+  user-select: none;
+}
+
+.legacy-ui-toggle span {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.legacy-ui-toggle input {
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  appearance: none;
+  border: 1px solid rgba(148, 163, 184, 0.72);
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.86);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.legacy-ui-toggle input::before {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 1px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25);
+  transition: transform 0.2s ease;
+}
+
+.legacy-ui-toggle input:checked {
+  border-color: rgba(37, 99, 235, 0.88);
+  background: #2563eb;
+}
+
+.legacy-ui-toggle input:checked::before {
+  transform: translateX(14px);
 }
 
 .page-shell {
@@ -53,6 +161,122 @@ select {
 
 .glass-panel {
   @apply rounded-2xl border border-white/70 bg-white/80 shadow-[0_18px_60px_rgba(21,32,51,0.08)] backdrop-blur-xl;
+}
+
+.glass-ui :is(.page-shell, .bg-\[\#F8FAFC\]) {
+  background: transparent;
+}
+
+.glass-ui :is(.bg-\[\#f7f9fc\], .bg-\[\#F8FAFC\]) {
+  background-color: transparent !important;
+}
+
+.glass-ui .page-shell > .fixed.inset-0 {
+  background-image:
+    radial-gradient(circle at 12% 10%, rgba(14, 165, 233, 0.14), transparent 28%),
+    radial-gradient(circle at 88% 18%, rgba(45, 212, 191, 0.13), transparent 30%);
+}
+
+.glass-ui :is(.panel, .soft-card, .glass-panel) {
+  border-color: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.64);
+  box-shadow: 0 20px 70px rgba(15, 23, 42, 0.13);
+  backdrop-filter: blur(26px) saturate(1.24);
+  -webkit-backdrop-filter: blur(26px) saturate(1.24);
+}
+
+.glass-ui :is(aside, header, nav, form):where(.bg-white\/70, .bg-white\/76, .bg-white\/80) {
+  border-color: rgba(255, 255, 255, 0.78);
+  background-color: rgba(255, 255, 255, 0.64);
+  box-shadow: 0 18px 64px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(24px) saturate(1.18);
+  -webkit-backdrop-filter: blur(24px) saturate(1.18);
+}
+
+.glass-ui :is(.bg-white\/70, .bg-white\/80) {
+  background-color: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(20px) saturate(1.16);
+  -webkit-backdrop-filter: blur(20px) saturate(1.16);
+}
+
+.glass-ui :is(input, textarea, select):where(.bg-white, .bg-slate-50\/50) {
+  background-color: rgba(255, 255, 255, 0.88);
+}
+
+.glass-ui .bg-white {
+  background-color: rgba(255, 255, 255, 0.68) !important;
+}
+
+.glass-ui :is(.bg-white\/90, .bg-white\/95, .bg-white\/86) {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(22px) saturate(1.14);
+  -webkit-backdrop-filter: blur(22px) saturate(1.14);
+}
+
+.glass-ui .bg-slate-50 {
+  background-color: rgba(248, 250, 252, 0.7) !important;
+}
+
+.glass-ui :is(.bg-slate-100, .bg-slate-50\/70, .bg-slate-50\/80) {
+  background-color: rgba(241, 245, 249, 0.82) !important;
+}
+
+.glass-ui :is(.text-slate-400, .text-slate-500, .text-slate-600) {
+  color: #475569;
+}
+
+.glass-ui :is(.text-slate-700, .text-slate-800, .text-slate-900, .text-slate-950) {
+  color: #0f172a;
+}
+
+.glass-ui .border-slate-100 {
+  border-color: rgba(226, 232, 240, 0.86);
+}
+
+.glass-ui .relay-page {
+  background: transparent !important;
+}
+
+.glass-ui .relay-page + .app-glass-background,
+.glass-ui:has(.relay-page) .app-glass-background {
+  background-position: 58% center;
+  background-size: cover;
+}
+
+.glass-ui .relay-shell {
+  background: transparent !important;
+}
+
+.legacy-ui .relay-shell {
+  background-image:
+    linear-gradient(#e8edf3 1px, transparent 1px),
+    linear-gradient(90deg, #e8edf3 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.glass-ui .relay-page :is(aside, header) {
+  background-color: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(24px) saturate(1.18);
+  -webkit-backdrop-filter: blur(24px) saturate(1.18);
+}
+
+.glass-ui .relay-page main :is(section, article, table, .rounded-2xl, .rounded-xl):where(.bg-white, .bg-slate-50, .bg-\[linear-gradient\(180deg\,\#f8fafc_0\%\,\#ffffff_100\%\)\]) {
+  background-color: rgba(255, 255, 255, 0.58) !important;
+  backdrop-filter: blur(18px) saturate(1.18);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+}
+
+.glass-ui .relay-page thead,
+.glass-ui .relay-page tbody {
+  background-color: rgba(248, 250, 252, 0.66) !important;
+}
+
+.glass-ui :is(table, thead, tbody, tr, td, th) {
+  color: #0f172a;
+}
+
+.glass-ui :is(.fixed.inset-0, .fixed.inset-0 > *) {
+  color: #0f172a;
 }
 
 .page-enter {
@@ -217,6 +441,40 @@ select {
 }
 
 @media (max-width: 640px) {
+  .legacy-ui-toggle {
+    left: auto;
+    right: 12px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    z-index: 35;
+    min-height: 30px;
+    max-width: 92px;
+    gap: 5px;
+    padding: 5px 7px 5px 9px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  }
+
+  .legacy-ui-toggle span {
+    max-width: 52px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 10px;
+  }
+
+  .legacy-ui-toggle input {
+    width: 28px;
+    height: 17px;
+    flex: 0 0 auto;
+  }
+
+  .legacy-ui-toggle input::before {
+    width: 13px;
+    height: 13px;
+  }
+
+  .legacy-ui-toggle input:checked::before {
+    transform: translateX(11px);
+  }
+
   h1 {
     overflow-wrap: anywhere;
   }

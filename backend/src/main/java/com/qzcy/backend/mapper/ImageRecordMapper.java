@@ -3,6 +3,7 @@ package com.qzcy.backend.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminImageRecordDto;
+import com.qzcy.backend.dto.ErrorRequestLogDto;
 import com.qzcy.backend.entity.ImageRecord;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -34,4 +35,32 @@ public interface ImageRecordMapper extends BaseMapper<ImageRecord> {
     Page<AdminImageRecordDto> adminImageRecords(Page<AdminImageRecordDto> page,
                                                 @Param("keyword") String keyword,
                                                 @Param("status") String status);
+
+    @Select("""
+            SELECT ir.id,
+                   'image' AS source,
+                   '生图任务' AS tokenName,
+                   '' AS channelName,
+                   '' AS groupNames,
+                   '/v1/images/generations' AS endpoint,
+                   ir.request_url AS requestUrl,
+                   ir.generation_model AS model,
+                   'image' AS modelType,
+                   ir.error_status_code AS statusCode,
+                   0 AS durationMs,
+                   '' AS userAgent,
+                   ir.status,
+                   ir.error_type AS errorType,
+                   ir.error_message AS message,
+                   ir.prompt,
+                   ir.created_at AS createdAt
+            FROM image_record ir
+            WHERE ir.user_id = #{userId}
+              AND ir.status = 'failed'
+              AND ir.error_message IS NOT NULL
+              AND ir.error_message <> ''
+            ORDER BY ir.created_at DESC
+            LIMIT #{limit}
+            """)
+    List<ErrorRequestLogDto> imageErrorLogs(@Param("userId") Long userId, @Param("limit") int limit);
 }

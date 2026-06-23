@@ -3,6 +3,7 @@ package com.qzcy.backend.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminImageRecordDto;
+import com.qzcy.backend.dto.AdminRelayUsageLogDto;
 import com.qzcy.backend.dto.AdminUserUpdateDto;
 import com.qzcy.backend.dto.DashboardStats;
 import com.qzcy.backend.entity.ImageRecord;
@@ -81,6 +82,11 @@ public class AdminServiceImpl implements AdminService {
     @Override
     public Page<AdminImageRecordDto> imageRecords(long page, long size, String keyword, String status) {
         return imageRecordMapper.adminImageRecords(Page.of(page, size), keyword, status);
+    }
+
+    @Override
+    public Page<AdminRelayUsageLogDto> relayUsageRecords(long page, long size, String keyword, String status) {
+        return relayUsageLogMapper.adminUsageLogs(Page.of(page, size), keyword, status);
     }
 
     @Override

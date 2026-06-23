@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import Pagination from '@/components/Pagination.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import type { PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest } from '@/types'
@@ -181,7 +182,7 @@ onMounted(load)
 
       <section class="mt-6 grid gap-5 lg:grid-cols-[1fr_320px]">
         <div class="rounded-[28px] border border-white/80 bg-white/86 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-2xl sm:p-6">
-          <div v-if="loading" class="p-10 text-center text-sm font-bold text-slate-500">正在读取配置</div>
+          <RequestLoader v-if="loading" class="p-10" label="正在读取配置" :cell-size="18" />
           <div v-else class="space-y-5">
             <label class="block">
               <span class="text-xs font-black text-slate-500">返利比例</span>
@@ -254,9 +255,9 @@ onMounted(load)
               <tr v-for="item in rebates.records" :key="item.id" class="hover:bg-slate-50/80">
                 <td class="px-5 py-4 font-black text-slate-900">{{ item.inviterUsername }}</td>
                 <td class="px-5 py-4 font-black text-slate-900">{{ item.inviteeUsername }}</td>
-                <td class="px-5 py-4 font-semibold text-slate-700">￥{{ Number(item.rechargeAmount || 0).toFixed(2) }}</td>
+                <td class="px-5 py-4 font-semibold text-slate-700">￥{{ Number(item.rechargeAmount || 0).toFixed(6) }}</td>
                 <td class="px-5 py-4 font-semibold text-slate-700">{{ Number(item.rebateRate || 0).toFixed(2) }}%</td>
-                <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.rebateAmount || 0).toFixed(2) }}</td>
+                <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.rebateAmount || 0).toFixed(6) }}</td>
                 <td class="px-5 py-4">
                   <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{{ statusText(item.status) }}</span>
                   <p v-if="item.rejectReason" class="mt-2 text-xs font-semibold text-rose-600">{{ item.rejectReason }}</p>
@@ -312,7 +313,7 @@ onMounted(load)
             <tbody class="divide-y divide-slate-100">
               <tr v-for="item in withdraws.records" :key="item.id" class="hover:bg-slate-50/80">
                 <td class="px-5 py-4 font-black text-slate-900">{{ item.username }}</td>
-                <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.amount || 0).toFixed(2) }}</td>
+                <td class="px-5 py-4 font-black text-emerald-600">￥{{ Number(item.amount || 0).toFixed(6) }}</td>
                 <td class="px-5 py-4 font-semibold text-slate-700">{{ channelText(item.channel) }}</td>
                 <td class="px-5 py-4">
                   <a class="font-black text-sky-600 underline" :href="item.qrCodeUrl" target="_blank">查看二维码</a>
