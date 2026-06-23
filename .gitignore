@@ -33,6 +33,7 @@ target
 # Cypress
 /cypress/videos/
 /cypress/screenshots/
+/backend/userImage/
 
 # Vitest
 __screenshots__/
