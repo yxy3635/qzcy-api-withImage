@@ -14,5 +14,6 @@ public interface AdminService {
     Page<AdminRelayUsageLogDto> relayUsageRecords(long page, long size, String keyword, String status);
     User updateUser(Long id, AdminUserUpdateDto dto);
     void updateRole(Long id, String role);
+    void updateBanStatus(Long id, boolean banned, Long currentAdminId);
     void deleteUser(Long id, Long currentAdminId);
 }

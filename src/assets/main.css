@@ -147,6 +147,97 @@ select {
   @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm;
 }
 
+details.panel {
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+details.panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.panel > summary::after {
+  content: "⌄";
+  margin-left: auto;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 900;
+  transition: transform 0.22s ease;
+}
+
+details.panel[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+details.panel .collapsible-body {
+  animation: detailsExpand 0.24s ease both;
+  transform-origin: top;
+}
+
+@keyframes detailsExpand {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scaleY(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+.ban-modal-enter-active,
+.ban-modal-leave-active {
+  transition: opacity 0.24s ease;
+}
+
+.ban-modal-enter-active .ban-dialog {
+  animation: banDialogIn 0.34s cubic-bezier(0.2, 0.85, 0.28, 1.18) both;
+}
+
+.ban-modal-leave-active .ban-dialog {
+  animation: banDialogOut 0.18s ease both;
+}
+
+.ban-modal-enter-from,
+.ban-modal-leave-to {
+  opacity: 0;
+}
+
+.ban-lock {
+  animation: banLockPulse 1.35s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes banDialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes banDialogOut {
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+}
+
+@keyframes banLockPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.08);
+  }
+}
+
 .input {
   @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-ocean focus:ring-2 focus:ring-blue-100;
 }

@@ -9,6 +9,12 @@ const http = axios.create({
 
 const publicPaths = ['/auth/login', '/auth/register', '/auth/email-code', '/auth/forgot-password']
 
+function notifyBanned(message?: string) {
+  window.dispatchEvent(new CustomEvent('imageCreater:banned', {
+    detail: { message: message || '账号已被封禁，无法使用网站功能，申诉：yxy3635@gmail.com' }
+  }))
+}
+
 http.interceptors.request.use((config) => {
   const url = config.url || ''
   if (publicPaths.some((path) => url.startsWith(path))) {
@@ -27,11 +33,19 @@ http.interceptors.response.use(
   (response) => {
     const body = response.data as ApiResponse<unknown>
     if (body && body.code && body.code !== 200) {
+      if (body.code === 423) {
+        notifyBanned(body.message)
+        window.localStorage.removeItem('imageCreater_token')
+        window.localStorage.removeItem('imageCreater_user')
+      }
       return Promise.reject(new Error(body.message || '请求失败'))
     }
     return response
   },
   (error) => {
+    if (error.response?.data?.code === 423) {
+      notifyBanned(error.response?.data?.message)
+    }
     if (error.response?.status === 401 || error.response?.status === 403) {
       window.localStorage.removeItem('imageCreater_token')
       window.localStorage.removeItem('imageCreater_user')

@@ -15,6 +15,7 @@
     </label>
     <RouterView />
     <AppToastHost />
+    <BannedModal />
   </div>
 </template>
 
@@ -22,6 +23,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppToastHost from '@/components/AppToastHost.vue'
+import BannedModal from '@/components/BannedModal.vue'
 import backgroundImage from '@/assets/images/background.png'
 
 const legacyUiKey = 'imageCreater_use_legacy_ui'

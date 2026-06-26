@@ -32,6 +32,7 @@ public class AdminAccountInitializer implements CommandLineRunner {
         admin.setUsername(DEFAULT_ADMIN_USERNAME);
         admin.setPassword(passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD));
         admin.setRole("ADMIN");
+        admin.setBanned(false);
         admin.setBalance(BigDecimal.ZERO);
         admin.setVersion(0);
         userMapper.insert(admin);

@@ -24,13 +24,14 @@ const total = ref(0)
 const error = ref('')
 const savingId = ref<number | null>(null)
 const apiLoadingUserId = ref<number | null>(null)
+const banSavingId = ref<number | null>(null)
 const editingUser = ref<UserInfo | null>(null)
 const selectedUser = ref<UserInfo | null>(null)
 const selectedOverview = ref<RelayUserOverview | null>(null)
 
 const activeUsers = computed(() => users.value.filter((user) => user.role === 'USER').length)
 const adminUsers = computed(() => users.value.filter((user) => user.role === 'ADMIN').length)
-const pageBalance = computed(() => users.value.reduce((sum, user) => sum + Number(user.balance || 0), 0))
+const bannedUsers = computed(() => users.value.filter((user) => user.banned).length)
 const tokens = computed(() => selectedOverview.value?.tokens || [])
 const logs = computed(() => selectedOverview.value?.logs || [])
 const models = computed(() => selectedOverview.value?.models || [])
@@ -125,6 +126,24 @@ async function remove(user: UserInfo) {
   }
 }
 
+async function toggleBan(user: UserInfo) {
+  const nextBanned = !user.banned
+  const action = nextBanned ? '封禁' : '解封'
+  if (!confirm(`确认${action}用户 ${user.username}？`)) return
+  error.value = ''
+  banSavingId.value = user.id
+  try {
+    await adminApi.updateBanStatus(user.id, nextBanned)
+    toast.success(`用户 ${user.username} 已${action}`)
+    await load(current.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : `${action}失败`
+    toast.error(error.value)
+  } finally {
+    banSavingId.value = null
+  }
+}
+
 async function openApiUsage(user: UserInfo) {
   selectedUser.value = user
   selectedOverview.value = null
@@ -167,6 +186,12 @@ function money(value?: number) {
 function roleBadge(role: Role) {
   return role === 'ADMIN'
     ? 'bg-violet-50 text-violet-700 ring-violet-100'
+    : 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+}
+
+function statusBadge(user: UserInfo) {
+  return user.banned
+    ? 'bg-red-50 text-red-700 ring-red-100'
     : 'bg-emerald-50 text-emerald-700 ring-emerald-100'
 }
 
@@ -222,8 +247,8 @@ onMounted(load)
           <p class="mt-2 text-2xl font-black text-violet-600">{{ adminUsers }}</p>
         </div>
         <div class="rounded-lg border border-slate-100 bg-white p-4 shadow-sm">
-          <p class="text-xs font-black text-slate-400">当前页余额</p>
-          <p class="mt-2 text-2xl font-black text-sky-600">${{ pageBalance.toFixed(6) }}</p>
+          <p class="text-xs font-black text-slate-400">当前页封禁</p>
+          <p class="mt-2 text-2xl font-black text-red-600">{{ bannedUsers }}</p>
         </div>
       </div>
 
@@ -241,12 +266,13 @@ onMounted(load)
         </div>
 
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[1120px] text-left text-sm">
+          <table class="w-full min-w-[1240px] text-left text-sm">
             <thead class="bg-slate-50 text-xs font-black text-slate-500">
               <tr>
                 <th class="px-5 py-4">用户</th>
                 <th class="px-5 py-4">邮箱</th>
                 <th class="px-5 py-4">角色</th>
+                <th class="px-5 py-4">状态</th>
                 <th class="px-5 py-4">余额</th>
                 <th class="px-5 py-4">邀请码</th>
                 <th class="px-5 py-4">邀请人 ID</th>
@@ -271,6 +297,9 @@ onMounted(load)
                 <td class="px-5 py-4">
                   <span class="inline-flex rounded-full px-2 py-1 text-xs font-black ring-1" :class="roleBadge(user.role)">{{ user.role }}</span>
                 </td>
+                <td class="px-5 py-4">
+                  <span class="inline-flex rounded-full px-2 py-1 text-xs font-black ring-1" :class="statusBadge(user)">{{ user.banned ? '已封禁' : '正常' }}</span>
+                </td>
                 <td class="px-5 py-4 font-black text-slate-900">${{ Number(user.balance || 0).toFixed(6) }}</td>
                 <td class="px-5 py-4 font-semibold text-slate-600">{{ user.invitationCode || '-' }}</td>
                 <td class="px-5 py-4 font-semibold text-slate-600">{{ user.inviterId || '-' }}</td>
@@ -289,6 +318,14 @@ onMounted(load)
                       @click="openApiUsage(user)"
                     >
                       {{ apiLoadingUserId === user.id ? '查询中' : '查询 API 使用' }}
+                    </button>
+                    <button
+                      class="h-10 rounded-lg border px-3 text-xs font-black transition disabled:opacity-60"
+                      :class="user.banned ? 'border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-red-100 bg-red-50 text-red-700 hover:bg-red-100'"
+                      :disabled="banSavingId === user.id"
+                      @click="toggleBan(user)"
+                    >
+                      {{ banSavingId === user.id ? '处理中' : user.banned ? '解封' : '封禁' }}
                     </button>
                     <button class="grid h-10 w-10 place-items-center rounded-lg border border-red-100 bg-red-50 text-red-600 transition hover:bg-red-100" title="删除用户" @click="remove(user)">
                       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

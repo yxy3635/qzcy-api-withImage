@@ -15,8 +15,11 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         if (!tableExists("relay_channel")) {
             return;
         }
+        addColumnIfMissing("relay_channel", "channel_rule", "VARCHAR(40) NOT NULL DEFAULT 'openai'");
         addColumnIfMissing("relay_channel", "group_names", "VARCHAR(160) NOT NULL DEFAULT 'default'");
         addColumnIfMissing("relay_channel", "remark", "VARCHAR(500) NOT NULL DEFAULT ''");
+        addColumnIfMissing("relay_channel", "max_concurrency", "INT NOT NULL DEFAULT 0");
+        jdbcTemplate.update("UPDATE relay_channel SET channel_rule = 'openai' WHERE channel_rule IS NULL OR channel_rule = ''");
         jdbcTemplate.update("UPDATE relay_channel SET group_names = 'default' WHERE group_names IS NULL OR group_names = ''");
         ensureRelayChannelModelTable();
         ensureRelayModelAllowsDuplicateNames();

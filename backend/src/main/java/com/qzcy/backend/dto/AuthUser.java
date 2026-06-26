@@ -12,5 +12,6 @@ public class AuthUser {
     private String username;
     private String email;
     private String role;
+    private Boolean banned;
     private BigDecimal balance;
 }

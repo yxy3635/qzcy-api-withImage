@@ -59,9 +59,9 @@ public interface RelayChannelModelMapper extends BaseMapper<RelayChannelModel> {
     Long countEnabledModelsForChannel(@Param("channelId") Long channelId);
 
     @Select("""
-            SELECT item.model
+            SELECT item.public_model
             FROM (
-                SELECT m.model, MIN(m.sort_order) AS sort_order, MIN(m.id) AS id
+                SELECT COALESCE(NULLIF(m.display_name, ''), m.model) AS public_model, MIN(m.sort_order) AS sort_order, MIN(m.id) AS id
                 FROM relay_channel_model cm
                 JOIN relay_model m ON m.id = cm.model_id
                 JOIN relay_channel c ON c.id = cm.channel_id
@@ -69,16 +69,16 @@ public interface RelayChannelModelMapper extends BaseMapper<RelayChannelModel> {
                   AND m.enabled = 1
                   AND c.enabled = 1
                   AND c.status <> 'failed'
-                GROUP BY m.model
+                GROUP BY COALESCE(NULLIF(m.display_name, ''), m.model)
             ) item
             ORDER BY item.sort_order, item.id
             """)
     List<String> enabledModelNames();
 
     @Select("""
-            SELECT item.model
+            SELECT item.public_model
             FROM (
-                SELECT m.model, MIN(m.sort_order) AS sort_order, MIN(m.id) AS id
+                SELECT COALESCE(NULLIF(m.display_name, ''), m.model) AS public_model, MIN(m.sort_order) AS sort_order, MIN(m.id) AS id
                 FROM relay_channel_model cm
                 JOIN relay_model m ON m.id = cm.model_id
                 JOIN relay_channel c ON c.id = cm.channel_id
@@ -91,7 +91,7 @@ public interface RelayChannelModelMapper extends BaseMapper<RelayChannelModel> {
                       OR c.group_names = ''
                       OR FIND_IN_SET(#{groupCode}, REPLACE(c.group_names, ' ', '')) > 0
                   )
-                GROUP BY m.model
+                GROUP BY COALESCE(NULLIF(m.display_name, ''), m.model)
             ) item
             ORDER BY item.sort_order, item.id
             """)

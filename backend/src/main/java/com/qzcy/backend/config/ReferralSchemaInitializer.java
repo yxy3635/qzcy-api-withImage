@@ -12,6 +12,7 @@ public class ReferralSchemaInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        addUserColumnIfMissing("banned", "TINYINT(1) NOT NULL DEFAULT 0");
         addUserColumnIfMissing("invitation_code", "VARCHAR(6) NULL");
         addUserColumnIfMissing("inviter_id", "BIGINT NULL");
         addUserColumnIfMissing("referral_balance", "DECIMAL(12, 6) NOT NULL DEFAULT 0.000000");

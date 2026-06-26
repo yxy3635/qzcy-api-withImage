@@ -7,7 +7,7 @@ import { relayApi } from '@/api/relayApi'
 import { paymentApi } from '@/api/paymentApi'
 import { useToast } from '@/composables/useToast'
 import RequestLoader from '@/components/RequestLoader.vue'
-import type { Announcement, ErrorRequestLog, PaymentRecord, RelayUsageLog, RelayUserOverview } from '@/types'
+import type { Announcement, ErrorRequestLog, PaymentRecord, RelayChannelModel, RelayModel, RelayUsageLog, RelayUserOverview } from '@/types'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -26,6 +26,13 @@ const keyGroupFilter = ref('')
 const keyStatusFilter = ref('')
 const channelSearch = ref('')
 const activeChartIndex = ref<number | null>(null)
+const activePricingTooltip = ref<{
+  model: RelayChannelModel
+  detail: RelayModel
+  rule: string
+  x: number
+  y: number
+} | null>(null)
 const rechargeAmount = ref(10)
 const rechargePreset = ref<number | 'custom'>(10)
 const rechargeType = ref('alipay')
@@ -84,6 +91,7 @@ const errorLogs = computed<ErrorRequestLog[]>(() => overview.value?.errorLogs ||
     createdAt: item.createdAt
   })))
 const models = computed(() => overview.value?.models || [])
+const modelsById = computed(() => new Map(models.value.map((model) => [model.id, model])))
 const groups = computed(() => overview.value?.groups || [{ id: 0, code: 'default', name: '默认分组', ratio: 1, enabled: true }])
 const trend = computed(() => overview.value?.trend || [])
 const modelUsage = computed(() => overview.value?.modelUsage || [])
@@ -91,7 +99,7 @@ const channelRows = computed(() => {
   const keyword = channelSearch.value.trim().toLowerCase()
   return channels.value
     .filter((channel) => {
-      const modelText = (channel.models || []).map((item) => `${item.model} ${item.upstreamModel}`).join(' ').toLowerCase()
+      const modelText = (channel.models || []).map((item) => `${publicModelName(item)} ${item.model} ${item.upstreamModel}`).join(' ').toLowerCase()
       return !keyword
         || channel.name.toLowerCase().includes(keyword)
         || channel.provider.toLowerCase().includes(keyword)
@@ -166,10 +174,13 @@ const metricCards = computed(() => [
 ])
 
 const modelRows = computed(() => {
-  const usageByModel = new Map(modelUsage.value.map((item) => [item.model, item]))
+  const usageByModel = new Map(modelUsage.value.flatMap((item) => {
+    const model = models.value.find((row) => row.model === item.model || publicModelName(row) === item.model)
+    return model ? [[model.model, item], [publicModelName(model), item]] : [[item.model, item]]
+  }))
   return models.value.map((model) => {
-    const usage = usageByModel.get(model.model)
-    const latest = logs.value.find((item) => item.model === model.model)
+    const usage = usageByModel.get(publicModelName(model)) || usageByModel.get(model.model)
+    const latest = logs.value.find((item) => item.model === publicModelName(model) || item.model === model.model)
     return {
       ...model,
       requests: Number(usage?.requests || 0),
@@ -280,6 +291,82 @@ function compact(value: number) {
 
 function money(value: number) {
   return `$${Number(value || 0).toFixed(6)}`
+}
+
+function publicModelName(model: Pick<RelayModel | RelayChannelModel, 'model' | 'displayName'>) {
+  return model.displayName || model.model
+}
+
+function ruleLabel(rule?: string) {
+  return String(rule || '').toLowerCase() === 'anthropic' ? 'ANTHROPIC' : 'OPENAI'
+}
+
+function ruleBadgeClass(rule?: string) {
+  return String(rule || '').toLowerCase() === 'anthropic'
+    ? 'bg-orange-50 text-orange-700 ring-orange-100'
+    : 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+}
+
+function channelModelDetail(binding: RelayChannelModel): RelayModel {
+  const model = modelsById.value.get(binding.modelId)
+  if (model) return model
+  return {
+    id: binding.modelId,
+    model: binding.model,
+    displayName: binding.displayName,
+    modelType: binding.modelType,
+    inputPrice: 0,
+    outputPrice: 0,
+    cachedInputPrice: 0,
+    cacheCreationPrice: 0,
+    requestPrice: 0,
+    fixedRequestBilling: false,
+    status: '',
+    enabled: binding.enabled,
+    sortOrder: 0
+  }
+}
+
+function priceValue(value?: number) {
+  return `$${Number(value || 0).toFixed(6)}`
+}
+
+function fixedBilling(model: RelayModel) {
+  return Boolean(model.fixedRequestBilling)
+}
+
+function groupDetail(code: string) {
+  return groups.value.find((group) => group.code === code)
+}
+
+function groupRatioLabel(code: string) {
+  const ratio = Number(groupDetail(code)?.ratio || 1)
+  return `${ratio.toFixed(3)}x`
+}
+
+function showPricingTooltip(event: MouseEvent, model: RelayChannelModel, rule: string) {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const width = 288
+  const estimatedHeight = 220
+  const margin = 16
+  let x = rect.left
+  let y = rect.bottom + 10
+  if (x + width > window.innerWidth - margin) x = window.innerWidth - width - margin
+  if (x < margin) x = margin
+  if (y + estimatedHeight > window.innerHeight - margin) {
+    y = Math.max(margin, rect.top - estimatedHeight - 10)
+  }
+  activePricingTooltip.value = {
+    model,
+    detail: channelModelDetail(model),
+    rule,
+    x,
+    y
+  }
+}
+
+function hidePricingTooltip() {
+  activePricingTooltip.value = null
 }
 
 function cacheHitRate(log: Pick<RelayUsageLog, 'promptTokens' | 'cachedTokens'>) {
@@ -702,7 +789,7 @@ onMounted(async () => {
               <div class="mt-5 space-y-4">
                 <div v-for="row in modelRows.slice(0, 8)" :key="row.model" class="rounded-xl border border-slate-100 p-3 transition hover:border-emerald-100 hover:bg-emerald-50/40">
                   <div class="flex items-center justify-between gap-3 text-sm font-bold">
-                    <span class="truncate text-slate-900">{{ row.model }}</span>
+                    <span class="truncate text-slate-900">{{ publicModelName(row) }}</span>
                     <span class="shrink-0 text-slate-500">{{ row.requests }} 次</span>
                   </div>
                   <div class="mt-2 flex items-center gap-3">
@@ -1060,42 +1147,53 @@ onMounted(async () => {
                   <thead class="bg-slate-50 text-xs font-black text-slate-500">
                     <tr>
                       <th class="px-5 py-4">渠道名</th>
+                      <th class="px-5 py-4">描述</th>
                       <th class="px-5 py-4">平台</th>
                       <th class="px-5 py-4">我可访问的分组</th>
-                      <th class="px-5 py-4">备注</th>
                       <th class="px-5 py-4">支持模型</th>
-                      <th class="px-5 py-4 text-right">状态</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-slate-100">
-                    <tr v-for="channel in channelRows" :key="channel.id" class="align-top">
+                    <tr v-for="channel in channelRows" :key="channel.id" class="align-top transition hover:bg-slate-50/70">
                       <td class="px-5 py-5">
                         <p class="font-black text-slate-950">{{ channel.name }}</p>
+                        <span class="mt-2 inline-flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-black" :class="channel.status === 'available' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">
+                          <span class="h-1.5 w-1.5 rounded-full" :class="channel.status === 'available' ? 'bg-emerald-500' : 'bg-amber-500'"></span>
+                          {{ statusText(channel.status) }}
+                        </span>
                       </td>
                       <td class="px-5 py-5">
-                        <span class="inline-flex rounded-md bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">{{ channel.provider }}</span>
+                        <p class="max-w-[240px] whitespace-pre-wrap text-xs font-semibold leading-5 text-slate-500">{{ channel.remark || '-' }}</p>
+                      </td>
+                      <td class="px-5 py-5">
+                        <div class="flex flex-col items-start gap-2">
+                          <span class="inline-flex rounded-md px-2 py-1 text-xs font-black ring-1" :class="ruleBadgeClass(channel.channelRule)">
+                            {{ ruleLabel(channel.channelRule) }}
+                          </span>
+                          <span class="max-w-[160px] truncate text-xs font-semibold text-slate-500">{{ channel.provider || '-' }}</span>
+                        </div>
                       </td>
                       <td class="px-5 py-5">
                         <div class="flex flex-wrap gap-2">
-                          <span v-for="group in channel.groups" :key="group" class="inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-black text-slate-600">{{ group }}</span>
+                          <span v-for="group in channel.groups" :key="group" class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs font-black text-slate-600">
+                            {{ group }}
+                            <span class="rounded bg-white px-1.5 py-0.5 text-[10px] text-emerald-700 ring-1 ring-emerald-100">{{ groupRatioLabel(group) }}</span>
+                          </span>
                         </div>
                       </td>
                       <td class="px-5 py-5">
-                        <p class="max-w-[260px] whitespace-pre-wrap text-xs font-semibold leading-5 text-slate-500">{{ channel.remark || '-' }}</p>
-                      </td>
-                      <td class="px-5 py-5">
-                        <div class="flex max-w-[520px] flex-wrap gap-2">
-                          <span v-for="model in channel.enabledModels" :key="model.modelId" class="inline-flex items-center rounded-md bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">
-                            {{ model.model }}
+                        <div class="flex max-w-[620px] flex-wrap gap-2">
+                          <span
+                            v-for="model in channel.enabledModels"
+                            :key="model.modelId"
+                            class="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                            @mouseenter="showPricingTooltip($event, model, channel.channelRule)"
+                            @mouseleave="hidePricingTooltip"
+                          >
+                            {{ publicModelName(model) }}
                           </span>
                           <span v-if="!channel.enabledModels.length" class="text-xs font-semibold text-slate-400">暂无绑定模型</span>
                         </div>
-                      </td>
-                      <td class="px-5 py-5 text-right">
-                        <span class="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-xs font-black" :class="channel.status === 'available' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">
-                          <span class="h-2 w-2 rounded-full" :class="channel.status === 'available' ? 'bg-emerald-500' : 'bg-amber-500'"></span>
-                          {{ statusText(channel.status) }}
-                        </span>
                       </td>
                     </tr>
                   </tbody>
@@ -1367,6 +1465,48 @@ onMounted(async () => {
     </div>
 
     <Teleport to="body">
+      <div
+        v-if="activePricingTooltip"
+        class="pointer-events-none fixed z-[90] w-72 rounded-xl border border-emerald-100 bg-white text-left opacity-100 shadow-2xl shadow-slate-300/70 ring-1 ring-slate-100"
+        :style="{ left: `${activePricingTooltip.x}px`, top: `${activePricingTooltip.y}px` }"
+      >
+        <div class="rounded-t-xl bg-emerald-50 px-4 py-3">
+          <div class="flex items-center justify-between gap-3">
+            <p class="truncate text-sm font-black text-emerald-700">{{ publicModelName(activePricingTooltip.model) }}</p>
+            <span class="rounded-md px-2 py-1 text-[10px] font-black ring-1" :class="ruleBadgeClass(activePricingTooltip.rule)">{{ ruleLabel(activePricingTooltip.rule) }}</span>
+          </div>
+          <p v-if="activePricingTooltip.model.upstreamModel && activePricingTooltip.model.upstreamModel !== activePricingTooltip.model.model" class="mt-1 truncate font-mono text-[11px] font-semibold text-emerald-700/70">{{ activePricingTooltip.model.upstreamModel }}</p>
+        </div>
+        <div class="grid gap-2 px-4 py-3 text-xs font-semibold text-slate-500">
+          <p class="flex justify-between gap-3">
+            <span>计费模式</span>
+            <span class="font-black text-slate-700">{{ fixedBilling(activePricingTooltip.detail) ? '按次' : '按量' }}</span>
+          </p>
+          <p v-if="fixedBilling(activePricingTooltip.detail) || Number(activePricingTooltip.detail.requestPrice || 0) > 0" class="flex justify-between gap-3">
+            <span>每次请求</span>
+            <span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.requestPrice) }} / 次</span>
+          </p>
+          <template v-else>
+            <p class="flex justify-between gap-3">
+              <span>输入 / 1M</span>
+              <span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.inputPrice) }}</span>
+            </p>
+            <p class="flex justify-between gap-3">
+              <span>输出 / 1M</span>
+              <span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.outputPrice) }}</span>
+            </p>
+            <p class="flex justify-between gap-3">
+              <span>缓存读 / 1M</span>
+              <span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.cachedInputPrice) }}</span>
+            </p>
+            <p class="flex justify-between gap-3">
+              <span>缓存写 / 1M</span>
+              <span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.cacheCreationPrice) }}</span>
+            </p>
+          </template>
+        </div>
+      </div>
+
       <div
         v-if="selectedAnnouncement"
         class="fixed inset-0 z-[70] flex min-h-dvh items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"

@@ -14,6 +14,7 @@ public class RelayChannelDto {
     private Long id;
     private String name;
     private String provider;
+    private String channelRule;
     private String apiBaseUrl;
     private String apiKeyMasked;
     private String groupNames;
@@ -23,6 +24,7 @@ public class RelayChannelDto {
     private Integer weight;
     private Integer rpmLimit;
     private Integer tpmLimit;
+    private Integer maxConcurrency;
     private BigDecimal priceMultiplier;
     private Boolean enabled;
     private List<RelayChannelModelDto> models;

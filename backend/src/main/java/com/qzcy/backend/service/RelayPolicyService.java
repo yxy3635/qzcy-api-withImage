@@ -8,6 +8,7 @@ import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayToken;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 public interface RelayPolicyService {
     RelayToken requireRelayToken(String authorization);
@@ -23,5 +24,6 @@ public interface RelayPolicyService {
     void ensureBalance(Long userId);
     void enforceQuota(RelayToken access, BigDecimal nextCost);
     RelayContext buildContext(String authorization, String apiKeyHeader, String queryKey, String clientIp, String endpointType, String requestedModel);
+    List<RelayContext> buildContexts(String authorization, String apiKeyHeader, String queryKey, String clientIp, String endpointType, String requestedModel);
     RelayCostBreakdown estimateCost(RelayModel model, RelayChannel channel, RelayGroup group, com.fasterxml.jackson.databind.JsonNode responseBody);
 }

@@ -9,6 +9,7 @@ import java.util.List;
 public class RelayChannelUpdateDto {
     private String name;
     private String provider;
+    private String channelRule;
     private String apiBaseUrl;
     private String apiKey;
     private String groupNames;
@@ -17,6 +18,7 @@ public class RelayChannelUpdateDto {
     private Integer weight;
     private Integer rpmLimit;
     private Integer tpmLimit;
+    private Integer maxConcurrency;
     private BigDecimal priceMultiplier;
     private Boolean enabled;
     private List<RelayChannelModelUpdateDto> models;

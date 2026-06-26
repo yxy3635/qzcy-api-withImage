@@ -48,6 +48,9 @@ export const adminApi = {
   updateRelayChannel(id: number, payload: Partial<Omit<RelayChannel, 'id' | 'apiKeyMasked' | 'status'>> & { apiKey?: string }) {
     return http.put<ApiResponse<RelayChannel>>(`/admin/relay/channels/${id}`, payload)
   },
+  deleteRelayChannel(id: number) {
+    return http.delete<ApiResponse<void>>(`/admin/relay/channels/${id}`)
+  },
   createRelayGroup(payload: Partial<Omit<RelayGroup, 'id'>>) {
     return http.post<ApiResponse<RelayGroup>>('/admin/relay/groups', payload)
   },
@@ -110,6 +113,9 @@ export const adminApi = {
   },
   updateRole(id: number, role: 'USER' | 'ADMIN') {
     return http.put<ApiResponse<void>>(`/admin/users/${id}/role`, { role })
+  },
+  updateBanStatus(id: number, banned: boolean) {
+    return http.put<ApiResponse<void>>(`/admin/users/${id}/ban`, { banned })
   },
   updateUser(id: number, payload: Partial<Pick<UserInfo, 'email' | 'role' | 'balance'>> & { password?: string }) {
     return http.put<ApiResponse<UserInfo>>(`/admin/users/${id}`, payload)

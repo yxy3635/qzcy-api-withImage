@@ -11,6 +11,7 @@ export interface UserInfo {
   username: string
   email?: string
   role: Role
+  banned?: boolean
   balance: number
   invitationCode?: string
   inviterId?: number
@@ -208,6 +209,7 @@ export interface RelayChannel {
   id: number
   name: string
   provider: string
+  channelRule: 'openai' | 'anthropic' | string
   apiBaseUrl: string
   apiKeyMasked: string
   groupNames: string
@@ -217,6 +219,7 @@ export interface RelayChannel {
   weight: number
   rpmLimit: number
   tpmLimit: number
+  maxConcurrency: number
   priceMultiplier: number
   enabled: boolean
   models: RelayChannelModel[]

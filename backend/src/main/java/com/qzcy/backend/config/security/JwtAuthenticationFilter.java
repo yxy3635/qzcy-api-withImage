@@ -1,5 +1,7 @@
 package com.qzcy.backend.config.security;
 
+import com.qzcy.backend.entity.User;
+import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.util.JwtUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.List;
 
@@ -22,6 +25,7 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String TOKEN_PREFIX = "Bearer ";
     private final JwtUtil jwtUtil;
+    private final UserMapper userMapper;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -40,13 +44,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String jwtValue = extractBearerValue(headerValue);
             if (jwtUtil.validateToken(jwtValue)) {
                 Long userId = jwtUtil.getUserId(jwtValue);
-                String username = jwtUtil.getUsername(jwtValue);
-                String role = jwtUtil.getRole(jwtValue);
+                User user = userMapper.selectById(userId);
+                if (user == null) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                if (Boolean.TRUE.equals(user.getBanned())) {
+                    writeBannedResponse(response);
+                    return;
+                }
+                String username = user.getUsername() == null ? jwtUtil.getUsername(jwtValue) : user.getUsername();
+                String role = user.getRole() == null ? jwtUtil.getRole(jwtValue) : user.getRole();
                 JwtUserPrincipal principal = new JwtUserPrincipal(userId, username, role);
                 SecurityContextHolder.getContext().setAuthentication(new JwtAuthentication(principal));
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    private void writeBannedResponse(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"code\":423,\"message\":\"账号已被封禁，无法使用网站功能\",\"data\":null}");
     }
 
     private String extractBearerValue(String headerValue) {

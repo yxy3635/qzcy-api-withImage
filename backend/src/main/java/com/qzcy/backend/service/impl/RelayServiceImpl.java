@@ -110,12 +110,14 @@ public class RelayServiceImpl implements RelayService {
         apply(channel, dto);
         if (isBlank(channel.getName())) channel.setName("New relay channel");
         if (isBlank(channel.getProvider())) channel.setProvider("OpenAI Compatible");
+        if (isBlank(channel.getChannelRule())) channel.setChannelRule("openai");
         if (isBlank(channel.getGroupNames())) channel.setGroupNames("default");
         if (channel.getStatus() == null) channel.setStatus("unknown");
         if (channel.getPriority() == null) channel.setPriority(10);
         if (channel.getWeight() == null) channel.setWeight(10);
         if (channel.getRpmLimit() == null) channel.setRpmLimit(0);
         if (channel.getTpmLimit() == null) channel.setTpmLimit(0);
+        if (channel.getMaxConcurrency() == null) channel.setMaxConcurrency(0);
         if (channel.getPriceMultiplier() == null) channel.setPriceMultiplier(BigDecimal.ONE);
         if (channel.getEnabled() == null) channel.setEnabled(true);
         channelMapper.insert(channel);
@@ -133,6 +135,14 @@ public class RelayServiceImpl implements RelayService {
             replaceChannelModels(channel.getId(), dto.getModels());
         }
         return toChannelDto(channelMapper.selectById(id));
+    }
+
+    @Override
+    public void deleteChannel(Long id) {
+        RelayChannel channel = channelMapper.selectById(id);
+        if (channel == null) throw new BusinessException(404, "Relay channel not found");
+        channelModelMapper.deleteByChannelId(id);
+        channelMapper.deleteById(id);
     }
 
     @Override
@@ -237,12 +247,12 @@ public class RelayServiceImpl implements RelayService {
         if (isBlank(channel.getApiBaseUrl())) throw new BusinessException(400, "Channel base URL is not configured");
         if (isBlank(channel.getApiKey())) throw new BusinessException(400, "Channel API key is not configured");
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), "/v1/models")))
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), "/v1/models")))
                     .timeout(Duration.ofSeconds(30))
-                    .header("Authorization", "Bearer " + channel.getApiKey())
                     .header("Accept", "application/json")
-                    .GET()
-                    .build();
+                    .GET();
+            applyRelayAuthHeaders(builder, channel);
+            HttpRequest request = builder.build();
             HttpResponse<String> response = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(10))
                     .build()
@@ -335,7 +345,7 @@ public class RelayServiceImpl implements RelayService {
                         .orderByAsc("sort_order")
                         .orderByAsc("id"))
                 .stream()
-                .filter(model -> accessibleModels.contains(model.getModel()))
+                .filter(model -> accessibleModels.contains(publicModelName(model)))
                 .filter(distinctByModelName())
                 .map(this::toModelDto).toList();
         List<RelayTokenDto> tokens = tokenMapper.selectList(new QueryWrapper<RelayToken>()
@@ -402,6 +412,7 @@ public class RelayServiceImpl implements RelayService {
     private void apply(RelayChannel channel, RelayChannelUpdateDto dto) {
         if (dto.getName() != null) channel.setName(dto.getName().trim());
         if (dto.getProvider() != null) channel.setProvider(dto.getProvider().trim());
+        if (dto.getChannelRule() != null) channel.setChannelRule(normalizeChannelRule(dto.getChannelRule()));
         if (dto.getApiBaseUrl() != null) channel.setApiBaseUrl(normalizeBaseUrl(dto.getApiBaseUrl()));
         if (dto.getApiKey() != null && !dto.getApiKey().isBlank()) channel.setApiKey(dto.getApiKey().trim());
         if (dto.getGroupNames() != null) channel.setGroupNames(normalizeCsv(dto.getGroupNames(), "default"));
@@ -410,6 +421,7 @@ public class RelayServiceImpl implements RelayService {
         if (dto.getWeight() != null) channel.setWeight(Math.max(0, dto.getWeight()));
         if (dto.getRpmLimit() != null) channel.setRpmLimit(Math.max(0, dto.getRpmLimit()));
         if (dto.getTpmLimit() != null) channel.setTpmLimit(Math.max(0, dto.getTpmLimit()));
+        if (dto.getMaxConcurrency() != null) channel.setMaxConcurrency(Math.max(0, dto.getMaxConcurrency()));
         if (dto.getPriceMultiplier() != null) {
             if (dto.getPriceMultiplier().compareTo(BigDecimal.ZERO) < 0) throw new BusinessException(400, "Price multiplier cannot be negative");
             channel.setPriceMultiplier(dto.getPriceMultiplier());
@@ -565,13 +577,18 @@ public class RelayServiceImpl implements RelayService {
 
     private java.util.function.Predicate<RelayModel> distinctByModelName() {
         Set<String> seen = new HashSet<>();
-        return model -> seen.add(model.getModel());
+        return model -> seen.add(publicModelName(model));
+    }
+
+    private String publicModelName(RelayModel model) {
+        if (model == null) return "";
+        return isBlank(model.getDisplayName()) ? model.getModel() : model.getDisplayName();
     }
 
     private RelayChannelDto toChannelDto(RelayChannel channel) {
-        return new RelayChannelDto(channel.getId(), channel.getName(), channel.getProvider(), channel.getApiBaseUrl(),
+        return new RelayChannelDto(channel.getId(), channel.getName(), channel.getProvider(), channel.getChannelRule(), channel.getApiBaseUrl(),
                 mask(channel.getApiKey()), channel.getGroupNames(), channel.getRemark(), channel.getStatus(), channel.getPriority(), channel.getWeight(), channel.getRpmLimit(),
-                channel.getTpmLimit(), channel.getPriceMultiplier(), channel.getEnabled(), channelModelMapper.modelsForChannel(channel.getId()));
+                channel.getTpmLimit(), channel.getMaxConcurrency(), channel.getPriceMultiplier(), channel.getEnabled(), channelModelMapper.modelsForChannel(channel.getId()));
     }
 
     private RelayModelDto toModelDto(RelayModel model) {
@@ -661,12 +678,43 @@ public class RelayServiceImpl implements RelayService {
         return normalized;
     }
 
+    private String normalizeChannelRule(String value) {
+        if (value == null || value.isBlank()) return "openai";
+        String normalized = value.trim().toLowerCase();
+        if ("anthrotic".equals(normalized)) return "anthropic";
+        if ("claude".equals(normalized)) return "anthropic";
+        if (!"openai".equals(normalized) && !"anthropic".equals(normalized)) {
+            throw new BusinessException(400, "Unsupported channel rule: " + value);
+        }
+        return normalized;
+    }
+
     private String relayUrl(String apiBaseUrl, String path) {
         String baseUrl = normalizeBaseUrl(apiBaseUrl);
         if (baseUrl.endsWith("/v1") && path.startsWith("/v1/")) {
             path = path.substring(3);
         }
         return baseUrl + path;
+    }
+
+    private void applyRelayAuthHeaders(HttpRequest.Builder builder, RelayChannel channel) {
+        if (isAnthropicChannel(channel)) {
+            builder.header("x-api-key", channel.getApiKey())
+                    .header("anthropic-version", "2023-06-01");
+            return;
+        }
+        builder.header("Authorization", "Bearer " + channel.getApiKey());
+    }
+
+    private boolean isAnthropicChannel(RelayChannel channel) {
+        String rule = channel == null || channel.getChannelRule() == null ? "" : channel.getChannelRule().toLowerCase();
+        if ("anthropic".equals(rule)) return true;
+        if ("openai".equals(rule)) return false;
+        String provider = channel == null || channel.getProvider() == null ? "" : channel.getProvider().toLowerCase();
+        String baseUrl = channel == null || channel.getApiBaseUrl() == null ? "" : channel.getApiBaseUrl().toLowerCase();
+        return provider.contains("anthropic")
+                || provider.contains("claude")
+                || baseUrl.contains("api.anthropic.com");
     }
 
     private String createApiKeyValue() {

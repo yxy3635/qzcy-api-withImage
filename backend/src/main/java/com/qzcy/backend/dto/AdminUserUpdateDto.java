@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 public class AdminUserUpdateDto {
     private String email;
     private String role;
+    private Boolean banned;
     private BigDecimal balance;
     private String password;
 }

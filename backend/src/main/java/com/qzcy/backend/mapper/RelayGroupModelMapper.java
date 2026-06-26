@@ -13,7 +13,7 @@ import java.util.List;
 @Mapper
 public interface RelayGroupModelMapper extends BaseMapper<RelayGroupModel> {
     @Select("""
-            SELECT m.model
+            SELECT COALESCE(NULLIF(m.display_name, ''), m.model) AS model
             FROM relay_group_model gm
             JOIN relay_model m ON m.id = gm.model_id
             WHERE gm.group_id = #{groupId}
@@ -27,7 +27,7 @@ public interface RelayGroupModelMapper extends BaseMapper<RelayGroupModel> {
             FROM relay_group_model gm
             JOIN relay_model m ON m.id = gm.model_id
             WHERE gm.group_id = #{groupId}
-              AND m.model = #{model}
+              AND (m.display_name = #{model} OR m.model = #{model})
               AND m.enabled = 1
             ORDER BY m.sort_order, m.id
             LIMIT 1
@@ -47,7 +47,7 @@ public interface RelayGroupModelMapper extends BaseMapper<RelayGroupModel> {
             FROM relay_group_model gm
             JOIN relay_model m ON m.id = gm.model_id
             WHERE gm.group_id = #{groupId}
-              AND m.model = #{model}
+              AND (m.display_name = #{model} OR m.model = #{model})
             """)
     Long countGroupModelName(@Param("groupId") Long groupId, @Param("model") String model);
 

@@ -49,12 +49,12 @@ public class RelayChannelStatusServiceImpl implements RelayChannelStatusService 
         if (channel.getApiBaseUrl() == null || channel.getApiBaseUrl().isBlank()) return false;
         if (channel.getApiKey() == null || channel.getApiKey().isBlank()) return false;
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), "/v1/models")))
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), "/v1/models")))
                     .timeout(Duration.ofSeconds(15))
-                    .header("Authorization", "Bearer " + channel.getApiKey())
                     .header("Accept", "application/json")
-                    .GET()
-                    .build();
+                    .GET();
+            applyAuthHeaders(builder, channel);
+            HttpRequest request = builder.build();
             HttpResponse<String> response = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(8))
                     .build()
@@ -70,5 +70,25 @@ public class RelayChannelStatusServiceImpl implements RelayChannelStatusService 
         while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         if (baseUrl.endsWith("/v1") && path.startsWith("/v1/")) path = path.substring(3);
         return baseUrl + path;
+    }
+
+    private void applyAuthHeaders(HttpRequest.Builder builder, RelayChannel channel) {
+        if (isAnthropicChannel(channel)) {
+            builder.header("x-api-key", channel.getApiKey())
+                    .header("anthropic-version", "2023-06-01");
+            return;
+        }
+        builder.header("Authorization", "Bearer " + channel.getApiKey());
+    }
+
+    private boolean isAnthropicChannel(RelayChannel channel) {
+        String rule = channel == null || channel.getChannelRule() == null ? "" : channel.getChannelRule().toLowerCase();
+        if ("anthropic".equals(rule)) return true;
+        if ("openai".equals(rule)) return false;
+        String provider = channel == null || channel.getProvider() == null ? "" : channel.getProvider().toLowerCase();
+        String baseUrl = channel == null || channel.getApiBaseUrl() == null ? "" : channel.getApiBaseUrl().toLowerCase();
+        return provider.contains("anthropic")
+                || provider.contains("claude")
+                || baseUrl.contains("api.anthropic.com");
     }
 }

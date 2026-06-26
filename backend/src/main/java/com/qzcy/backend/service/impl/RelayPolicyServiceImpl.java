@@ -45,15 +45,22 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
 
     @Override
     public RelayContext buildContext(String authorization, String apiKeyHeader, String queryKey, String clientIp, String endpointType, String requestedModel) {
+        List<RelayContext> contexts = buildContexts(authorization, apiKeyHeader, queryKey, clientIp, endpointType, requestedModel);
+        RelayContext context = contexts.get(0);
+        enforceRateLimits(context.token(), context.channel());
+        return context;
+    }
+
+    @Override
+    public List<RelayContext> buildContexts(String authorization, String apiKeyHeader, String queryKey, String clientIp, String endpointType, String requestedModel) {
         RelayToken access = requireRelayToken(authorization, apiKeyHeader, queryKey);
         enforceIpAccess(access, clientIp);
         enforceTokenModelAccess(access, requestedModel);
         RelayGroup group = resolveGroup(access.getGroupNames(), requestedModel, endpointType);
         RelayModel relayModel = requireModelForGroup(requestedModel, endpointType, group);
-        RelayContext context = chooseChannel(access, relayModel, group, endpointType);
-        enforceRateLimits(access, context.channel());
+        List<RelayContext> contexts = chooseChannels(access, relayModel, group, endpointType);
         ensureBalance(access.getUserId());
-        return context;
+        return contexts;
     }
 
     @Override
@@ -74,6 +81,7 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         if (item.getExpiresAt() != null && item.getExpiresAt().isBefore(LocalDateTime.now())) {
             throw new BusinessException(401, "Relay API key expired");
         }
+        ensureUserUsable(item.getUserId());
         return item;
     }
 
@@ -107,12 +115,7 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         if (model == null || model.isBlank()) {
             throw new BusinessException(400, "Model is required");
         }
-        RelayModel item = modelMapper.selectOne(new QueryWrapper<RelayModel>()
-                .eq("model", model.trim())
-                .eq("enabled", true)
-                .orderByAsc("sort_order")
-                .orderByAsc("id")
-                .last("LIMIT 1"));
+        RelayModel item = selectEnabledModelByPublicName(model);
         if (item == null || !modelTypeMatches(item.getModelType(), endpointType)) {
             throw new BusinessException(400, "Selected relay model is unavailable");
         }
@@ -142,9 +145,7 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
 
     @Override
     public void enforceTokenModelAccess(RelayToken access, String model) {
-        if (!containsCsv(access.getAllowedModels(), model)) {
-            throw new BusinessException(403, "This API key cannot access the selected model");
-        }
+        enforceTokenModelAccess(access, selectEnabledModelByPublicName(model), model);
     }
 
     @Override
@@ -152,6 +153,7 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         if (model == null || model.isBlank()) {
             throw new BusinessException(400, "Model is required");
         }
+        RelayModel relayModel = selectEnabledModelByPublicName(model);
         List<String> groupCodes = csvValues(groupNames == null || groupNames.isBlank() ? "default" : groupNames);
         for (String code : groupCodes) {
             RelayGroup group = groupMapper.selectOne(new QueryWrapper<RelayGroup>().eq("code", code).eq("enabled", true));
@@ -162,12 +164,7 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
             }
             Long configuredModels = groupModelMapper.countEnabledModelsForGroup(group.getId());
             if (configuredModels == null || configuredModels == 0 || "default".equalsIgnoreCase(group.getCode())) {
-                RelayModel fallback = modelMapper.selectOne(new QueryWrapper<RelayModel>()
-                        .eq("model", model.trim())
-                        .eq("enabled", true)
-                        .orderByAsc("sort_order")
-                        .orderByAsc("id")
-                        .last("LIMIT 1"));
+                RelayModel fallback = relayModel == null ? selectEnabledModelByPublicName(model) : relayModel;
                 if (fallback != null && modelTypeMatches(fallback.getModelType(), endpointType)) {
                     return group;
                 }
@@ -196,19 +193,37 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
 
     @Override
     public RelayContext chooseChannel(RelayToken access, RelayModel model, RelayGroup group, String endpointType) {
+        return chooseChannels(access, model, group, endpointType).get(0);
+    }
+
+    private List<RelayContext> chooseChannels(RelayToken access, RelayModel model, RelayGroup group, String endpointType) {
         String groupCode = group == null || isBlank(group.getCode()) ? "default" : group.getCode();
         List<RelayChannel> candidates = channelMapper.selectDispatchCandidates(model.getId(), groupCode);
         if (candidates.isEmpty()) {
             throw new BusinessException(400, "No available relay channel for current group and model");
         }
-        int priority = candidates.get(0).getPriority() == null ? 0 : candidates.get(0).getPriority();
-        List<RelayChannel> samePriority = candidates.stream()
-                .filter(channel -> (channel.getPriority() == null ? 0 : channel.getPriority()) == priority)
-                .toList();
-        RelayChannel channel = weightedPick(samePriority);
-        RelayChannelModel channelModel = channelModelMapper.selectByChannelAndModel(channel.getId(), model.getId());
+        List<RelayChannel> ordered = new java.util.ArrayList<>();
+        int index = 0;
+        while (index < candidates.size()) {
+            int priority = candidates.get(index).getPriority() == null ? 0 : candidates.get(index).getPriority();
+            int start = index;
+            while (index < candidates.size()
+                    && (candidates.get(index).getPriority() == null ? 0 : candidates.get(index).getPriority()) == priority) {
+                index++;
+            }
+            ordered.addAll(weightedOrder(candidates.subList(start, index)));
+        }
         String effectiveModelType = isBlank(model.getModelType()) ? endpointType : model.getModelType();
-        return new RelayContext(access, model, group, channel, channelModel, effectiveModelType);
+        return ordered.stream()
+                .map(channel -> new RelayContext(
+                        access,
+                        model,
+                        group,
+                        channel,
+                        channelModelMapper.selectByChannelAndModel(channel.getId(), model.getId()),
+                        effectiveModelType
+                ))
+                .toList();
     }
 
     @Override
@@ -242,11 +257,19 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
 
     @Override
     public void ensureBalance(Long userId) {
-        User user = userMapper.selectById(userId);
-        if (user == null) throw new BusinessException(401, "User not found");
+        User user = ensureUserUsable(userId);
         if (user.getBalance() == null || user.getBalance().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(402, "Insufficient balance");
         }
+    }
+
+    private User ensureUserUsable(Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) throw new BusinessException(401, "User not found");
+        if (Boolean.TRUE.equals(user.getBanned())) {
+            throw new BusinessException(423, "账号已被封禁，无法使用网站功能");
+        }
+        return user;
     }
 
     @Override
@@ -336,6 +359,21 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
     }
 
     private RelayChannel weightedPick(List<RelayChannel> channels) {
+        return weightedOrder(channels).get(0);
+    }
+
+    private List<RelayChannel> weightedOrder(List<RelayChannel> channels) {
+        List<RelayChannel> remaining = new java.util.ArrayList<>(channels);
+        List<RelayChannel> ordered = new java.util.ArrayList<>();
+        while (!remaining.isEmpty()) {
+            RelayChannel picked = weightedPickOne(remaining);
+            ordered.add(picked);
+            remaining.remove(picked);
+        }
+        return ordered;
+    }
+
+    private RelayChannel weightedPickOne(List<RelayChannel> channels) {
         int totalWeight = channels.stream()
                 .mapToInt(channel -> Math.max(0, channel.getWeight() == null ? 0 : channel.getWeight()))
                 .sum();
@@ -359,6 +397,35 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         if (value == null || value.isBlank()) return true;
         if (csv == null || csv.isBlank()) return true;
         return csvValues(csv).stream().anyMatch(item -> item.equalsIgnoreCase(value.trim()));
+    }
+
+    private void enforceTokenModelAccess(RelayToken access, RelayModel relayModel, String requestedModel) {
+        if (access == null || isBlank(access.getAllowedModels())) return;
+        if (relayModel != null) {
+            if (containsCsv(access.getAllowedModels(), publicModelName(relayModel))
+                    || containsCsv(access.getAllowedModels(), relayModel.getModel())) {
+                return;
+            }
+        } else if (containsCsv(access.getAllowedModels(), requestedModel)) {
+            return;
+        }
+        throw new BusinessException(403, "This API key cannot access the selected model");
+    }
+
+    private RelayModel selectEnabledModelByPublicName(String requestedModel) {
+        if (requestedModel == null || requestedModel.isBlank()) return null;
+        String value = requestedModel.trim();
+        return modelMapper.selectOne(new QueryWrapper<RelayModel>()
+                .eq("enabled", true)
+                .and(wrapper -> wrapper.eq("display_name", value).or().eq("model", value))
+                .orderByAsc("sort_order")
+                .orderByAsc("id")
+                .last("LIMIT 1"));
+    }
+
+    private String publicModelName(RelayModel model) {
+        if (model == null) return "";
+        return isBlank(model.getDisplayName()) ? model.getModel() : model.getDisplayName();
     }
 
     private List<String> csvValues(String csv) {

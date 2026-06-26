@@ -53,6 +53,7 @@ public class AuthServiceImpl implements AuthService {
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(dto.getPassword()));
         user.setRole("USER");
+        user.setBanned(false);
         user.setBalance(paymentConfigService.registerGiftAmount());
         user.setInviterId(inviterId);
         user.setVersion(0);
@@ -65,6 +66,9 @@ public class AuthServiceImpl implements AuthService {
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, dto.getUsername()));
         if (user == null || !passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
             throw new BusinessException(401, "用户名或密码错误");
+        }
+        if (Boolean.TRUE.equals(user.getBanned())) {
+            throw new BusinessException(423, "账号已被封禁，无法登录和使用网站功能");
         }
         return new LoginResponse(jwtUtil.generateToken(user), toAuthUser(user));
     }
@@ -85,7 +89,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private AuthUser toAuthUser(User user) {
-        return new AuthUser(user.getId(), user.getUsername(), user.getEmail(), user.getRole(), user.getBalance());
+        return new AuthUser(user.getId(), user.getUsername(), user.getEmail(), user.getRole(), user.getBanned(), user.getBalance());
     }
 
     private String normalizeEmail(String email) {

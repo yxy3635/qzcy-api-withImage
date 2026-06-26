@@ -64,11 +64,14 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
+        if (Boolean.TRUE.equals(user.getBanned())) {
+            throw new BusinessException(423, "账号已被封禁，无法使用网站功能");
+        }
         return user;
     }
 
     private AuthUser toAuthUser(User user) {
-        return new AuthUser(user.getId(), user.getUsername(), user.getEmail(), user.getRole(), user.getBalance());
+        return new AuthUser(user.getId(), user.getUsername(), user.getEmail(), user.getRole(), user.getBanned(), user.getBalance());
     }
 
     private String normalizeEmail(String email) {

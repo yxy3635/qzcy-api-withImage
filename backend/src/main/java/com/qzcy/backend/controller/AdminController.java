@@ -142,6 +142,12 @@ public class AdminController {
         return ApiResponse.success(relayService.updateChannel(id, dto));
     }
 
+    @DeleteMapping("/relay/channels/{id}")
+    public ApiResponse<Void> deleteRelayChannel(@PathVariable Long id) {
+        relayService.deleteChannel(id);
+        return ApiResponse.success(null);
+    }
+
     @PostMapping("/relay/groups")
     public ApiResponse<RelayGroupDto> createRelayGroup(@RequestBody RelayGroupUpdateDto dto) {
         return ApiResponse.success(relayService.createGroup(dto));
@@ -260,6 +266,12 @@ public class AdminController {
     @PutMapping("/users/{id}/role")
     public ApiResponse<Void> updateRole(@PathVariable Long id, @RequestBody RoleUpdateDto dto) {
         adminService.updateRole(id, dto.getRole());
+        return ApiResponse.success(null);
+    }
+
+    @PutMapping("/users/{id}/ban")
+    public ApiResponse<Void> updateBanStatus(@PathVariable Long id, @RequestBody AdminUserUpdateDto dto) {
+        adminService.updateBanStatus(id, Boolean.TRUE.equals(dto.getBanned()), SecurityUtil.current().userId());
         return ApiResponse.success(null);
     }
 

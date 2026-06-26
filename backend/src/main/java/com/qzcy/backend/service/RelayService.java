@@ -18,6 +18,7 @@ public interface RelayService {
     RelayAdminOverviewDto adminOverview();
     RelayChannelDto createChannel(RelayChannelUpdateDto dto);
     RelayChannelDto updateChannel(Long id, RelayChannelUpdateDto dto);
+    void deleteChannel(Long id);
     RelayGroupDto createGroup(RelayGroupUpdateDto dto);
     RelayGroupDto updateGroup(Long id, RelayGroupUpdateDto dto);
     void deleteGroup(Long id);

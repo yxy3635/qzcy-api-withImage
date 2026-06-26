@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS relay_channel (
                                              id BIGINT PRIMARY KEY AUTO_INCREMENT,
                                              name VARCHAR(80) NOT NULL,
     provider VARCHAR(60) NOT NULL DEFAULT 'OpenAI Compatible',
+    channel_rule VARCHAR(40) NOT NULL DEFAULT 'openai',
     api_base_url VARCHAR(255) NOT NULL DEFAULT '',
     api_key VARCHAR(255),
     group_names VARCHAR(160) NOT NULL DEFAULT 'default',
@@ -13,6 +14,7 @@ CREATE TABLE IF NOT EXISTS relay_channel (
     weight INT NOT NULL DEFAULT 10,
     rpm_limit INT NOT NULL DEFAULT 0,
     tpm_limit INT NOT NULL DEFAULT 0,
+    max_concurrency INT NOT NULL DEFAULT 0,
     price_multiplier DECIMAL(10, 4) NOT NULL DEFAULT 1.0000,
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL,
@@ -21,15 +23,20 @@ CREATE TABLE IF NOT EXISTS relay_channel (
     INDEX idx_relay_channel_priority (priority, weight)
     );
 
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_channel' AND COLUMN_NAME = 'channel_rule') = 0, 'ALTER TABLE relay_channel ADD COLUMN channel_rule VARCHAR(40) NOT NULL DEFAULT ''openai'' AFTER provider', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 INSERT INTO relay_channel
-(id, name, provider, api_base_url, api_key, group_names, status, priority, weight, rpm_limit, tpm_limit, price_multiplier, enabled, created_at, updated_at)
-SELECT 1, 'OpenAI Compatible', 'OpenAI Compatible', 'https://api.openai.com', NULL,
+(id, name, provider, channel_rule, api_base_url, api_key, group_names, status, priority, weight, rpm_limit, tpm_limit, price_multiplier, enabled, created_at, updated_at)
+SELECT 1, 'OpenAI Compatible', 'OpenAI Compatible', 'openai', 'https://api.openai.com', NULL,
        'default', 'unknown', 10, 10, 0, 0, 1.0000, 1, NOW(), NOW()
     WHERE NOT EXISTS (SELECT 1 FROM relay_channel);
 
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_channel' AND COLUMN_NAME = 'group_names') = 0, 'ALTER TABLE relay_channel ADD COLUMN group_names VARCHAR(160) NOT NULL DEFAULT ''default'' AFTER api_key', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_channel' AND COLUMN_NAME = 'remark') = 0, 'ALTER TABLE relay_channel ADD COLUMN remark VARCHAR(500) NOT NULL DEFAULT '''' AFTER group_names', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_channel' AND COLUMN_NAME = 'max_concurrency') = 0, 'ALTER TABLE relay_channel ADD COLUMN max_concurrency INT NOT NULL DEFAULT 0 AFTER tpm_limit', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS relay_group (
@@ -344,6 +351,8 @@ ALTER TABLE relay_token MODIFY COLUMN quota DECIMAL(12, 6) NOT NULL DEFAULT 0.00
 ALTER TABLE `user` MODIFY COLUMN balance DECIMAL(12, 6) NOT NULL DEFAULT 0.000000;
 ALTER TABLE payment_record MODIFY COLUMN amount DECIMAL(12, 6) NOT NULL;
 
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'banned') = 0, 'ALTER TABLE `user` ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0 AFTER role', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'invitation_code') = 0, 'ALTER TABLE `user` ADD COLUMN invitation_code VARCHAR(6) NULL', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'inviter_id') = 0, 'ALTER TABLE `user` ADD COLUMN inviter_id BIGINT NULL', 'SELECT 1');

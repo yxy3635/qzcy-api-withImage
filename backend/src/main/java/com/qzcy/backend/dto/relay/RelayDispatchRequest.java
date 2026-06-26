@@ -10,6 +10,8 @@ public record RelayDispatchRequest(
         String queryKey,
         String userAgent,
         String clientIp,
+        String anthropicVersion,
+        String anthropicBeta,
         String endpointType,
         String upstreamPath,
         ObjectNode body,
@@ -25,6 +27,35 @@ public record RelayDispatchRequest(
             String upstreamPath,
             ObjectNode body
     ) {
-        this(authorization, apiKeyHeader, queryKey, userAgent, clientIp, endpointType, upstreamPath, body, List.of());
+        this(authorization, apiKeyHeader, queryKey, userAgent, clientIp, null, null, endpointType, upstreamPath, body, List.of());
+    }
+
+    public RelayDispatchRequest(
+            String authorization,
+            String apiKeyHeader,
+            String queryKey,
+            String userAgent,
+            String clientIp,
+            String anthropicVersion,
+            String anthropicBeta,
+            String endpointType,
+            String upstreamPath,
+            ObjectNode body
+    ) {
+        this(authorization, apiKeyHeader, queryKey, userAgent, clientIp, anthropicVersion, anthropicBeta, endpointType, upstreamPath, body, List.of());
+    }
+
+    public RelayDispatchRequest(
+            String authorization,
+            String apiKeyHeader,
+            String queryKey,
+            String userAgent,
+            String clientIp,
+            String endpointType,
+            String upstreamPath,
+            ObjectNode body,
+            List<RelayMultipartFile> files
+    ) {
+        this(authorization, apiKeyHeader, queryKey, userAgent, clientIp, null, null, endpointType, upstreamPath, body, files);
     }
 }

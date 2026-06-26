@@ -141,6 +141,19 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    public void updateBanStatus(Long id, boolean banned, Long currentAdminId) {
+        if (id.equals(currentAdminId)) {
+            throw new BusinessException(400, "不能封禁当前管理员账号");
+        }
+        User user = userMapper.selectById(id);
+        if (user == null) {
+            throw new BusinessException(404, "用户不存在");
+        }
+        user.setBanned(banned);
+        userMapper.updateById(user);
+    }
+
+    @Override
     public void deleteUser(Long id, Long currentAdminId) {
         if (id.equals(currentAdminId)) {
             throw new BusinessException(400, "不能删除当前管理员账号");
