@@ -12,11 +12,14 @@ import com.qzcy.backend.dto.relay.RelayStreamDispatchResult;
 import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayChannelModel;
 import com.qzcy.backend.entity.RelayGroup;
+import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.entity.RelayUsageLog;
+import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayTokenMapper;
 import com.qzcy.backend.mapper.RelayUsageLogMapper;
+import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.PaymentService;
 import com.qzcy.backend.service.RelayDispatchService;
 import com.qzcy.backend.service.RelayPolicyService;
@@ -80,6 +83,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     private final RelayPolicyService relayPolicyService;
     private final RelayUsageLogMapper usageLogMapper;
     private final RelayTokenMapper tokenMapper;
+    private final UserMapper userMapper;
     private final PaymentService paymentService;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -109,6 +113,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 rateLimitFailure = ex;
                 continue;
             }
+            ensureMinimumBalance(context);
             long startedAt = System.currentTimeMillis();
             log.debug("Relay upstream attempt path={} model={} channelId={} channelName={} rule={} group={} endpointType={} attempt={}/{}",
                     request.upstreamPath(),
@@ -154,8 +159,15 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     System.currentTimeMillis() - startedAt,
                     responseBody.path("usage").isMissingNode() ? "" : truncateMessage(responseBody.path("usage").toString()));
             if (!retryable || index == contexts.size() - 1) {
-                chargeIfSuccessful(response.statusCode(), context, cost);
+                try {
+                    enforceQuotaIfSuccessful(response.statusCode(), context, cost);
+                } catch (BusinessException ex) {
+                    saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
+                    disableTokenAfterBillingFailure(context.token(), ex);
+                    throw ex;
+                }
                 saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
+                chargeIfSuccessful(response.statusCode(), context, cost);
                 return new RelayDispatchResult(response.statusCode(), contentType(response), response.body());
             }
             saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
@@ -189,6 +201,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 rateLimitFailure = ex;
                 continue;
             }
+            ensureMinimumBalance(context);
             long startedAt = System.currentTimeMillis();
             ChannelStreamGate gate = streamGate(context.channel());
             Semaphore streamGate = gate.semaphore();
@@ -340,9 +353,17 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     RelayCostBreakdown cost = isCountTokensRequest(request.upstreamPath())
                             ? ZERO_COST
                             : relayPolicyService.estimateCost(finalContext.model(), finalContext.channel(), finalContext.group(), responseBody);
-                    chargeIfSuccessful(finalResponse.statusCode(), finalContext, cost);
+                    try {
+                        enforceQuotaIfSuccessful(finalResponse.statusCode(), finalContext, cost);
+                    } catch (BusinessException ex) {
+                        saveUsage(finalContext, request.upstreamPath(), request.userAgent(), finalResponse.statusCode(),
+                                responseBody, cost, System.currentTimeMillis() - finalStartedAt);
+                        disableTokenAfterBillingFailure(finalContext.token(), ex);
+                        throw ex;
+                    }
                     saveUsage(finalContext, request.upstreamPath(), request.userAgent(), finalResponse.statusCode(),
                             responseBody, cost, System.currentTimeMillis() - finalStartedAt);
+                    chargeIfSuccessful(finalResponse.statusCode(), finalContext, cost);
                     log.debug("Relay upstream stream response path={} channelId={} status={} billable={} durationMs={} usage={}",
                             request.upstreamPath(),
                             finalContext.channel().getId(),
@@ -364,12 +385,55 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         );
     }
 
-    private void chargeIfSuccessful(int statusCode, RelayContext context, RelayCostBreakdown cost) {
+    private void enforceQuotaIfSuccessful(int statusCode, RelayContext context, RelayCostBreakdown cost) {
         if (statusCode < 200 || statusCode >= 300 || !cost.billable()) {
             return;
         }
         relayPolicyService.enforceQuota(context.token(), cost.total());
-        paymentService.deductBalanceOnly(context.token().getUserId(), cost.total());
+    }
+
+    private void ensureMinimumBalance(RelayContext context) {
+        BigDecimal minimum = minimumPreflightCost(context.model());
+        if (minimum.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        User user = userMapper.selectById(context.token().getUserId());
+        BigDecimal balance = user == null ? BigDecimal.ZERO : user.getBalance();
+        if (balance == null || balance.compareTo(minimum) < 0) {
+            throw new BusinessException(402, "Insufficient balance for selected model");
+        }
+    }
+
+    private BigDecimal minimumPreflightCost(RelayModel model) {
+        if (model == null) {
+            return BigDecimal.ZERO;
+        }
+        return model.getRequestPrice() == null ? BigDecimal.ZERO : model.getRequestPrice();
+    }
+
+    private void chargeIfSuccessful(int statusCode, RelayContext context, RelayCostBreakdown cost) {
+        if (statusCode < 200 || statusCode >= 300 || !cost.billable()) {
+            return;
+        }
+        try {
+            paymentService.deductBalanceOnly(context.token().getUserId(), cost.total());
+        } catch (BusinessException ex) {
+            disableTokenAfterBillingFailure(context.token(), ex);
+            throw ex;
+        }
+    }
+
+    private void disableTokenAfterBillingFailure(RelayToken token, BusinessException ex) {
+        if (token == null || token.getId() == null) {
+            return;
+        }
+        token.setEnabled(false);
+        tokenMapper.updateById(token);
+        log.warn("Relay API key disabled after billing failure tokenId={} userId={} code={} message={}",
+                token.getId(),
+                token.getUserId(),
+                ex.getCode(),
+                ex.getMessage());
     }
 
     private HttpResponse<String> relayString(ObjectNode body, RelayContext context, String path, String anthropicVersion, String anthropicBeta) throws Exception {
@@ -696,12 +760,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         log.setUserId(access.getUserId());
         log.setTokenId(access.getId());
         log.setChannelId(channel.getId());
-        log.setTokenName(access.getName());
-        log.setChannelName(channel.getName());
-        log.setGroupNames(access.getGroupNames());
-        log.setEndpoint(endpoint);
-        log.setModel(context.model() == null ? "" : context.model().getModel());
-        log.setModelType(context.effectiveModelType());
+        log.setTokenName(limitForColumn(access.getName(), 80));
+        log.setChannelName(limitForColumn(channel.getName(), 80));
+        log.setGroupNames(limitForColumn(access.getGroupNames(), 160));
+        log.setEndpoint(limitForColumn(endpoint, 80));
+        log.setModel(limitForColumn(context.model() == null ? "" : context.model().getModel(), 120));
+        log.setModelType(limitForColumn(context.effectiveModelType(), 40));
         log.setPromptTokens(promptTokens);
         log.setCompletionTokens(completionTokens);
         log.setCachedTokens(cachedTokens);
@@ -717,16 +781,70 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         log.setCost(cost.total());
         log.setStatusCode(statusCode);
         log.setDurationMs(durationMs);
-        log.setUserAgent(userAgent == null ? "" : userAgent);
+        log.setUserAgent(limitForColumn(userAgent, 500));
         log.setStatus(statusCode >= 200 && statusCode < 300 ? "success" : "failed");
-        log.setMessage(logMessage(statusCode, responseBody));
+        log.setMessage(limitForColumn(logMessage(statusCode, responseBody), 1000));
         log.setCreatedAt(LocalDateTime.now());
-        usageLogMapper.insert(log);
+        insertUsageLog(log);
         access.setRequestCount((access.getRequestCount() == null ? 0L : access.getRequestCount()) + 1);
         access.setTokenCount((access.getTokenCount() == null ? 0L : access.getTokenCount()) + totalTokens);
         access.setUsedQuota((access.getUsedQuota() == null ? BigDecimal.ZERO : access.getUsedQuota()).add(cost.total()));
         access.setLastUsedAt(LocalDateTime.now());
         tokenMapper.updateById(access);
+    }
+
+    private void insertUsageLog(RelayUsageLog usageLog) {
+        try {
+            usageLogMapper.insert(usageLog);
+        } catch (Exception ex) {
+            log.warn("Relay usage log insert failed, writing fallback log userId={} tokenId={} channelId={} endpoint={} model={} statusCode={} message={}",
+                    usageLog.getUserId(),
+                    usageLog.getTokenId(),
+                    usageLog.getChannelId(),
+                    usageLog.getEndpoint(),
+                    usageLog.getModel(),
+                    usageLog.getStatusCode(),
+                    ex.getMessage(),
+                    ex);
+            RelayUsageLog fallback = new RelayUsageLog();
+            fallback.setUserId(usageLog.getUserId());
+            fallback.setTokenId(usageLog.getTokenId());
+            fallback.setChannelId(usageLog.getChannelId());
+            fallback.setTokenName(limitForColumn(usageLog.getTokenName(), 80));
+            fallback.setChannelName(limitForColumn(usageLog.getChannelName(), 80));
+            fallback.setGroupNames(limitForColumn(usageLog.getGroupNames(), 160));
+            fallback.setEndpoint(limitForColumn(usageLog.getEndpoint(), 80));
+            fallback.setModel(limitForColumn(usageLog.getModel(), 120));
+            fallback.setModelType(limitForColumn(usageLog.getModelType(), 40));
+            fallback.setPromptTokens(0);
+            fallback.setCompletionTokens(0);
+            fallback.setCachedTokens(0);
+            fallback.setCacheCreationTokens(0);
+            fallback.setTotalTokens(0);
+            fallback.setInputCost(BigDecimal.ZERO);
+            fallback.setOutputCost(BigDecimal.ZERO);
+            fallback.setCacheReadCost(BigDecimal.ZERO);
+            fallback.setCacheCreationCost(BigDecimal.ZERO);
+            fallback.setRequestCost(BigDecimal.ZERO);
+            fallback.setGroupRatio(BigDecimal.ONE);
+            fallback.setChannelRatio(BigDecimal.ONE);
+            fallback.setCost(BigDecimal.ZERO);
+            fallback.setStatusCode(usageLog.getStatusCode() == null ? 0 : usageLog.getStatusCode());
+            fallback.setDurationMs(usageLog.getDurationMs() == null ? 0L : usageLog.getDurationMs());
+            fallback.setUserAgent("");
+            fallback.setStatus("failed");
+            fallback.setMessage(limitForColumn("usage log insert failed: " + ex.getMessage(), 1000));
+            fallback.setCreatedAt(LocalDateTime.now());
+            usageLogMapper.insert(fallback);
+        }
+    }
+
+    private String limitForColumn(String value, int maxLength) {
+        if (value == null || maxLength <= 0) {
+            return "";
+        }
+        String normalized = value.replaceAll("[\\r\\n\\t]+", " ").trim();
+        return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength);
     }
 
     private JsonNode parseResponseBody(String body) {

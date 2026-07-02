@@ -43,7 +43,7 @@ public interface ImageRecordMapper extends BaseMapper<ImageRecord> {
                    '' AS channelName,
                    '' AS groupNames,
                    '/v1/images/generations' AS endpoint,
-                   ir.request_url AS requestUrl,
+                   '' AS requestUrl,
                    ir.generation_model AS model,
                    'image' AS modelType,
                    ir.error_status_code AS statusCode,

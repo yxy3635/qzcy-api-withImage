@@ -31,7 +31,6 @@ import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.entity.RelayUsageLog;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
-import com.qzcy.backend.mapper.ImageRecordMapper;
 import com.qzcy.backend.mapper.RelayChannelMapper;
 import com.qzcy.backend.mapper.RelayChannelModelMapper;
 import com.qzcy.backend.mapper.RelayGroupMapper;
@@ -57,7 +56,6 @@ import java.util.HexFormat;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.Comparator;
 
 @Service
 @RequiredArgsConstructor
@@ -69,7 +67,6 @@ public class RelayServiceImpl implements RelayService {
     private final RelayModelMapper modelMapper;
     private final RelayTokenMapper tokenMapper;
     private final RelayUsageLogMapper usageLogMapper;
-    private final ImageRecordMapper imageRecordMapper;
     private final UserMapper userMapper;
     private final ObjectMapper objectMapper;
     private final SecureRandom random = new SecureRandom();
@@ -363,7 +360,7 @@ public class RelayServiceImpl implements RelayService {
                                 .eq("user_id", userId)
                                 .orderByDesc("created_at"))
                 .getRecords().stream().map(this::toUsageDto).toList();
-        List<ErrorRequestLogDto> relayErrorLogs = usageLogMapper.selectPage(
+        List<ErrorRequestLogDto> errorLogs = usageLogMapper.selectPage(
                         Page.of(1, 50),
                         new QueryWrapper<RelayUsageLog>()
                                 .eq("user_id", userId)
@@ -373,11 +370,6 @@ public class RelayServiceImpl implements RelayService {
                                         .notBetween("status_code", 200, 299))
                                 .orderByDesc("created_at"))
                 .getRecords().stream().map(this::toErrorRequestLogDto).toList();
-        List<ErrorRequestLogDto> imageErrorLogs = imageRecordMapper.imageErrorLogs(userId, 50);
-        List<ErrorRequestLogDto> errorLogs = java.util.stream.Stream.concat(relayErrorLogs.stream(), imageErrorLogs.stream())
-                .sorted(Comparator.comparing(ErrorRequestLogDto::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())).reversed())
-                .limit(50)
-                .toList();
         List<RelayModelUsageDto> modelUsage = usageLogMapper.modelUsage(userId);
         List<RelayGroupDto> groups = groupMapper.selectList(new QueryWrapper<RelayGroup>()
                         .eq("enabled", true)
