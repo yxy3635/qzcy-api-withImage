@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
 
-const props = defineProps<{ admin?: boolean }>()
+const props = defineProps<{ admin?: boolean; wide?: boolean }>()
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
@@ -41,17 +41,17 @@ const title = "imageCreater"
 <template>
   <div class="page-shell">
     <div class="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_12%_10%,rgba(14,165,233,0.12),transparent_28%),radial-gradient(circle_at_88%_18%,rgba(45,212,191,0.11),transparent_30%),linear-gradient(180deg,#ffffff,#f6f9fd)]" />
-    <aside class="fixed inset-y-0 left-0 hidden w-72 border-r border-white/80 bg-white/76 px-5 py-6 shadow-[20px_0_70px_rgba(21,32,51,0.06)] backdrop-blur-2xl md:block">
-      <RouterLink to="/" class="block text-xl font-black tracking-tight text-ink">
+    <aside class="fixed inset-y-0 left-0 hidden w-72 flex-col overflow-hidden border-r border-white/80 bg-white/76 px-5 py-6 shadow-[20px_0_70px_rgba(21,32,51,0.06)] backdrop-blur-2xl md:flex">
+      <RouterLink to="/" class="block shrink-0 text-xl font-black tracking-tight text-ink">
         <span style="color:green">{{ title.slice(0,5) }}</span>
         <span>{{ title.slice(5) }}</span>
       </RouterLink>
-      <div class="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-sky-50 p-4 shadow-sm">
+      <div class="mt-7 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-sky-50 p-4 shadow-sm">
         <p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">{{ admin ? '管理员空间' : '创作者空间' }}</p>
         <p class="mt-3 truncate text-lg font-black">{{ auth.userInfo?.username }}</p>
         <p v-if="!admin" class="mt-1 text-sm font-semibold text-slate-500">￥{{ Number(auth.userInfo?.balance || 0).toFixed(6) }} 可用余额</p>
       </div>
-      <nav class="mt-6 space-y-2">
+      <nav class="app-sidebar-nav mt-6 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pb-24 pr-1">
         <RouterLink
           v-for="item in nav"
           :key="item.to"
@@ -91,7 +91,10 @@ const title = "imageCreater"
           </RouterLink>
         </nav>
       </header>
-      <main class="mx-auto max-w-7xl px-3 py-5 sm:px-4 md:px-8 md:py-8">
+      <main
+        class="mx-auto px-3 py-5 sm:px-4 md:px-8 md:py-8"
+        :class="props.wide ? 'w-full max-w-[1920px]' : 'max-w-7xl'"
+      >
         <div class="page-enter">
           <slot />
         </div>
