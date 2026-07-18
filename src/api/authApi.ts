@@ -8,7 +8,12 @@ export interface LoginResponse {
 
 export const authApi = {
   login(username: string, password: string) {
-    return http.post<ApiResponse<LoginResponse>>('/auth/login', { username, password })
+    const account = username.trim()
+    return http.post<ApiResponse<LoginResponse>>('/auth/login', {
+      account,
+      username: account,
+      password
+    })
   },
   register(username: string, email: string, password: string, code: string, inviteCode = '') {
     return http.post<ApiResponse<UserInfo>>('/auth/register', { username, email, password, code, inviteCode })

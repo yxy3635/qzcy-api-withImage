@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import RelayModal from '@/components/RelayModal.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import type { RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel } from '@/types'
@@ -71,10 +72,10 @@ const modelTypeFilter = ref('all')
 const modelStateFilter = ref('all')
 const channelSearch = ref('')
 const channelStateFilter = ref('all')
+const editingChannelId = ref<number | 'new' | null>(null)
+const editingGroupId = ref<number | 'new' | null>(null)
+const modelSyncOpen = ref(false)
 const editingModelId = ref<number | 'new' | null>(null)
-const expandedChannels = ref<Array<number | 'new'>>(['new'])
-const expandedGroups = ref<Array<number | 'new'>>([])
-const expandedModelSync = ref(false)
 
 const newChannel = reactive<ChannelDraft>({
   name: 'OpenAI Compatible',
@@ -335,24 +336,22 @@ function enabledChannelModelDraftCount(draft: ChannelDraft) {
   return (draft.models || []).filter((item) => item.enabled).length
 }
 
-function isChannelExpanded(id: number | 'new') {
-  return expandedChannels.value.includes(id)
+function editChannel(channel: RelayChannel) {
+  channelDraftOf(channel)
+  editingChannelId.value = channel.id
 }
 
-function toggleChannel(id: number | 'new') {
-  expandedChannels.value = isChannelExpanded(id)
-    ? expandedChannels.value.filter((item) => item !== id)
-    : [...expandedChannels.value, id]
+function newChannelEditor() {
+  editingChannelId.value = 'new'
 }
 
-function isGroupExpanded(id: number | 'new') {
-  return expandedGroups.value.includes(id)
+function editGroup(group: RelayGroup) {
+  groupDraftOf(group)
+  editingGroupId.value = group.id
 }
 
-function toggleGroup(id: number | 'new') {
-  expandedGroups.value = isGroupExpanded(id)
-    ? expandedGroups.value.filter((item) => item !== id)
-    : [...expandedGroups.value, id]
+function newGroupEditor() {
+  editingGroupId.value = 'new'
 }
 
 function selectAllChannelModels(draft: ChannelDraft) {
@@ -426,6 +425,7 @@ async function createGroup() {
     if (!newGroup.modelIds.length) selectAllGroupModels(newGroup)
     await adminApi.createRelayGroup(groupPayload(newGroup))
     toast.success(`${newGroup.code} 分组已创建`)
+    editingGroupId.value = null
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '创建分组失败'
@@ -442,6 +442,7 @@ async function saveGroup(group: RelayGroup) {
   try {
     await adminApi.updateRelayGroup(group.id, groupPayload(draft))
     toast.success(`${draft.code} 分组已保存`)
+    editingGroupId.value = null
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存分组失败'
@@ -475,6 +476,7 @@ async function createChannel() {
     await adminApi.createRelayChannel(channelPayload(newChannel))
     newChannel.keyValue = ''
     toast.success('渠道已创建')
+    editingChannelId.value = null
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '创建失败'
@@ -492,6 +494,7 @@ async function saveChannel(channel: RelayChannel) {
     await adminApi.updateRelayChannel(channel.id, channelPayload(draft))
     draft.keyValue = ''
     toast.success(`${draft.name} 已保存`)
+    editingChannelId.value = null
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存失败'
@@ -540,6 +543,7 @@ async function saveModel(model: RelayModel) {
   try {
     await adminApi.updateRelayModel(model.id, draft)
     toast.success(`${draft.model} 已保存`)
+    editingModelId.value = null
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存失败'
@@ -615,6 +619,7 @@ function pickUpstreamModel(item: RelayUpstreamModel) {
   newModel.model = item.id
   newModel.displayName = item.id
   newModel.modelType = inferModelType(item.id)
+  modelSyncOpen.value = false
   activeTab.value = 'models'
   editingModelId.value = 'new'
 }
@@ -710,15 +715,23 @@ onMounted(load)
       </section>
 
       <section v-if="activeTab === 'channels'" class="mt-6 space-y-3">
-        <details class="panel overflow-hidden">
-          <summary class="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50">
-            <div>
-              <h2 class="text-base font-black text-slate-950">新增渠道</h2>
-              <p class="mt-1 text-xs font-semibold text-slate-500">{{ newChannel.name }} · {{ newChannel.provider }} · {{ ruleLabel(newChannel.channelRule) }} · {{ enabledChannelModelDraftCount(newChannel) }} 个模型</p>
-            </div>
-            <span class="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600">展开设置</span>
-          </summary>
-          <div class="collapsible-body border-t border-slate-100 p-4">
+        <button class="panel flex w-full items-center justify-between gap-4 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/40" type="button" @click="newChannelEditor">
+          <div class="min-w-0">
+            <p class="text-xs font-black uppercase tracking-[0.16em] text-sky-600">新增渠道</p>
+            <p class="mt-1 truncate text-base font-black text-slate-950">{{ newChannel.name }} · {{ newChannel.provider }}</p>
+            <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ ruleLabel(newChannel.channelRule) }} · {{ enabledChannelModelDraftCount(newChannel) }} 个模型</p>
+          </div>
+          <span class="shrink-0 rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white">打开编辑器</span>
+        </button>
+
+        <RelayModal
+          :open="editingChannelId === 'new'"
+          eyebrow="Channel setup"
+          title="新增渠道"
+          :subtitle="`${newChannel.name} · ${newChannel.provider}`"
+          @close="editingChannelId = null"
+        >
+          <div class="p-5">
           <div class="space-y-4">
             <label class="block">
               <span class="text-sm font-black text-slate-800">渠道名称</span>
@@ -818,7 +831,7 @@ onMounted(load)
             </button>
           </div>
           </div>
-        </details>
+        </RelayModal>
 
         <div class="space-y-4">
           <div class="panel p-4">
@@ -835,8 +848,8 @@ onMounted(load)
               </button>
             </div>
           </div>
-          <details v-for="channel in filteredChannels" :key="channel.id" class="panel overflow-hidden">
-            <summary class="grid cursor-pointer list-none gap-3 px-4 py-3 transition hover:bg-slate-50 lg:grid-cols-[minmax(220px,1fr)_160px_180px_120px] lg:items-center">
+          <div v-for="channel in filteredChannels" :key="channel.id" class="space-y-3">
+            <article class="panel grid gap-3 p-4 transition hover:border-sky-200 lg:grid-cols-[minmax(220px,1fr)_160px_180px_120px_88px] lg:items-center">
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
                   <span class="inline-flex rounded-md px-2 py-1 text-xs font-black ring-1" :class="providerBadgeClass()">{{ channel.provider || '未标记供应商' }}</span>
@@ -852,8 +865,18 @@ onMounted(load)
                 <input v-model="channelDraftOf(channel).enabled" class="h-5 w-5 accent-sky-600" type="checkbox" />
                 启用
               </label>
-            </summary>
-            <div class="collapsible-body border-t border-slate-100 p-4">
+              <button class="h-10 rounded-lg bg-sky-50 px-3 text-xs font-black text-sky-700 transition hover:bg-sky-100" type="button" @click="editChannel(channel)">
+                编辑
+              </button>
+            </article>
+            <RelayModal
+              :open="editingChannelId === channel.id"
+              eyebrow="Channel setup"
+              title="编辑渠道"
+              :subtitle="`${channelDraftOf(channel).name} · ${channelDraftOf(channel).provider}`"
+              @close="editingChannelId = null"
+            >
+            <div class="p-5">
             <div class="grid gap-3 lg:grid-cols-2">
               <label class="block">
                 <span class="text-sm font-black text-slate-800">渠道名称</span>
@@ -956,7 +979,8 @@ onMounted(load)
               </button>
             </div>
             </div>
-          </details>
+            </RelayModal>
+          </div>
           <div v-if="!filteredChannels.length" class="panel p-10 text-center text-sm font-black text-slate-500">没有匹配的渠道</div>
         </div>
       </section>
@@ -981,19 +1005,29 @@ onMounted(load)
           </div>
         </div>
 
-        <details class="panel overflow-hidden" :open="expandedModelSync">
-          <summary class="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50" @click="expandedModelSync = !expandedModelSync">
+        <button class="panel flex w-full items-center justify-between gap-4 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/40" type="button" @click="modelSyncOpen = true">
             <div class="min-w-0">
-              <h2 class="text-base font-black text-slate-950">上游同步</h2>
+              <p class="text-xs font-black uppercase tracking-[0.16em] text-sky-600">Model discovery</p>
+              <h2 class="mt-1 text-base font-black text-slate-950">上游同步</h2>
               <p class="mt-1 text-xs font-semibold text-slate-500">{{ channels.length }} 个渠道 · {{ upstreamModels.length }} 个上游结果 · 已选 {{ selectedUpstreamIds.length }}</p>
             </div>
-            <button class="h-10 rounded-lg bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="saving === 'model-import' || !selectedUpstreamIds.length" @click="enableSelectedUpstreamModels">
-              {{ saving === 'model-import' ? '启用中' : `启用所选 ${selectedUpstreamIds.length}` }}
-            </button>
-          </summary>
-          <div class="border-t border-slate-100 p-4">
-            <p class="text-sm font-semibold text-slate-500">读取渠道 /v1/models 后，可批量写入模型配置。</p>
-          </div>
+            <span class="shrink-0 rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white">打开同步器</span>
+        </button>
+
+        <RelayModal
+          :open="modelSyncOpen"
+          eyebrow="Model discovery"
+          title="上游模型同步"
+          :subtitle="`${channels.length} 个渠道 · ${upstreamModels.length} 个上游结果`"
+          @close="modelSyncOpen = false"
+        >
+          <div class="p-5">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <p class="text-sm font-semibold text-slate-500">读取渠道 /v1/models 后，可批量写入模型配置。</p>
+              <button class="h-10 rounded-lg bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="saving === 'model-import' || !selectedUpstreamIds.length" @click="enableSelectedUpstreamModels">
+                {{ saving === 'model-import' ? '启用中' : `启用所选 ${selectedUpstreamIds.length}` }}
+              </button>
+            </div>
           <div class="mt-4 flex gap-2 overflow-x-auto pb-1">
             <button
               v-for="channel in channels"
@@ -1016,7 +1050,8 @@ onMounted(load)
               </button>
             </label>
           </div>
-        </details>
+          </div>
+        </RelayModal>
 
         <div class="space-y-3">
           <div class="panel overflow-hidden">
@@ -1093,21 +1128,14 @@ onMounted(load)
             <div v-if="!filteredModels.length" class="border-t border-slate-100 p-10 text-center text-sm font-black text-slate-500">没有匹配的模型</div>
           </div>
 
-          <details class="panel overflow-hidden" :open="editingModelId !== null">
-            <summary class="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50">
-              <div class="min-w-0">
-                <h2 class="text-base font-black text-slate-950">
-                  {{ editingModelId === 'new' ? '新增模型' : (editingModel ? (modelDraftOf(editingModel).displayName || modelDraftOf(editingModel).model) : '模型编辑') }}
-                </h2>
-                <p class="mt-1 truncate text-xs font-semibold text-slate-500">
-                  {{ editingModelId === 'new' ? `${newModel.modelType} · ￥${modelTotalPrice(newModel).toFixed(4)}` : (editingModel ? `${modelDraftOf(editingModel).modelType} · ￥${modelTotalPrice(modelDraftOf(editingModel)).toFixed(4)}` : '从列表选择一个模型后编辑') }}
-                </p>
-              </div>
-              <button class="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click.stop="newModelEditor">
-                新增模型
-              </button>
-            </summary>
-            <div class="border-t border-slate-100 p-4">
+          <RelayModal
+            :open="editingModelId !== null"
+            eyebrow="Model configuration"
+            :title="editingModelId === 'new' ? '新增模型' : '编辑模型'"
+            :subtitle="editingModelId === 'new' ? `${newModel.model} · ${newModel.modelType}` : (editingModel ? `${modelDraftOf(editingModel).model} · ${modelDraftOf(editingModel).modelType}` : '')"
+            @close="editingModelId = null"
+          >
+            <div class="p-5">
             <template v-if="editingModelId === 'new'">
               <div class="flex items-start justify-between gap-3">
                 <div>
@@ -1255,7 +1283,7 @@ onMounted(load)
               </button>
             </div>
             </div>
-          </details>
+          </RelayModal>
         </div>
       </section>
 
@@ -1280,15 +1308,23 @@ onMounted(load)
       </section>
 
       <section v-if="activeTab === 'policy'" class="mt-6 space-y-3">
-        <details class="panel overflow-hidden">
-          <summary class="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50">
-            <div>
-              <h2 class="text-base font-black text-slate-950">新增分组</h2>
-              <p class="mt-1 text-xs font-semibold text-slate-500">{{ newGroup.code }} · 倍率 {{ newGroup.ratio }} · {{ selectedGroupModelCount(newGroup) }} 个模型</p>
-            </div>
-            <span class="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600">展开设置</span>
-          </summary>
-          <div class="border-t border-slate-100 p-4">
+        <button class="panel flex w-full items-center justify-between gap-4 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/40" type="button" @click="newGroupEditor">
+          <div class="min-w-0">
+            <p class="text-xs font-black uppercase tracking-[0.16em] text-sky-600">Group policy</p>
+            <p class="mt-1 truncate text-base font-black text-slate-950">{{ newGroup.code }} · {{ newGroup.name }}</p>
+            <p class="mt-1 truncate text-xs font-semibold text-slate-500">倍率 {{ newGroup.ratio }} · {{ selectedGroupModelCount(newGroup) }} 个模型</p>
+          </div>
+          <span class="shrink-0 rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white">打开编辑器</span>
+        </button>
+
+        <RelayModal
+          :open="editingGroupId === 'new'"
+          eyebrow="Group policy"
+          title="新增分组"
+          :subtitle="`${newGroup.code} · ${newGroup.name}`"
+          @close="editingGroupId = null"
+        >
+          <div class="p-5">
             <div class="grid gap-3 md:grid-cols-3">
               <label class="block">
                 <span class="text-xs font-black text-slate-700">代码</span>
@@ -1332,19 +1368,26 @@ onMounted(load)
                 {{ saving === 'group-new' ? '创建中' : '创建分组' }}
               </button>
           </div>
-        </details>
+        </RelayModal>
 
-        <details v-for="group in groups" :key="group.id" class="panel overflow-hidden">
-          <summary class="grid cursor-pointer list-none gap-3 px-4 py-3 transition hover:bg-slate-50 md:grid-cols-[1fr_120px_120px_120px] md:items-center">
+        <div v-for="group in groups" :key="group.id" class="space-y-3">
+          <article class="panel grid gap-3 p-4 transition hover:border-sky-200 md:grid-cols-[1fr_120px_120px_120px_88px] md:items-center">
             <div class="min-w-0">
               <h3 class="truncate text-base font-black text-slate-950">{{ groupDraftOf(group).code }} · {{ groupDraftOf(group).name }}</h3>
               <p class="mt-1 text-xs font-semibold text-slate-500">{{ selectedGroupModelCount(groupDraftOf(group)) }} / {{ models.length }} 个模型</p>
             </div>
             <p class="text-xs font-black text-slate-600">倍率 {{ groupDraftOf(group).ratio }}</p>
             <span class="rounded-md px-2 py-1 text-center text-xs font-black" :class="groupDraftOf(group).enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'">{{ groupDraftOf(group).enabled ? '启用' : '停用' }}</span>
-            <span class="text-right text-xs font-black text-slate-500">展开设置</span>
-          </summary>
-          <div class="border-t border-slate-100 p-4">
+            <button class="h-10 rounded-lg bg-sky-50 px-3 text-xs font-black text-sky-700 transition hover:bg-sky-100" type="button" @click="editGroup(group)">编辑</button>
+          </article>
+          <RelayModal
+            :open="editingGroupId === group.id"
+            eyebrow="Group policy"
+            title="编辑分组"
+            :subtitle="`${groupDraftOf(group).code} · ${groupDraftOf(group).name}`"
+            @close="editingGroupId = null"
+          >
+          <div class="p-5">
             <div class="grid gap-3 md:grid-cols-4">
               <label class="block">
                 <span class="text-xs font-black text-slate-700">代码</span>
@@ -1393,7 +1436,8 @@ onMounted(load)
               </button>
             </div>
           </div>
-        </details>
+          </RelayModal>
+        </div>
 
           <div class="panel p-4">
             <h3 class="font-black text-slate-950">规则摘要</h3>

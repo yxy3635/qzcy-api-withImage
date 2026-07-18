@@ -36,9 +36,14 @@ function isEmail(value: string) {
 
 async function submit() {
   error.value = ''
+  const account = username.value.trim()
+  if (!account) {
+    error.value = '请输入用户名'
+    return
+  }
   loading.value = true
   try {
-    const user = await auth.login(username.value, password.value)
+    const user = await auth.login(account, password.value)
     router.push(user.role === 'ADMIN' ? '/admin/dashboard' : '/create')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '登录失败'
