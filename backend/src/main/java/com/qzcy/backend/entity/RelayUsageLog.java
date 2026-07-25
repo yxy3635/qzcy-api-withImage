@@ -20,6 +20,7 @@ public class RelayUsageLog {
     private String endpoint;
     private String model;
     private String modelType;
+    private String thinkingEffort;
     private Integer promptTokens;
     private Integer completionTokens;
     private Integer cachedTokens;

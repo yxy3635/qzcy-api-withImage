@@ -288,6 +288,7 @@ CREATE TABLE IF NOT EXISTS relay_usage_log (
     endpoint VARCHAR(80),
     model VARCHAR(120),
     model_type VARCHAR(40),
+    thinking_effort VARCHAR(40) NOT NULL DEFAULT '',
     prompt_tokens INT NOT NULL DEFAULT 0,
     completion_tokens INT NOT NULL DEFAULT 0,
     cached_tokens INT NOT NULL DEFAULT 0,
@@ -320,6 +321,8 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'group_names') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN group_names VARCHAR(160) NOT NULL DEFAULT ''default'' AFTER channel_name', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'endpoint') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN endpoint VARCHAR(80) AFTER group_names', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'thinking_effort') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN thinking_effort VARCHAR(40) NOT NULL DEFAULT '''' AFTER model_type', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'cached_tokens') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN cached_tokens INT NOT NULL DEFAULT 0 AFTER completion_tokens', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

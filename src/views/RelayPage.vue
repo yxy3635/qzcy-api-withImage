@@ -1437,6 +1437,7 @@ onMounted(async () => {
                         <span class="h-2 w-2 shrink-0 rounded-full" :class="logFailed(log) ? 'bg-rose-500 shadow-[0_0_0_4px_rgba(244,63,94,0.10)]' : 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]'"></span>
                         <p class="truncate text-sm font-black text-slate-900" :title="log.model">{{ log.model || '-' }}</p>
                         <span class="shrink-0 rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-black uppercase text-blue-600">{{ log.modelType || '-' }}</span>
+                        <span v-if="log.thinkingEffort" class="shrink-0 rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-black text-violet-700">思考 {{ log.thinkingEffort }}</span>
                       </div>
                       <p class="mt-1 truncate pl-4 font-mono text-[11px] font-semibold text-slate-400" :title="`${log.tokenName || '-'} · ${log.endpoint || '-'}`">{{ log.tokenName || '-' }} · {{ log.endpoint || '-' }}</p>
                     </div>
@@ -1474,6 +1475,7 @@ onMounted(async () => {
 
                   <div v-if="expandedLogIds.has(log.id)" class="border-t border-dashed border-slate-200 bg-slate-50/70 px-4 py-4 sm:px-5">
                     <div class="grid gap-4 text-xs font-semibold text-slate-600 md:grid-cols-2 xl:grid-cols-4">
+                      <div><p class="font-black text-slate-400">思考强度</p><p class="mt-1.5 text-slate-700">{{ log.thinkingEffort || '-' }}</p></div>
                       <div><p class="font-black text-slate-400">渠道 / 分组</p><p class="mt-1.5 break-all text-slate-700">{{ log.channelName || '-' }} · {{ log.groupNames || '-' }}</p></div>
                       <div><p class="font-black text-slate-400">请求端点</p><p class="mt-1.5 break-all font-mono text-slate-700">{{ log.endpoint || '-' }}</p></div>
                       <div><p class="font-black text-slate-400">缓存明细</p><p class="mt-1.5 text-slate-700">读取 {{ compact(log.cachedTokens || 0) }} · 写入 {{ compact(log.cacheCreationTokens || 0) }}</p></div>

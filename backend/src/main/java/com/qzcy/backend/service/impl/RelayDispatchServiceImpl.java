@@ -150,6 +150,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     @Override
     public RelayDispatchResult dispatch(RelayDispatchRequest request) throws Exception {
         String model = request.body().path("model").asText("");
+        String thinkingEffort = extractThinkingEffort(request.body());
         List<RelayContext> contexts = relayPolicyService.buildContexts(
                 request.authorization(),
                 request.apiKeyHeader(),
@@ -205,7 +206,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 if (isRetryableTransportFailure(ex)) {
                     recordChannelFailure(context.channel(), "transport failure: " + safeExceptionMessage(ex));
                     JsonNode failureBody = upstreamFailureBody("Upstream connection failed: " + safeExceptionMessage(ex));
-                    saveUsage(context, request.upstreamPath(), request.userAgent(), 502, failureBody, ZERO_COST,
+                    saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, 502, failureBody, ZERO_COST,
                             System.currentTimeMillis() - startedAt);
                     if (index < contexts.size() - 1) {
                         continue;
@@ -240,15 +241,15 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 try {
                     enforceQuotaIfSuccessful(response.statusCode(), context, cost);
                 } catch (BusinessException ex) {
-                    saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
+                    saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
                     disableTokenAfterBillingFailure(context.token(), ex);
                     throw ex;
                 }
-                saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
+                saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
                 chargeIfSuccessful(response.statusCode(), context, cost);
                 return new RelayDispatchResult(response.statusCode(), contentType(response), response.body(), forwardedResponseHeaders(response));
             }
-            saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
+            saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
         }
         if (rateLimitFailure != null) throw rateLimitFailure;
         if (circuitSkipped) throw new BusinessException(503, "All matching relay channels are temporarily unavailable");
@@ -258,6 +259,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     @Override
     public RelayStreamDispatchResult dispatchStream(RelayDispatchRequest request) throws Exception {
         String model = request.body().path("model").asText("");
+        String thinkingEffort = extractThinkingEffort(request.body());
         List<RelayContext> contexts = relayPolicyService.buildContexts(
                 request.authorization(),
                 request.apiKeyHeader(),
@@ -316,7 +318,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         continue;
                     }
                     String errorText = localOverloadError(request.upstreamPath());
-                    saveUsage(context, request.upstreamPath(), request.userAgent(), 503, parseResponseBody(errorText), ZERO_COST,
+                    saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, 503, parseResponseBody(errorText), ZERO_COST,
                             STREAM_GATE_ACQUIRE_TIMEOUT.toMillis());
                     return new RelayStreamDispatchResult(
                             503,
@@ -356,7 +358,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     recordChannelFailure(context.channel(), "transport failure: " + safeExceptionMessage(ex));
                     lastStatus = 502;
                     lastErrorText = localUpstreamFailureError(request.upstreamPath(), safeExceptionMessage(ex));
-                    saveUsage(context, request.upstreamPath(), request.userAgent(), lastStatus,
+                    saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, lastStatus,
                             parseResponseBody(lastErrorText), ZERO_COST, System.currentTimeMillis() - startedAt);
                     if (index < contexts.size() - 1) {
                         continue;
@@ -380,7 +382,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 }
                 JsonNode responseBody = parseResponseBody(errorText);
                 RelayCostBreakdown cost = ZERO_COST;
-                saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(),
+                saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, response.statusCode(),
                         responseBody, cost, System.currentTimeMillis() - startedAt);
                 boolean retryable = isRetryableUpstreamError(response.statusCode(), responseBody, errorText);
                 if (retryable) {
@@ -486,12 +488,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     try {
                         enforceQuotaIfSuccessful(completionStatus, finalContext, cost);
                     } catch (BusinessException ex) {
-                        saveUsage(finalContext, request.upstreamPath(), request.userAgent(), completionStatus,
+                        saveUsage(finalContext, request.upstreamPath(), request.userAgent(), thinkingEffort, completionStatus,
                                 responseBody, cost, System.currentTimeMillis() - finalStartedAt);
                         disableTokenAfterBillingFailure(finalContext.token(), ex);
                         throw ex;
                     }
-                    saveUsage(finalContext, request.upstreamPath(), request.userAgent(), completionStatus,
+                    saveUsage(finalContext, request.upstreamPath(), request.userAgent(), thinkingEffort, completionStatus,
                             responseBody, cost, System.currentTimeMillis() - finalStartedAt);
                     chargeIfSuccessful(completionStatus, finalContext, cost);
                     log.debug("Relay upstream stream response path={} channelId={} status={} billable={} durationMs={} usage={}",
@@ -643,6 +645,46 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             streamOptions.put("include_usage", true);
         }
         return outbound;
+    }
+
+    private String extractThinkingEffort(ObjectNode body) {
+        if (body == null) {
+            return "";
+        }
+        String effort = firstThinkingText(body.path("reasoning"), "effort", "level");
+        if (effort.isBlank()) {
+            effort = body.path("reasoning_effort").asText("");
+        }
+        if (effort.isBlank()) {
+            effort = firstThinkingText(body.path("thinking"), "effort", "level");
+        }
+        if (effort.isBlank()) {
+            effort = body.path("reasoning").isTextual() ? body.path("reasoning").asText("") : "";
+        }
+        if (effort.isBlank()) {
+            effort = body.path("thinking").isTextual() ? body.path("thinking").asText("") : "";
+        }
+        if (effort.isBlank()) {
+            JsonNode thinking = body.path("thinking");
+            JsonNode budget = thinking.path("budget_tokens");
+            if (budget.isNumber() && budget.asInt() > 0) {
+                effort = "budget:" + budget.asInt();
+            }
+        }
+        return effort == null ? "" : effort.trim();
+    }
+
+    private String firstThinkingText(JsonNode node, String... names) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (value.isTextual() && !value.asText().isBlank()) {
+                return value.asText();
+            }
+        }
+        return "";
     }
 
     private String upstreamModel(RelayContext context) {
@@ -1026,7 +1068,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return value == null || value.isBlank() ? MediaType.APPLICATION_OCTET_STREAM_VALUE : value;
     }
 
-    private void saveUsage(RelayContext context, String endpoint, String userAgent,
+    private void saveUsage(RelayContext context, String endpoint, String userAgent, String thinkingEffort,
                            int statusCode, JsonNode responseBody, RelayCostBreakdown cost, long durationMs) {
         RelayToken access = context.token();
         RelayChannel channel = context.channel();
@@ -1047,6 +1089,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         log.setEndpoint(limitForColumn(endpoint, 80));
         log.setModel(limitForColumn(context.model() == null ? "" : context.model().getModel(), 120));
         log.setModelType(limitForColumn(context.effectiveModelType(), 40));
+        log.setThinkingEffort(limitForColumn(thinkingEffort, 40));
         log.setPromptTokens(promptTokens);
         log.setCompletionTokens(completionTokens);
         log.setCachedTokens(cachedTokens);
@@ -1374,10 +1417,11 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         if (statusCode < 400) {
             return false;
         }
-        if (statusCode == 400) {
-            return containsTransportFailureMarker(text);
-        }
-        if (statusCode == 408 || statusCode == 425 || statusCode == 429 || statusCode >= 500) {
+        // 同一次请求内继续尝试备用渠道。400 也必须纳入渠道级故障转移：
+        // 不同上游对模型、协议、网关参数的校验可能返回 400，不能因为第一个渠道
+        // 返回了 400 就直接把错误暴露给用户。所有候选渠道都失败后，调用方仍会
+        // 收到最终的上游错误响应。
+        if (statusCode == 400 || statusCode == 408 || statusCode == 425 || statusCode == 429 || statusCode >= 500) {
             return true;
         }
         if (statusCode == 401 || statusCode == 403 || statusCode == 404 || statusCode == 422) {

@@ -386,6 +386,7 @@ export interface RelayUsageLog {
   endpoint: string
   model: string
   modelType: string
+  thinkingEffort?: string
   promptTokens: number
   completionTokens: number
   cachedTokens: number

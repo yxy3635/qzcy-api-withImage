@@ -176,6 +176,7 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
                    r.endpoint,
                    r.model,
                    r.model_type AS modelType,
+                   r.thinking_effort AS thinkingEffort,
                    r.prompt_tokens AS promptTokens,
                    r.completion_tokens AS completionTokens,
                    r.cached_tokens AS cachedTokens,

@@ -27,12 +27,12 @@ class RelayDispatchServiceImplTest {
     }
 
     @Test
-    void doesNotRetryNormalClientBadRequest() throws Exception {
+    void retriesBadRequestToAllowChannelFailover() throws Exception {
         JsonNode body = OBJECT_MAPPER.readTree("""
                 {"error":{"type":"invalid_request_error","message":"messages is required"}}
                 """);
 
-        assertFalse(RelayDispatchServiceImpl.isRetryableUpstreamError(400, body, body.toString()));
+        assertTrue(RelayDispatchServiceImpl.isRetryableUpstreamError(400, body, body.toString()));
     }
 
     @Test
@@ -40,6 +40,7 @@ class RelayDispatchServiceImplTest {
         JsonNode body = OBJECT_MAPPER.readTree("{}");
 
         assertTrue(RelayDispatchServiceImpl.isRetryableUpstreamError(429, body, ""));
+        assertTrue(RelayDispatchServiceImpl.isRetryableUpstreamError(502, body, ""));
         assertTrue(RelayDispatchServiceImpl.isRetryableUpstreamError(503, body, ""));
     }
 
@@ -48,6 +49,25 @@ class RelayDispatchServiceImplTest {
         JsonNode body = OBJECT_MAPPER.readTree("{\"message\":\"rate limit documentation\"}");
 
         assertFalse(RelayDispatchServiceImpl.isRetryableUpstreamError(200, body, body.toString()));
+    }
+
+    @Test
+    void extractsThinkingEffortFromCommonRequestFormats() throws Exception {
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+
+        ObjectNode responsesBody = (ObjectNode) OBJECT_MAPPER.readTree("""
+                {"model":"gpt-5.6-luna","reasoning":{"effort":"high"}}
+                """);
+        ObjectNode chatBody = (ObjectNode) OBJECT_MAPPER.readTree("""
+                {"model":"gpt-5.6-luna","reasoning_effort":"medium"}
+                """);
+        ObjectNode thinkingBody = (ObjectNode) OBJECT_MAPPER.readTree("""
+                {"model":"claude","thinking":{"type":"enabled","budget_tokens":4096}}
+                """);
+
+        assertEquals("high", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", responsesBody));
+        assertEquals("medium", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", chatBody));
+        assertEquals("budget:4096", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", thinkingBody));
     }
 
     @Test
