@@ -1,5 +1,11 @@
 server:
   port: 8080
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:512}
+      min-spare: ${TOMCAT_MIN_SPARE_THREADS:20}
+    accept-count: ${TOMCAT_ACCEPT_COUNT:2048}
+    max-connections: ${TOMCAT_MAX_CONNECTIONS:10000}
 
 spring:
   application:

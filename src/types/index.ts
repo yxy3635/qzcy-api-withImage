@@ -232,7 +232,39 @@ export interface RelayChannelModel {
   model: string
   displayName: string
   modelType: string
+  inputPrice?: number
+  outputPrice?: number
+  cachedInputPrice?: number
+  cacheCreationPrice?: number
+  requestPrice?: number
+  fixedRequestBilling?: boolean
   upstreamModel: string
+  enabled: boolean
+}
+
+export interface RelayPublicChannel {
+  id: number
+  name: string
+  channelRule: 'openai' | 'anthropic' | string
+  groupNames: string
+  status: string
+  rpmLimit: number
+  maxConcurrency: number
+  enabled: boolean
+  models: RelayPublicChannelModel[]
+}
+
+export interface RelayPublicChannelModel {
+  modelId: number
+  model: string
+  displayName: string
+  modelType: string
+  inputPrice?: number
+  outputPrice?: number
+  cachedInputPrice?: number
+  cacheCreationPrice?: number
+  requestPrice?: number
+  fixedRequestBilling?: boolean
   enabled: boolean
 }
 
@@ -281,7 +313,7 @@ export interface RelayUserOverview {
   balance: number
   models: RelayModel[]
   tokens: RelayToken[]
-  channels: RelayChannel[]
+  channels: RelayPublicChannel[]
   logs: RelayUsageLog[]
   errorLogs: ErrorRequestLog[]
   modelUsage: RelayModelUsage[]
@@ -359,13 +391,6 @@ export interface RelayUsageLog {
   cachedTokens: number
   cacheCreationTokens: number
   totalTokens: number
-  inputCost: number
-  outputCost: number
-  cacheReadCost: number
-  cacheCreationCost: number
-  requestCost: number
-  groupRatio: number
-  channelRatio: number
   cost: number
   statusCode: number
   durationMs: number
@@ -378,6 +403,14 @@ export interface RelayUsageLog {
 export interface AdminRelayUsageLog extends RelayUsageLog {
   userId: number
   username?: string
+  channelName: string
+  inputCost: number
+  outputCost: number
+  cacheReadCost: number
+  cacheCreationCost: number
+  requestCost: number
+  groupRatio: number
+  channelRatio: number
 }
 
 export interface RelayTrend {

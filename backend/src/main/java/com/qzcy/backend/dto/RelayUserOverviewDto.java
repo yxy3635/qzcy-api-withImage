@@ -14,7 +14,7 @@ public class RelayUserOverviewDto {
     private BigDecimal balance;
     private List<RelayModelDto> models;
     private List<RelayTokenDto> tokens;
-    private List<RelayChannelDto> channels;
+    private List<RelayPublicChannelDto> channels;
     private List<RelayUsageLogDto> logs;
     private List<ErrorRequestLogDto> errorLogs;
     private List<RelayModelUsageDto> modelUsage;

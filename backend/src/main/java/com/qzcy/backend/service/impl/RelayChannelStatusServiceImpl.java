@@ -38,11 +38,13 @@ public class RelayChannelStatusServiceImpl implements RelayChannelStatusService 
     }
 
     @Override
-    public void syncOne(Long channelId) {
+    public String syncOne(Long channelId) {
         RelayChannel channel = channelMapper.selectById(channelId);
-        if (channel == null) return;
-        channel.setStatus(check(channel) ? "available" : "failed");
+        if (channel == null) return "unknown";
+        String status = check(channel) ? "available" : "failed";
+        channel.setStatus(status);
         channelMapper.updateById(channel);
+        return status;
     }
 
     private boolean check(RelayChannel channel) {

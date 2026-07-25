@@ -9,9 +9,7 @@ import java.math.BigDecimal;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class RelayChannelModelDto {
-    private Long id;
-    private Long channelId;
+public class RelayPublicChannelModelDto {
     private Long modelId;
     private String model;
     private String displayName;
@@ -22,6 +20,5 @@ public class RelayChannelModelDto {
     private BigDecimal cacheCreationPrice;
     private BigDecimal requestPrice;
     private Boolean fixedRequestBilling;
-    private String upstreamModel;
     private Boolean enabled;
 }

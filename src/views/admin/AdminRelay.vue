@@ -525,7 +525,7 @@ async function createModel() {
   error.value = ''
   try {
     await adminApi.createRelayModel(newModel)
-    toast.success('模型已创建')
+    toast.success('模型已创建，请在需要的渠道和分组中手动启用')
     editingModelId.value = null
     await load()
   } catch (err) {
@@ -663,7 +663,7 @@ async function enableSelectedUpstreamModels() {
         sortOrder: 10
       })
     }
-    toast.success(`已启用 ${ids.length} 个上游模型`)
+    toast.success(`已导入 ${ids.length} 个上游模型，请手动配置渠道和分组`)
     await load()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '启用上游模型失败'
@@ -813,7 +813,7 @@ onMounted(load)
               </label>
               <label class="block">
                 <span class="text-sm font-black text-slate-800">流式并发上限</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">该渠道同时向上游发起的流式请求数，0 表示使用默认值（8）。</span>
+                <span class="mt-1 block text-xs font-semibold text-slate-500">该渠道同时向上游发起的流式请求数，0 表示不限制；仅在需要保护特定上游时填写正数。</span>
                 <input v-model.number="newChannel.maxConcurrency" class="input mt-2 h-12 rounded-2xl" type="number" min="0" placeholder="0" />
               </label>
               <label class="block">
@@ -938,7 +938,7 @@ onMounted(load)
               </label>
               <label class="block">
                 <span class="text-sm font-black text-slate-800">流式并发上限</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">该渠道同时向上游发起的流式请求数，0 表示使用默认值（8）。</span>
+                <span class="mt-1 block text-xs font-semibold text-slate-500">该渠道同时向上游发起的流式请求数，0 表示不限制；仅在需要保护特定上游时填写正数。</span>
                 <input v-model.number="channelDraftOf(channel).maxConcurrency" class="input mt-2 h-12 rounded-2xl" type="number" min="0" placeholder="0" />
               </label>
               <label class="block">
@@ -1025,7 +1025,7 @@ onMounted(load)
             <div class="flex flex-wrap items-center justify-between gap-3">
               <p class="text-sm font-semibold text-slate-500">读取渠道 /v1/models 后，可批量写入模型配置。</p>
               <button class="h-10 rounded-lg bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="saving === 'model-import' || !selectedUpstreamIds.length" @click="enableSelectedUpstreamModels">
-                {{ saving === 'model-import' ? '启用中' : `启用所选 ${selectedUpstreamIds.length}` }}
+                {{ saving === 'model-import' ? '导入中' : `导入所选 ${selectedUpstreamIds.length}` }}
               </button>
             </div>
           <div class="mt-4 flex gap-2 overflow-x-auto pb-1">

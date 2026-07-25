@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
 import BalanceCard from '@/components/BalanceCard.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { imageApi } from '@/api/imageApi'
 import { noticeApi } from '@/api/noticeApi'
 import { userApi } from '@/api/userApi'
@@ -14,17 +15,27 @@ const balance = ref(0)
 const records = ref<ImageRecord[]>([])
 const announcements = ref<Announcement[]>([])
 const selectedAnnouncement = ref<Announcement | null>(null)
+const loading = ref(true)
 
 onMounted(async () => {
-  const [balanceRes, historyRes, announcementRes] = await Promise.all([userApi.balance(), imageApi.history(1, 6), noticeApi.list()])
-  balance.value = Number(balanceRes.data.data)
-  records.value = historyRes.data.data.records
-  announcements.value = announcementRes.data.data
+  try {
+    const [balanceRes, historyRes, announcementRes] = await Promise.all([userApi.balance(), imageApi.history(1, 6), noticeApi.list()])
+    balance.value = Number(balanceRes.data.data)
+    records.value = historyRes.data.data.records
+    announcements.value = announcementRes.data.data
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 
 <template>
   <AppLayout>
+    <Transition name="zoom-fade">
+      <div v-if="loading" class="fixed inset-0 z-[60] grid place-items-center bg-white/55 backdrop-blur-[3px]">
+        <RequestLoader label="正在加载资产概览" :cell-size="16" />
+      </div>
+    </Transition>
     <section class="relative overflow-hidden rounded-[1.5rem] border border-white/80 bg-white/82 p-4 shadow-[0_30px_100px_rgba(14,165,233,0.12)] backdrop-blur-2xl sm:rounded-[2rem] sm:p-6 md:p-8">
       <div class="absolute right-8 top-8 h-36 w-36 rounded-full bg-sky-200/40 blur-3xl" />
       <div class="absolute bottom-0 right-1/4 h-28 w-28 rounded-full bg-teal-200/40 blur-3xl" />

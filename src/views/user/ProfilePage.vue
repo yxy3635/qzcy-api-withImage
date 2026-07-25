@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { userApi } from '@/api/userApi'
 import { useAuthStore } from '@/store/authStore'
 import { useToast } from '@/composables/useToast'
@@ -12,9 +13,11 @@ const oldPassword = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
 const error = ref('')
+const actionLoading = ref(false)
 
 async function saveProfile() {
   error.value = ''
+  actionLoading.value = true
   try {
     const { data } = await userApi.updateProfile(email.value)
     auth.userInfo = data.data
@@ -23,6 +26,8 @@ async function saveProfile() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : '保存失败'
     toast.error(error.value)
+  } finally {
+    actionLoading.value = false
   }
 }
 
@@ -38,6 +43,7 @@ async function changePassword() {
     toast.warning(error.value)
     return
   }
+  actionLoading.value = true
   try {
     await userApi.changePassword(oldPassword.value, newPassword.value)
     oldPassword.value = ''
@@ -47,12 +53,19 @@ async function changePassword() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : '修改失败'
     toast.error(error.value)
+  } finally {
+    actionLoading.value = false
   }
 }
 </script>
 
 <template>
   <AppLayout>
+    <Transition name="zoom-fade">
+      <div v-if="actionLoading" class="fixed inset-0 z-[60] grid place-items-center bg-white/55 backdrop-blur-[3px]">
+        <RequestLoader label="正在提交账号信息" :cell-size="15" />
+      </div>
+    </Transition>
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <p class="text-sm font-bold uppercase tracking-[0.22em] text-sky-600">资料管理</p>
@@ -75,7 +88,7 @@ async function changePassword() {
             <label class="text-sm font-semibold text-slate-600">邮箱</label>
             <input v-model="email" class="input mt-2 rounded-2xl" placeholder="请输入邮箱" />
           </div>
-          <button class="w-full rounded-full bg-sky-500 px-5 py-3 text-sm font-black text-white transition hover:bg-sky-600 sm:w-auto" @click="saveProfile">保存资料</button>
+          <button class="w-full rounded-full bg-sky-500 px-5 py-3 text-sm font-black text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto" :disabled="actionLoading" @click="saveProfile">保存资料</button>
         </div>
       </section>
 
@@ -85,7 +98,7 @@ async function changePassword() {
           <input v-model="oldPassword" class="input rounded-2xl" type="password" placeholder="原密码" />
           <input v-model="newPassword" class="input rounded-2xl" type="password" placeholder="新密码，至少6位" />
           <input v-model="confirmPassword" class="input rounded-2xl" type="password" placeholder="确认新密码" />
-          <button class="w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-slate-800 sm:w-auto" @click="changePassword">确认修改</button>
+          <button class="w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto" :disabled="actionLoading" @click="changePassword">确认修改</button>
         </div>
       </section>
     </div>

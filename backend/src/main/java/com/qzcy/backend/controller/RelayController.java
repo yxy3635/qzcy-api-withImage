@@ -58,6 +58,14 @@ import java.util.Set;
 @RequiredArgsConstructor
 @Slf4j
 public class RelayController {
+    private static final List<String> FORWARDED_PROTOCOL_HEADERS = List.of(
+            "OpenAI-Beta",
+            "x-client-request-id",
+            "x-codex-installation-id",
+            "x-codex-turn-state"
+    );
+    private static final int MAX_PROTOCOL_HEADER_LENGTH = 16 * 1024;
+
     private final RelayService relayService;
     private final RelayDispatchService relayDispatchService;
     private final RelayPolicyService relayPolicyService;
@@ -93,6 +101,11 @@ public class RelayController {
     public ApiResponse<Void> syncChannelStatus() {
         relayChannelStatusService.syncAll();
         return ApiResponse.success(null);
+    }
+
+    @PostMapping("/relay/channels/{id}/status/sync")
+    public ApiResponse<String> syncChannelStatus(@PathVariable Long id) {
+        return ApiResponse.success(relayChannelStatusService.syncOne(id));
     }
 
     @GetMapping({"/v1/models", "/models", "/v1/v1/models"})
@@ -212,7 +225,7 @@ public class RelayController {
         return relayJson(authorization, apiKeyHeader, queryKey, userAgent, clientIp(request), anthropicVersion, anthropicBeta, "chat", "/v1/messages/count_tokens", body);
     }
 
-    @PostMapping("/v1/responses")
+    @PostMapping({"/v1/responses", "/responses", "/v1/v1/responses"})
     public ResponseEntity<?> responses(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
                                        @RequestHeader(value = "x-api-key", required = false) String apiKeyHeader,
                                        @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String userAgent,
@@ -222,7 +235,7 @@ public class RelayController {
         return relayJson(authorization, apiKeyHeader, queryKey, userAgent, clientIp(request), responsesEndpointType(body), "/v1/responses", body);
     }
 
-    @PostMapping("/v1/responses/compact")
+    @PostMapping({"/v1/responses/compact", "/responses/compact", "/v1/v1/responses/compact"})
     public ResponseEntity<?> responsesCompact(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
                                               @RequestHeader(value = "x-api-key", required = false) String apiKeyHeader,
                                               @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String userAgent,
@@ -387,7 +400,8 @@ public class RelayController {
                         anthropicBeta,
                         endpointType,
                         path,
-                        body
+                        body,
+                        forwardedProtocolHeaders()
                 ));
                 return writeStreamResult(result, path);
             }
@@ -401,11 +415,13 @@ public class RelayController {
                     anthropicBeta,
                     endpointType,
                     path,
-                    body
+                    body,
+                    forwardedProtocolHeaders()
             ));
-            return ResponseEntity.status(result.statusCode())
-                    .contentType(mediaType(result.contentType()))
-                    .body(result.body());
+            ResponseEntity.BodyBuilder response = ResponseEntity.status(result.statusCode())
+                    .contentType(mediaType(result.contentType()));
+            addResponseHeaders(response, result.headers());
+            return response.body(result.body());
         } catch (BusinessException ex) {
             log.warn("Relay dispatch local error path={} status={} format={} model={} message={}",
                     path,
@@ -431,6 +447,7 @@ public class RelayController {
         response.setStatus(result.statusCode());
         String contentType = result.contentType();
         response.setContentType(contentType == null || contentType.isBlank() ? MediaType.TEXT_EVENT_STREAM_VALUE : contentType);
+        addResponseHeaders(response, result.headers());
         try {
             result.body().writeTo(response.getOutputStream());
             response.getOutputStream().flush();
@@ -453,11 +470,13 @@ public class RelayController {
                     endpointType,
                     path,
                     body,
-                    files
+                    files,
+                    forwardedProtocolHeaders()
             ));
-            return ResponseEntity.status(result.statusCode())
-                    .contentType(mediaType(result.contentType()))
-                    .body(result.body());
+            ResponseEntity.BodyBuilder response = ResponseEntity.status(result.statusCode())
+                    .contentType(mediaType(result.contentType()));
+            addResponseHeaders(response, result.headers());
+            return response.body(result.body());
         } catch (BusinessException ex) {
             return relayError(ex.getCode(), ex.getMessage());
         }
@@ -545,6 +564,35 @@ public class RelayController {
             case 429 -> "rate_limit_error";
             default -> "api_error";
         };
+    }
+
+    private Map<String, String> forwardedProtocolHeaders() {
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null) {
+            return Map.of();
+        }
+        HttpServletRequest request = attributes.getRequest();
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        for (String name : FORWARDED_PROTOCOL_HEADERS) {
+            String value = request.getHeader(name);
+            if (value == null) {
+                continue;
+            }
+            value = value.trim();
+            if (!value.isEmpty() && value.length() <= MAX_PROTOCOL_HEADER_LENGTH
+                    && value.indexOf('\r') < 0 && value.indexOf('\n') < 0) {
+                headers.put(name, value);
+            }
+        }
+        return headers;
+    }
+
+    private void addResponseHeaders(ResponseEntity.BodyBuilder response, Map<String, List<String>> headers) {
+        headers.forEach((name, values) -> values.forEach(value -> response.header(name, value)));
+    }
+
+    private void addResponseHeaders(HttpServletResponse response, Map<String, List<String>> headers) {
+        headers.forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
     }
 
     private MediaType mediaType(String contentType) {

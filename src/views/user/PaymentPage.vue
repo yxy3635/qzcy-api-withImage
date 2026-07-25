@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import BalanceCard from '@/components/BalanceCard.vue'
 import Pagination from '@/components/Pagination.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { paymentApi } from '@/api/paymentApi'
 import { useAuthStore } from '@/store/authStore'
 import { useToast } from '@/composables/useToast'
@@ -21,6 +22,9 @@ const returnedPaymentParams = ref<Record<string, string> | null>(null)
 const records = ref<PaymentRecord[]>([])
 const current = ref(1)
 const pages = ref(1)
+const initialLoading = ref(true)
+const historyLoading = ref(false)
+const rechargeLoading = ref(false)
 const rechargePresets = [1, 5, 10, 100]
 const paymentOptions = ref([
   { value: 'alipay', label: '支付宝', desc: '推荐使用支付宝扫码支付', enabled: true },
@@ -39,6 +43,7 @@ function selectAmountPreset(value: number | 'custom') {
 
 async function recharge() {
   error.value = ''
+  rechargeLoading.value = true
   try {
     const { data } = await paymentApi.recharge(amount.value, type.value)
     const paymentUrl = data.data.paymentUrl ? String(data.data.paymentUrl) : ''
@@ -52,14 +57,21 @@ async function recharge() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : '创建支付订单失败'
     toast.error(error.value)
+  } finally {
+    rechargeLoading.value = false
   }
 }
 
 async function loadHistory(page = 1) {
-  const { data } = await paymentApi.history(page, 10)
-  records.value = data.data.records
-  current.value = data.data.current
-  pages.value = data.data.pages
+  historyLoading.value = true
+  try {
+    const { data } = await paymentApi.history(page, 10)
+    records.value = data.data.records
+    current.value = data.data.current
+    pages.value = data.data.pages
+  } finally {
+    historyLoading.value = false
+  }
 }
 
 async function loadPaymentConfig() {
@@ -129,18 +141,27 @@ async function confirmReturnedPayment() {
 }
 
 onMounted(async () => {
-  const returnedFromPayment = handlePaymentReturn()
-  await Promise.all([loadPaymentConfig(), auth.refreshUser()])
-  await loadHistory()
-  if (returnedFromPayment) {
-    await confirmReturnedPayment()
-    toast.success('支付成功，余额到账状态请以支付回调和余额刷新结果为准。')
+  try {
+    const returnedFromPayment = handlePaymentReturn()
+    await Promise.all([loadPaymentConfig(), auth.refreshUser()])
+    await loadHistory()
+    if (returnedFromPayment) {
+      await confirmReturnedPayment()
+      toast.success('支付成功，余额到账状态请以支付回调和余额刷新结果为准。')
+    }
+  } finally {
+    initialLoading.value = false
   }
 })
 </script>
 
 <template>
   <AppLayout>
+    <Transition name="zoom-fade">
+      <div v-if="initialLoading" class="fixed inset-0 z-[60] grid place-items-center bg-white/55 backdrop-blur-[3px]">
+        <RequestLoader label="正在加载余额与支付信息" :cell-size="16" />
+      </div>
+    </Transition>
     <div class="grid gap-6 lg:grid-cols-[380px_1fr]">
       <div class="space-y-4">
         <div>
@@ -196,7 +217,7 @@ onMounted(async () => {
               <p v-if="enabledPaymentOptions().length === 0" class="rounded-2xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">暂无可用支付方式，请联系管理员。</p>
             </div>
           </div>
-          <button class="w-full rounded-full bg-sky-500 px-5 py-3 text-sm font-black text-white shadow-[0_18px_50px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60" :disabled="enabledPaymentOptions().length === 0" @click="recharge">创建支付订单</button>
+          <button class="w-full rounded-full bg-sky-500 px-5 py-3 text-sm font-black text-white shadow-[0_18px_50px_rgba(14,165,233,0.24)] transition hover:-translate-y-0.5 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60" :disabled="enabledPaymentOptions().length === 0 || rechargeLoading" @click="recharge">{{ rechargeLoading ? '正在创建订单…' : '创建支付订单' }}</button>
           <p v-if="error" class="rounded-2xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{{ error }}</p>
         </section>
       </div>
@@ -205,7 +226,8 @@ onMounted(async () => {
           <h2 class="text-2xl font-black">支付记录</h2>
           <p class="mt-1 text-sm text-slate-500">第三方支付完成后余额会通过支付回调入账。</p>
         </div>
-        <div class="divide-y divide-slate-100">
+        <RequestLoader v-if="historyLoading" class="p-12" label="正在加载支付记录" :cell-size="15" />
+        <div v-else class="divide-y divide-slate-100">
           <div v-for="record in records" :key="record.id" class="interactive-row grid gap-2 p-4 text-sm md:grid-cols-[120px_1fr_120px_180px] md:p-5">
             <span class="font-black text-slate-950">￥{{ Number(record.amount).toFixed(6) }}</span>
             <span class="text-slate-600">{{ paymentTypeText(record.type) }}</span>
@@ -214,7 +236,7 @@ onMounted(async () => {
           </div>
           <div v-if="records.length === 0" class="p-8 text-sm text-slate-500">暂无支付记录</div>
         </div>
-        <div class="border-t border-slate-100 bg-white/70 p-4"><Pagination :current="current" :pages="pages" @change="loadHistory" /></div>
+        <div v-if="!historyLoading" class="border-t border-slate-100 bg-white/70 p-4"><Pagination :current="current" :pages="pages" @change="loadHistory" /></div>
       </section>
     </div>
 

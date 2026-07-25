@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import Pagination from '@/components/Pagination.vue'
+import RequestLoader from '@/components/RequestLoader.vue'
 import { imageApi } from '@/api/imageApi'
 import { useToast } from '@/composables/useToast'
 import type { ImageRecord } from '@/types'
@@ -13,13 +14,21 @@ const current = ref(1)
 const pages = ref(1)
 const preview = ref('')
 const error = ref('')
+const loading = ref(true)
 
 async function load(page = 1) {
   error.value = ''
-  const { data } = await imageApi.history(page, 10)
-  records.value = data.data.records
-  current.value = data.data.current
-  pages.value = data.data.pages
+  loading.value = true
+  try {
+    const { data } = await imageApi.history(page, 10)
+    records.value = data.data.records
+    current.value = data.data.current
+    pages.value = data.data.pages
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '加载生成记录失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function remove(record: ImageRecord) {
@@ -54,7 +63,8 @@ onMounted(() => load())
       <div class="hidden grid-cols-[1fr_120px_180px_180px] gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-500 md:grid">
         <span>提示词</span><span>状态</span><span>创建时间</span><span>操作</span>
       </div>
-      <div class="divide-y divide-slate-100">
+      <RequestLoader v-if="loading" class="p-12" label="正在加载图像资产" :cell-size="15" />
+      <div v-else class="divide-y divide-slate-100">
         <div v-for="record in records" :key="record.id" class="interactive-row grid gap-4 px-4 py-4 text-sm md:grid-cols-[1fr_120px_180px_180px] md:items-center md:px-5">
           <p class="leading-6 text-slate-700">{{ record.prompt }}</p>
           <span class="w-fit rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-bold text-sky-700">{{ record.status }}</span>
@@ -68,7 +78,7 @@ onMounted(() => load())
         </div>
         <div v-if="records.length === 0" class="p-8 text-sm text-slate-500">暂无生成记录</div>
       </div>
-      <div class="border-t border-slate-100 bg-white/70 p-4"><Pagination :current="current" :pages="pages" @change="load" /></div>
+      <div v-if="!loading" class="border-t border-slate-100 bg-white/70 p-4"><Pagination :current="current" :pages="pages" @change="load" /></div>
     </section>
     <ImagePreviewModal :src="preview" @close="preview = ''" />
   </AppLayout>

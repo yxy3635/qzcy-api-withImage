@@ -14,6 +14,7 @@ const toast = useToast()
 const prompt = ref('')
 const loading = ref(false)
 const submitLoading = ref(false)
+const initialLoading = ref(true)
 const error = ref('')
 const result = ref<ImageRecord | null>(null)
 const previewRecord = ref<ImageRecord | null>(null)
@@ -74,7 +75,7 @@ const ratioOptions = ['1:1', '3:2', '2:3', '16:9', '9:16', '4:3', '3:4', '21:9']
 
 const selectedConfig = computed(() => configs.value.find((item) => item.code === selectedQuality.value))
 const selectedFilterLabel = computed(() => filterOptions.find((item) => item.value === galleryFilter.value)?.label || '全部')
-const requestLoading = computed(() => submitLoading.value || reusingRecordId.value !== null || editingRecordId.value !== null)
+const requestLoading = computed(() => initialLoading.value || submitLoading.value || reusingRecordId.value !== null || editingRecordId.value !== null)
 const selectedSizeScale = computed(() => {
   const code = (selectedConfig.value?.code || selectedQuality.value).toLowerCase()
   if (code.includes('4k')) return sizeScales[2]
@@ -386,8 +387,12 @@ function logout() {
   router.push('/login')
 }
 
-onMounted(() => {
-  void Promise.all([auth.refreshUser(), loadRecent(), loadConfigs(), loadEstimate()])
+onMounted(async () => {
+  try {
+    await Promise.all([auth.refreshUser(), loadRecent(), loadConfigs(), loadEstimate()])
+  } finally {
+    initialLoading.value = false
+  }
 })
 
 onBeforeUnmount(() => {
@@ -652,7 +657,7 @@ onBeforeUnmount(() => {
 
     <Transition name="zoom-fade">
       <div v-if="requestLoading" class="fixed inset-0 z-[70] grid place-items-center bg-white/45 backdrop-blur-[2px]">
-        <RequestLoader label="" :cell-size="20" />
+        <RequestLoader :label="initialLoading ? '正在准备创作空间' : ''" :cell-size="20" />
       </div>
     </Transition>
 

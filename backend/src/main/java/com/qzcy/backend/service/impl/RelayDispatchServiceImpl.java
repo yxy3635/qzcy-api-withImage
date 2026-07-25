@@ -46,8 +46,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Service
@@ -59,6 +64,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO
     );
     private static final Map<Long, ChannelStreamGate> STREAM_CHANNEL_GATES = new ConcurrentHashMap<>();
+    private static final Map<Long, ChannelCircuitState> CHANNEL_CIRCUITS = new ConcurrentHashMap<>();
 
     /** 每渠道流式并发闸门：持有信号量与配置的许可数，便于配置变更后自愈重建。 */
     private record ChannelStreamGate(Semaphore semaphore, int permits) {
@@ -66,11 +72,49 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             this(new Semaphore(permits, true), permits);
         }
     }
-    // 每渠道流式并发：默认 8（Anthropic 各档限额远高于 1，写死 1 会把天然并发的客户端直接拒掉）；未配置时回退此默认值。
-    private static final int DEFAULT_STREAM_CONCURRENCY = 8;
-    private static final int MAX_STREAM_CONCURRENCY = 128;
-    // 闸门令牌等待：瞬时并发已满时短暂排队，而非立即对客户端返回 429。
-    private static final Duration STREAM_GATE_ACQUIRE_TIMEOUT = Duration.ofSeconds(5);
+
+    private static final class ChannelCircuitState {
+        private int consecutiveFailures;
+        private long blockedUntilMillis;
+
+        synchronized boolean isOpen(long nowMillis) {
+            if (blockedUntilMillis <= nowMillis) {
+                blockedUntilMillis = 0;
+                return false;
+            }
+            return true;
+        }
+
+        synchronized long recordFailure(long nowMillis) {
+            consecutiveFailures++;
+            if (consecutiveFailures < CHANNEL_FAILURE_THRESHOLD) {
+                return 0;
+            }
+            if (blockedUntilMillis > nowMillis) {
+                return -1;
+            }
+            blockedUntilMillis = nowMillis + CHANNEL_CIRCUIT_COOLDOWN.toMillis();
+            return blockedUntilMillis;
+        }
+
+        synchronized void recordSuccess() {
+            consecutiveFailures = 0;
+            blockedUntilMillis = 0;
+        }
+    }
+
+    // max_concurrency=0 表示不启用本地并发闸门；只有管理员显式配置正数时才限制。
+    private static final Duration STREAM_GATE_ACQUIRE_TIMEOUT = Duration.ofSeconds(30);
+    // BodyHandlers.ofInputStream 收到响应头后即返回，HttpRequest.timeout 无法约束后续阻塞 read()。
+    private static final Duration STREAM_IDLE_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration STREAM_IDLE_CHECK_INTERVAL = Duration.ofSeconds(15);
+    private static final ScheduledExecutorService STREAM_WATCHDOG = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "relay-stream-watchdog");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private static final int CHANNEL_FAILURE_THRESHOLD = 3;
+    private static final Duration CHANNEL_CIRCUIT_COOLDOWN = Duration.ofMinutes(1);
     // 429/容量错误重试退避上限（尊重但截断上游 retry-after，避免长时间占用线程）。
     private static final Duration STREAM_RETRY_BACKOFF_CAP = Duration.ofSeconds(5);
     // anthropic-beta 透传：按格式校验放行（含 prompt-caching / redact-thinking / fine-grained-tool-streaming 等），
@@ -79,6 +123,19 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             java.util.regex.Pattern.compile("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$");
     private static final int ANTHROPIC_BETA_MAX_ITEMS = 16;
     private static final int ANTHROPIC_BETA_MAX_LENGTH = 512;
+    private static final Set<String> FORWARDED_PROTOCOL_HEADERS = Set.of(
+            "openai-beta",
+            "x-client-request-id",
+            "x-codex-installation-id",
+            "x-codex-turn-state"
+    );
+    private static final Set<String> FORWARDED_RESPONSE_HEADERS = Set.of(
+            "openai-beta",
+            "retry-after",
+            "x-client-request-id",
+            "x-codex-turn-state",
+            "x-request-id"
+    );
 
     private final RelayPolicyService relayPolicyService;
     private final RelayUsageLogMapper usageLogMapper;
@@ -102,8 +159,15 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 model
         );
         BusinessException rateLimitFailure = null;
+        boolean circuitSkipped = false;
         for (int index = 0; index < contexts.size(); index++) {
             RelayContext context = contexts.get(index);
+            if (isChannelCircuitOpen(context.channel())) {
+                circuitSkipped = true;
+                log.warn("Relay channel skipped by circuit breaker path={} channelId={} channelName={}",
+                        request.upstreamPath(), context.channel().getId(), context.channel().getName());
+                continue;
+            }
             try {
                 relayPolicyService.enforceRateLimits(context.token(), context.channel());
             } catch (BusinessException ex) {
@@ -128,8 +192,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             HttpResponse<String> response;
             try {
                 response = hasFiles(request.files())
-                        ? relayMultipart(request.body(), request.files(), context, request.upstreamPath(), request.anthropicVersion(), request.anthropicBeta())
-                        : relayString(request.body(), context, request.upstreamPath(), request.anthropicVersion(), request.anthropicBeta());
+                        ? relayMultipart(request.body(), request.files(), context, request.upstreamPath(), request.anthropicVersion(), request.anthropicBeta(), request.protocolHeaders())
+                        : relayString(request.body(), context, request.upstreamPath(), request.anthropicVersion(), request.anthropicBeta(), request.protocolHeaders());
             } catch (Exception ex) {
                 log.warn("Relay upstream request failed path={} channelId={} channelName={} rule={} message={}",
                         request.upstreamPath(),
@@ -138,6 +202,15 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         context.channel().getChannelRule(),
                         ex.getMessage(),
                         ex);
+                if (isRetryableTransportFailure(ex)) {
+                    recordChannelFailure(context.channel(), "transport failure: " + safeExceptionMessage(ex));
+                    JsonNode failureBody = upstreamFailureBody("Upstream connection failed: " + safeExceptionMessage(ex));
+                    saveUsage(context, request.upstreamPath(), request.userAgent(), 502, failureBody, ZERO_COST,
+                            System.currentTimeMillis() - startedAt);
+                    if (index < contexts.size() - 1) {
+                        continue;
+                    }
+                }
                 throw ex;
             }
             JsonNode responseBody = parseResponseBody(response.body());
@@ -149,7 +222,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             RelayCostBreakdown cost = isCountTokensRequest(request.upstreamPath())
                     ? ZERO_COST
                     : relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), responseBody);
-            boolean retryable = isRetryableCapacityError(response.statusCode(), responseBody, response.body());
+            boolean retryable = isRetryableUpstreamError(response.statusCode(), responseBody, response.body());
+            if (retryable) {
+                recordChannelFailure(context.channel(), "HTTP " + response.statusCode() + ": " + truncateMessage(response.body()));
+            } else {
+                recordChannelSuccess(context.channel());
+            }
             log.debug("Relay upstream response path={} channelId={} status={} retryable={} billable={} durationMs={} usage={}",
                     request.upstreamPath(),
                     context.channel().getId(),
@@ -168,11 +246,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 }
                 saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
                 chargeIfSuccessful(response.statusCode(), context, cost);
-                return new RelayDispatchResult(response.statusCode(), contentType(response), response.body());
+                return new RelayDispatchResult(response.statusCode(), contentType(response), response.body(), forwardedResponseHeaders(response));
             }
             saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
         }
         if (rateLimitFailure != null) throw rateLimitFailure;
+        if (circuitSkipped) throw new BusinessException(503, "All matching relay channels are temporarily unavailable");
         throw new BusinessException(400, "No available relay channel for current group and model");
     }
 
@@ -190,8 +269,15 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         BusinessException rateLimitFailure = null;
         String lastErrorText = "";
         int lastStatus = 500;
+        boolean circuitSkipped = false;
         for (int index = 0; index < contexts.size(); index++) {
             RelayContext context = contexts.get(index);
+            if (isChannelCircuitOpen(context.channel())) {
+                circuitSkipped = true;
+                log.warn("Relay stream channel skipped by circuit breaker path={} channelId={} channelName={}",
+                        request.upstreamPath(), context.channel().getId(), context.channel().getName());
+                continue;
+            }
             try {
                 relayPolicyService.enforceRateLimits(context.token(), context.channel());
             } catch (BusinessException ex) {
@@ -204,37 +290,45 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             ensureMinimumBalance(context);
             long startedAt = System.currentTimeMillis();
             ChannelStreamGate gate = streamGate(context.channel());
-            Semaphore streamGate = gate.semaphore();
-            log.debug("Relay stream gate acquire channelId={} permits={} available={} queued={}",
-                    context.channel().getId(),
-                    gate.permits(),
-                    streamGate.availablePermits(),
-                    streamGate.getQueueLength());
-            boolean acquired;
-            try {
-                acquired = streamGate.tryAcquire(STREAM_GATE_ACQUIRE_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new BusinessException(500, "Relay dispatch interrupted while acquiring concurrency slot");
-            }
-            if (!acquired) {
-                log.warn("Relay upstream stream skipped by local concurrency gate path={} channelId={} channelName={} permits={} available={} queued={}",
-                        request.upstreamPath(),
+            Semaphore streamGate = gate == null ? null : gate.semaphore();
+            if (gate != null) {
+                log.debug("Relay stream gate acquire channelId={} permits={} available={} queued={}",
                         context.channel().getId(),
-                        context.channel().getName(),
                         gate.permits(),
                         streamGate.availablePermits(),
                         streamGate.getQueueLength());
-                if (index < contexts.size() - 1) {
-                    continue;
+                boolean acquired;
+                try {
+                    acquired = streamGate.tryAcquire(STREAM_GATE_ACQUIRE_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new BusinessException(500, "Relay dispatch interrupted while acquiring concurrency slot");
                 }
-                String errorText = "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Relay channel is busy, please retry later\"}}";
-                saveUsage(context, request.upstreamPath(), request.userAgent(), 429, parseResponseBody(errorText), ZERO_COST, 0);
-                return new RelayStreamDispatchResult(
-                        429,
-                        MediaType.APPLICATION_JSON_VALUE,
-                        outputStream -> outputStream.write(errorText.getBytes(StandardCharsets.UTF_8))
-                );
+                if (!acquired) {
+                    log.warn("Relay upstream stream skipped by configured concurrency gate path={} channelId={} channelName={} permits={} available={} queued={}",
+                            request.upstreamPath(),
+                            context.channel().getId(),
+                            context.channel().getName(),
+                            gate.permits(),
+                            streamGate.availablePermits(),
+                            streamGate.getQueueLength());
+                    if (index < contexts.size() - 1) {
+                        continue;
+                    }
+                    String errorText = localOverloadError(request.upstreamPath());
+                    saveUsage(context, request.upstreamPath(), request.userAgent(), 503, parseResponseBody(errorText), ZERO_COST,
+                            STREAM_GATE_ACQUIRE_TIMEOUT.toMillis());
+                    return new RelayStreamDispatchResult(
+                            503,
+                            MediaType.APPLICATION_JSON_VALUE,
+                            outputStream -> outputStream.write(errorText.getBytes(StandardCharsets.UTF_8))
+                    );
+                }
+            } else {
+                log.debug("Relay stream concurrency unlimited path={} channelId={} channelName={}",
+                        request.upstreamPath(),
+                        context.channel().getId(),
+                        context.channel().getName());
             }
             log.debug("Relay upstream stream attempt path={} model={} channelId={} channelName={} rule={} group={} endpointType={} attempt={}/{}",
                     request.upstreamPath(),
@@ -248,9 +342,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     contexts.size());
             HttpResponse<InputStream> response;
             try {
-                response = relayStream(request.body(), context, request.upstreamPath(), request.anthropicVersion(), request.anthropicBeta());
+                response = relayStream(request.body(), context, request.upstreamPath(), request.anthropicVersion(), request.anthropicBeta(), request.protocolHeaders());
             } catch (Exception ex) {
-                streamGate.release();
+                releaseStreamGate(streamGate);
                 log.warn("Relay upstream stream request failed path={} channelId={} channelName={} rule={} message={}",
                         request.upstreamPath(),
                         context.channel().getId(),
@@ -258,6 +352,17 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         context.channel().getChannelRule(),
                         ex.getMessage(),
                         ex);
+                if (isRetryableTransportFailure(ex)) {
+                    recordChannelFailure(context.channel(), "transport failure: " + safeExceptionMessage(ex));
+                    lastStatus = 502;
+                    lastErrorText = localUpstreamFailureError(request.upstreamPath(), safeExceptionMessage(ex));
+                    saveUsage(context, request.upstreamPath(), request.userAgent(), lastStatus,
+                            parseResponseBody(lastErrorText), ZERO_COST, System.currentTimeMillis() - startedAt);
+                    if (index < contexts.size() - 1) {
+                        continue;
+                    }
+                    break;
+                }
                 throw ex;
             }
             log.debug("Relay upstream stream connected path={} channelId={} status={} contentType={} durationMs={}",
@@ -271,13 +376,18 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 try (InputStream inputStream = response.body()) {
                     errorText = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
                 } finally {
-                    streamGate.release();
+                    releaseStreamGate(streamGate);
                 }
                 JsonNode responseBody = parseResponseBody(errorText);
                 RelayCostBreakdown cost = ZERO_COST;
                 saveUsage(context, request.upstreamPath(), request.userAgent(), response.statusCode(),
                         responseBody, cost, System.currentTimeMillis() - startedAt);
-                boolean retryable = isRetryableCapacityError(response.statusCode(), responseBody, errorText);
+                boolean retryable = isRetryableUpstreamError(response.statusCode(), responseBody, errorText);
+                if (retryable) {
+                    recordChannelFailure(context.channel(), "HTTP " + response.statusCode() + ": " + truncateMessage(errorText));
+                } else {
+                    recordChannelSuccess(context.channel());
+                }
                 lastErrorText = errorText;
                 lastStatus = response.statusCode();
                 log.warn("Relay upstream stream error path={} channelId={} status={} retryable={} contentType={} body={}",
@@ -294,9 +404,11 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 return new RelayStreamDispatchResult(
                         response.statusCode(),
                         MediaType.APPLICATION_JSON_VALUE,
-                        outputStream -> outputStream.write(normalizeErrorBody(errorText, request.upstreamPath(), response.statusCode()).getBytes(StandardCharsets.UTF_8))
+                        outputStream -> outputStream.write(normalizeErrorBody(errorText, request.upstreamPath(), response.statusCode()).getBytes(StandardCharsets.UTF_8)),
+                        forwardedResponseHeaders(response)
                 );
             }
+            recordChannelSuccess(context.channel());
             RelayContext finalContext = context;
             long finalStartedAt = startedAt;
             HttpResponse<InputStream> finalResponse = response;
@@ -305,16 +417,27 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 // 边收边转发：用阻塞 read() 等待上游每一段数据，收到立即 flush 给客户端。
                 // 不用 InputStream.available() 轮询判断首字节——对分块/SSE 响应体它不可靠，
                 // 会因上游整体缓冲返回而误判“无数据”，向客户端投放假错误并触发重试。
-                // 上游“迟迟不发数据”的真实情形由 RELAY_TIMEOUT（10 分钟）兜底，无需在这里伪造错误。
                 StreamUsageAccumulator acc = new StreamUsageAccumulator();
                 long totalBytes = 0;
                 byte[] buffer = new byte[8192];
-                try (InputStream inputStream = finalResponse.body()) {
+                InputStream inputStream = finalResponse.body();
+                AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
+                AtomicBoolean idleTimedOut = new AtomicBoolean(false);
+                ScheduledFuture<?> idleWatchdog = scheduleStreamIdleWatchdog(
+                        inputStream,
+                        lastActivityNanos,
+                        idleTimedOut,
+                        request.upstreamPath(),
+                        finalContext.channel().getId(),
+                        finalContext.channel().getName()
+                );
+                try (inputStream) {
                     int read;
                     while ((read = inputStream.read(buffer)) != -1) {
                         if (read <= 0) {
                             continue;
                         }
+                        lastActivityNanos.set(System.nanoTime());
                         acc.onBytes(buffer, 0, read);
                         outputStream.write(buffer, 0, read);
                         outputStream.flush();
@@ -331,7 +454,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                             ex);
                     throw ex;
                 } finally {
-                    finalStreamGate.release();
+                    idleWatchdog.cancel(false);
+                    releaseStreamGate(finalStreamGate);
+                    int completionStatus = idleTimedOut.get() ? 504 : finalResponse.statusCode();
+                    if (idleTimedOut.get()) {
+                        recordChannelFailure(finalContext.channel(), "stream idle timeout");
+                    }
                     if (log.isDebugEnabled() && acc.hasPreview()) {
                         log.debug("Relay upstream stream preview path={} channelId={} status={} preview={}",
                                 request.upstreamPath(),
@@ -344,38 +472,44 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                             finalContext.channel().getId(),
                             finalResponse.statusCode(),
                             totalBytes);
-                    JsonNode responseBody = acc.buildResponseBody();
-                    if (finalResponse.statusCode() >= 200 && finalResponse.statusCode() < 300
+                    JsonNode responseBody = idleTimedOut.get()
+                            ? upstreamFailureBody("Upstream stream produced no data for " + STREAM_IDLE_TIMEOUT.toMinutes() + " minutes")
+                            : acc.buildResponseBody();
+                    if (completionStatus >= 200 && completionStatus < 300
                             && !isCountTokensRequest(request.upstreamPath())
                             && !hasBillableUsage(responseBody)) {
                         responseBody = withEstimatedUsage(request.body(), acc.previewString());
                     }
-                    RelayCostBreakdown cost = isCountTokensRequest(request.upstreamPath())
+                    RelayCostBreakdown cost = idleTimedOut.get() || isCountTokensRequest(request.upstreamPath())
                             ? ZERO_COST
                             : relayPolicyService.estimateCost(finalContext.model(), finalContext.channel(), finalContext.group(), responseBody);
                     try {
-                        enforceQuotaIfSuccessful(finalResponse.statusCode(), finalContext, cost);
+                        enforceQuotaIfSuccessful(completionStatus, finalContext, cost);
                     } catch (BusinessException ex) {
-                        saveUsage(finalContext, request.upstreamPath(), request.userAgent(), finalResponse.statusCode(),
+                        saveUsage(finalContext, request.upstreamPath(), request.userAgent(), completionStatus,
                                 responseBody, cost, System.currentTimeMillis() - finalStartedAt);
                         disableTokenAfterBillingFailure(finalContext.token(), ex);
                         throw ex;
                     }
-                    saveUsage(finalContext, request.upstreamPath(), request.userAgent(), finalResponse.statusCode(),
+                    saveUsage(finalContext, request.upstreamPath(), request.userAgent(), completionStatus,
                             responseBody, cost, System.currentTimeMillis() - finalStartedAt);
-                    chargeIfSuccessful(finalResponse.statusCode(), finalContext, cost);
+                    chargeIfSuccessful(completionStatus, finalContext, cost);
                     log.debug("Relay upstream stream response path={} channelId={} status={} billable={} durationMs={} usage={}",
                             request.upstreamPath(),
                             finalContext.channel().getId(),
-                            finalResponse.statusCode(),
+                            completionStatus,
                             cost.billable(),
                             System.currentTimeMillis() - finalStartedAt,
                             responseBody.path("usage").isMissingNode() ? "" : truncateMessage(responseBody.path("usage").toString()));
                 }
             };
-            return new RelayStreamDispatchResult(response.statusCode(), contentType(response), stream);
+            return new RelayStreamDispatchResult(response.statusCode(), contentType(response), stream, forwardedResponseHeaders(response));
         }
         if (rateLimitFailure != null) throw rateLimitFailure;
+        if (lastErrorText.isBlank() && circuitSkipped) {
+            lastStatus = 503;
+            lastErrorText = localUpstreamFailureError(request.upstreamPath(), "All matching relay channels are temporarily unavailable");
+        }
         final int finalLastStatus = lastStatus;
         final String finalLastErrorText = lastErrorText;
         return new RelayStreamDispatchResult(
@@ -436,19 +570,19 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 ex.getMessage());
     }
 
-    private HttpResponse<String> relayString(ObjectNode body, RelayContext context, String path, String anthropicVersion, String anthropicBeta) throws Exception {
-        return httpClient.send(upstreamRequest(body, context, path, anthropicVersion, anthropicBeta), HttpResponse.BodyHandlers.ofString());
+    private HttpResponse<String> relayString(ObjectNode body, RelayContext context, String path, String anthropicVersion, String anthropicBeta, Map<String, String> protocolHeaders) throws Exception {
+        return httpClient.send(upstreamRequest(body, context, path, anthropicVersion, anthropicBeta, protocolHeaders), HttpResponse.BodyHandlers.ofString());
     }
 
-    private HttpResponse<String> relayMultipart(ObjectNode body, List<RelayMultipartFile> files, RelayContext context, String path, String anthropicVersion, String anthropicBeta) throws Exception {
-        return httpClient.send(upstreamMultipartRequest(body, files, context, path, anthropicVersion, anthropicBeta), HttpResponse.BodyHandlers.ofString());
+    private HttpResponse<String> relayMultipart(ObjectNode body, List<RelayMultipartFile> files, RelayContext context, String path, String anthropicVersion, String anthropicBeta, Map<String, String> protocolHeaders) throws Exception {
+        return httpClient.send(upstreamMultipartRequest(body, files, context, path, anthropicVersion, anthropicBeta, protocolHeaders), HttpResponse.BodyHandlers.ofString());
     }
 
-    private HttpResponse<InputStream> relayStream(ObjectNode body, RelayContext context, String path, String anthropicVersion, String anthropicBeta) throws Exception {
-        return httpClient.send(upstreamRequest(body, context, path, anthropicVersion, anthropicBeta), HttpResponse.BodyHandlers.ofInputStream());
+    private HttpResponse<InputStream> relayStream(ObjectNode body, RelayContext context, String path, String anthropicVersion, String anthropicBeta, Map<String, String> protocolHeaders) throws Exception {
+        return httpClient.send(upstreamRequest(body, context, path, anthropicVersion, anthropicBeta, protocolHeaders), HttpResponse.BodyHandlers.ofInputStream());
     }
 
-    private HttpRequest upstreamRequest(ObjectNode body, RelayContext context, String path, String anthropicVersion, String anthropicBeta) throws Exception {
+    private HttpRequest upstreamRequest(ObjectNode body, RelayContext context, String path, String anthropicVersion, String anthropicBeta, Map<String, String> protocolHeaders) throws Exception {
         RelayChannel channel = context.channel();
         ObjectNode outboundBody = prepareOutboundBody(body, context, path);
         String url = relayUrl(channel.getApiBaseUrl(), path);
@@ -469,10 +603,11 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 .header(HttpHeaders.ACCEPT, acceptHeader(body))
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(outboundBody)));
         applyAuthHeaders(builder, channel, anthropicVersion, anthropicBeta);
+        applyProtocolHeaders(builder, protocolHeaders);
         return builder.build();
     }
 
-    private HttpRequest upstreamMultipartRequest(ObjectNode body, List<RelayMultipartFile> files, RelayContext context, String path, String anthropicVersion, String anthropicBeta) throws Exception {
+    private HttpRequest upstreamMultipartRequest(ObjectNode body, List<RelayMultipartFile> files, RelayContext context, String path, String anthropicVersion, String anthropicBeta, Map<String, String> protocolHeaders) throws Exception {
         RelayChannel channel = context.channel();
         ObjectNode outboundBody = prepareOutboundBody(body, context, path);
         String url = relayUrl(channel.getApiBaseUrl(), path);
@@ -493,6 +628,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(multipartBody));
         applyAuthHeaders(builder, channel, anthropicVersion, anthropicBeta);
+        applyProtocolHeaders(builder, protocolHeaders);
         return builder.build();
     }
 
@@ -532,6 +668,26 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             return;
         }
         builder.header(HttpHeaders.AUTHORIZATION, "Bearer " + channel.getApiKey());
+    }
+
+    private void applyProtocolHeaders(HttpRequest.Builder builder, Map<String, String> protocolHeaders) {
+        if (protocolHeaders == null || protocolHeaders.isEmpty()) {
+            return;
+        }
+        protocolHeaders.forEach((name, value) -> {
+            if (name != null && value != null && FORWARDED_PROTOCOL_HEADERS.contains(name.toLowerCase())) {
+                builder.header(name, value);
+            }
+        });
+    }
+
+    private Map<String, List<String>> forwardedResponseHeaders(HttpResponse<?> response) {
+        if (response == null) {
+            return Map.of();
+        }
+        return response.headers().map().entrySet().stream()
+                .filter(entry -> FORWARDED_RESPONSE_HEADERS.contains(entry.getKey().toLowerCase()))
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> List.copyOf(entry.getValue())));
     }
 
     private String headerOrDefault(String value, String fallback) {
@@ -577,7 +733,11 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
 
     private ChannelStreamGate streamGate(RelayChannel channel) {
         Long channelId = channel == null ? -1L : channel.getId();
-        int permits = resolveConcurrency(channel);
+        int permits = configuredStreamConcurrency(channel);
+        if (permits == 0) {
+            STREAM_CHANNEL_GATES.remove(channelId);
+            return null;
+        }
         return STREAM_CHANNEL_GATES.compute(channelId, (key, existing) -> {
             if (existing != null && existing.permits() == permits) {
                 return existing;
@@ -589,12 +749,133 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         });
     }
 
-    private int resolveConcurrency(RelayChannel channel) {
+    static int configuredStreamConcurrency(RelayChannel channel) {
         Integer configured = channel == null ? null : channel.getMaxConcurrency();
-        if (configured == null || configured <= 0) {
-            return DEFAULT_STREAM_CONCURRENCY;
+        return configured == null || configured <= 0 ? 0 : configured;
+    }
+
+    private void releaseStreamGate(Semaphore streamGate) {
+        if (streamGate != null) {
+            streamGate.release();
         }
-        return Math.min(configured, MAX_STREAM_CONCURRENCY);
+    }
+
+    private ScheduledFuture<?> scheduleStreamIdleWatchdog(
+            InputStream inputStream,
+            AtomicLong lastActivityNanos,
+            AtomicBoolean idleTimedOut,
+            String path,
+            Long channelId,
+            String channelName
+    ) {
+        return STREAM_WATCHDOG.scheduleAtFixedRate(() -> {
+            long idleNanos = System.nanoTime() - lastActivityNanos.get();
+            if (idleNanos < STREAM_IDLE_TIMEOUT.toNanos() || !idleTimedOut.compareAndSet(false, true)) {
+                return;
+            }
+            log.warn("Relay upstream stream closed by idle watchdog path={} channelId={} channelName={} idleSeconds={}",
+                    path, channelId, channelName, TimeUnit.NANOSECONDS.toSeconds(idleNanos));
+            try {
+                inputStream.close();
+            } catch (Exception ex) {
+                log.debug("Relay upstream stream close after idle timeout failed path={} channelId={} message={}",
+                        path, channelId, ex.getMessage());
+            }
+        }, STREAM_IDLE_CHECK_INTERVAL.toMillis(), STREAM_IDLE_CHECK_INTERVAL.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    private boolean isChannelCircuitOpen(RelayChannel channel) {
+        if (channel == null || channel.getId() == null) {
+            return false;
+        }
+        ChannelCircuitState state = CHANNEL_CIRCUITS.get(channel.getId());
+        return state != null && state.isOpen(System.currentTimeMillis());
+    }
+
+    private void recordChannelFailure(RelayChannel channel, String reason) {
+        if (channel == null || channel.getId() == null) {
+            return;
+        }
+        long blockedUntil = CHANNEL_CIRCUITS
+                .computeIfAbsent(channel.getId(), ignored -> new ChannelCircuitState())
+                .recordFailure(System.currentTimeMillis());
+        if (blockedUntil > 0) {
+            log.warn("Relay channel circuit opened channelId={} channelName={} blockedForSeconds={} reason={}",
+                    channel.getId(), channel.getName(), CHANNEL_CIRCUIT_COOLDOWN.toSeconds(), truncateMessage(reason));
+        }
+    }
+
+    private void recordChannelSuccess(RelayChannel channel) {
+        if (channel == null || channel.getId() == null) {
+            return;
+        }
+        ChannelCircuitState state = CHANNEL_CIRCUITS.remove(channel.getId());
+        if (state != null) {
+            state.recordSuccess();
+        }
+    }
+
+    private boolean isRetryableTransportFailure(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof InterruptedException) {
+                return false;
+            }
+            if (current instanceof java.net.http.HttpTimeoutException
+                    || current instanceof java.net.ConnectException
+                    || current instanceof java.net.SocketException
+                    || current instanceof java.io.IOException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private String safeExceptionMessage(Throwable error) {
+        if (error == null) {
+            return "unknown upstream error";
+        }
+        String message = error.getMessage();
+        return message == null || message.isBlank() ? error.getClass().getSimpleName() : truncateMessage(message);
+    }
+
+    private JsonNode upstreamFailureBody(String message) {
+        ObjectNode body = objectMapper.createObjectNode();
+        ObjectNode error = objectMapper.createObjectNode();
+        error.put("type", "upstream_error");
+        error.put("message", message);
+        body.set("error", error);
+        return body;
+    }
+
+    private String localOverloadError(String path) {
+        return localErrorBody(path, "overloaded_error", "server_error",
+                "All relay channels are busy, please retry shortly", 503);
+    }
+
+    private String localUpstreamFailureError(String path, String message) {
+        return localErrorBody(path, "api_error", "upstream_error", "Upstream request failed: " + message, 502);
+    }
+
+    private String localErrorBody(String path, String anthropicType, String openAiType, String message, int code) {
+        ObjectNode body = objectMapper.createObjectNode();
+        ObjectNode error = objectMapper.createObjectNode();
+        if (path != null && path.startsWith("/v1/messages")) {
+            body.put("type", "error");
+            error.put("type", anthropicType);
+            error.put("message", message);
+        } else {
+            error.put("type", openAiType);
+            error.put("message", message);
+            error.put("code", code);
+        }
+        body.set("error", error);
+        try {
+            return objectMapper.writeValueAsString(body);
+        } catch (Exception ignored) {
+            return "{\"error\":{\"type\":\"relay_error\",\"message\":\"Upstream request failed\"}}";
+        }
     }
 
     private long parseRetryAfterMillis(java.net.http.HttpHeaders headers) {
@@ -1087,18 +1368,43 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return responseBody.path("usage").path("estimated").asBoolean(false) ? "usage estimated from request/response text" : "";
     }
 
-    private boolean isRetryableCapacityError(int statusCode, JsonNode responseBody, String rawBody) {
-        if (statusCode < 429 && statusCode != 408) {
-            return false;
-        }
+    static boolean isRetryableUpstreamError(int statusCode, JsonNode responseBody, String rawBody) {
         String text = (rawBody == null || rawBody.isBlank()) ? responseBody.toString() : rawBody;
         text = text == null ? "" : text.toLowerCase();
+        if (statusCode < 400) {
+            return false;
+        }
+        if (statusCode == 400) {
+            return containsTransportFailureMarker(text);
+        }
+        if (statusCode == 408 || statusCode == 425 || statusCode == 429 || statusCode >= 500) {
+            return true;
+        }
+        if (statusCode == 401 || statusCode == 403 || statusCode == 404 || statusCode == 422) {
+            return false;
+        }
         return text.contains("at capacity")
                 || text.contains("try a different model")
                 || text.contains("overloaded")
                 || text.contains("temporarily unavailable")
                 || text.contains("server is busy")
                 || text.contains("rate limit");
+    }
+
+    private static boolean containsTransportFailureMarker(String text) {
+        return text.contains("i/o timeout")
+                || text.contains("read tcp")
+                || text.contains("write tcp")
+                || text.contains("dial tcp")
+                || text.contains("connection timed out")
+                || text.contains("connection reset")
+                || text.contains("connection refused")
+                || text.contains("context deadline exceeded")
+                || text.contains("unexpected eof")
+                || text.contains("no route to host")
+                || text.contains("broken pipe")
+                || text.contains("upstream timeout")
+                || text.contains("upstream request timeout");
     }
 
     private String truncateMessage(String value) {

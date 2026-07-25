@@ -16,6 +16,8 @@ import com.qzcy.backend.dto.RelayGroupUpdateDto;
 import com.qzcy.backend.dto.RelayModelDto;
 import com.qzcy.backend.dto.RelayModelUpdateDto;
 import com.qzcy.backend.dto.RelayModelUsageDto;
+import com.qzcy.backend.dto.RelayPublicChannelDto;
+import com.qzcy.backend.dto.RelayPublicChannelModelDto;
 import com.qzcy.backend.dto.RelayStatsDto;
 import com.qzcy.backend.dto.RelayTokenCreateDto;
 import com.qzcy.backend.dto.RelayTokenDto;
@@ -53,9 +55,12 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.IntStream;
 
 @Service
 @RequiredArgsConstructor
@@ -186,8 +191,6 @@ public class RelayServiceImpl implements RelayService {
 
     @Override
     public RelayModelDto createModel(RelayModelUpdateDto dto) {
-        boolean duplicateModelName = dto.getModel() != null && modelMapper.selectCount(new QueryWrapper<RelayModel>()
-                .eq("model", dto.getModel().trim())) > 0;
         RelayModel model = new RelayModel();
         apply(model, dto);
         if (isBlank(model.getModel())) throw new BusinessException(400, "Model is required");
@@ -203,10 +206,6 @@ public class RelayServiceImpl implements RelayService {
         if (model.getEnabled() == null) model.setEnabled(true);
         if (model.getSortOrder() == null) model.setSortOrder(10);
         modelMapper.insert(model);
-        if (!duplicateModelName) {
-            attachModelToAllGroups(model.getId());
-            attachModelToAllChannels(model.getId(), model.getModel());
-        }
         return toModelDto(modelMapper.selectById(model.getId()));
     }
 
@@ -290,13 +289,14 @@ public class RelayServiceImpl implements RelayService {
         item.setTokenPreview(preview(newKey));
         item.setGroupNames(isBlank(dto.getGroups()) ? "default" : dto.getGroups().trim());
         item.setAllowedModels(dto.getAllowedModels() == null ? "" : dto.getAllowedModels().trim());
-        item.setQuota(dto.getQuota() == null ? BigDecimal.ZERO : dto.getQuota());
+        item.setQuota(dto.getQuota() == null ? BigDecimal.ZERO : nonNegative(dto.getQuota()));
         item.setUsedQuota(BigDecimal.ZERO);
         item.setRequestCount(0L);
         item.setTokenCount(0L);
         item.setRpmLimit(dto.getRpmLimit() == null ? 0 : Math.max(0, dto.getRpmLimit()));
         item.setTpmLimit(dto.getTpmLimit() == null ? 0 : Math.max(0, dto.getTpmLimit()));
-        item.setIpWhitelist(dto.getIpWhitelist() == null ? "" : dto.getIpWhitelist().trim());
+        item.setIpWhitelist(normalizeIpWhitelist(dto.getIpWhitelist()));
+        item.setExpiresAt(validateExpiresAt(dto.getExpiresAt()));
         item.setEnabled(dto.getEnabled() == null || dto.getEnabled());
         tokenMapper.insert(item);
         RelayTokenDto result = toTokenDto(tokenMapper.selectById(item.getId()));
@@ -316,7 +316,8 @@ public class RelayServiceImpl implements RelayService {
         if (dto.getQuota() != null) item.setQuota(nonNegative(dto.getQuota()));
         if (dto.getRpmLimit() != null) item.setRpmLimit(Math.max(0, dto.getRpmLimit()));
         if (dto.getTpmLimit() != null) item.setTpmLimit(Math.max(0, dto.getTpmLimit()));
-        if (dto.getIpWhitelist() != null) item.setIpWhitelist(dto.getIpWhitelist().trim());
+        if (dto.getIpWhitelist() != null) item.setIpWhitelist(normalizeIpWhitelist(dto.getIpWhitelist()));
+        if (dto.getExpiresAt() != null) item.setExpiresAt(validateExpiresAt(dto.getExpiresAt()));
         if (dto.getEnabled() != null) item.setEnabled(dto.getEnabled());
         tokenMapper.updateById(item);
         return toTokenDto(tokenMapper.selectById(tokenId));
@@ -337,29 +338,35 @@ public class RelayServiceImpl implements RelayService {
         if (user == null) throw new BusinessException(404, "User not found");
 
         List<String> accessibleModels = accessibleModelsForTokenGroups(userId);
-        List<RelayModelDto> models = modelMapper.selectList(new QueryWrapper<RelayModel>()
+        List<RelayModel> enabledModels = modelMapper.selectList(new QueryWrapper<RelayModel>()
                         .eq("enabled", true)
                         .orderByAsc("sort_order")
-                        .orderByAsc("id"))
-                .stream()
+                        .orderByAsc("id"));
+        Map<String, String> publicModelNames = new HashMap<>();
+        enabledModels.forEach(model -> publicModelNames.putIfAbsent(model.getModel(), publicModelName(model)));
+        List<RelayModelDto> models = enabledModels.stream()
                 .filter(model -> accessibleModels.contains(publicModelName(model)))
                 .filter(distinctByModelName())
-                .map(this::toModelDto).toList();
+                .map(this::toPublicModelDto).toList();
         List<RelayTokenDto> tokens = tokenMapper.selectList(new QueryWrapper<RelayToken>()
                         .eq("user_id", userId)
                         .orderByDesc("created_at"))
                 .stream().map(item -> toTokenDto(item, true)).toList();
-        List<RelayChannelDto> channels = channelMapper.selectList(new QueryWrapper<RelayChannel>()
+        List<RelayChannel> enabledChannels = channelMapper.selectList(new QueryWrapper<RelayChannel>()
                         .eq("enabled", true)
                         .orderByAsc("priority")
-                        .orderByDesc("weight"))
-                .stream().map(this::toChannelDto).toList();
+                        .orderByDesc("weight"));
+        List<RelayPublicChannelDto> channels = IntStream.range(0, enabledChannels.size())
+                .mapToObj(index -> toPublicChannelDto(enabledChannels.get(index), index + 1))
+                .toList();
         List<RelayUsageLogDto> logs = usageLogMapper.selectPage(
                         Page.of(1, 20),
                         new QueryWrapper<RelayUsageLog>()
                                 .eq("user_id", userId)
                                 .orderByDesc("created_at"))
-                .getRecords().stream().map(this::toUsageDto).toList();
+                .getRecords().stream()
+                .map(item -> toUsageDto(item, publicModelNames.getOrDefault(item.getModel(), item.getModel())))
+                .toList();
         List<ErrorRequestLogDto> errorLogs = usageLogMapper.selectPage(
                         Page.of(1, 50),
                         new QueryWrapper<RelayUsageLog>()
@@ -369,8 +376,16 @@ public class RelayServiceImpl implements RelayService {
                                         .or()
                                         .notBetween("status_code", 200, 299))
                                 .orderByDesc("created_at"))
-                .getRecords().stream().map(this::toErrorRequestLogDto).toList();
-        List<RelayModelUsageDto> modelUsage = usageLogMapper.modelUsage(userId);
+                .getRecords().stream()
+                .map(item -> toErrorRequestLogDto(item, publicModelNames.getOrDefault(item.getModel(), item.getModel())))
+                .toList();
+        List<RelayModelUsageDto> modelUsage = usageLogMapper.modelUsage(userId).stream()
+                .map(item -> new RelayModelUsageDto(
+                        publicModelNames.getOrDefault(item.getModel(), item.getModel()),
+                        item.getRequests(),
+                        item.getTotalTokens(),
+                        item.getCost()))
+                .toList();
         List<RelayGroupDto> groups = groupMapper.selectList(new QueryWrapper<RelayGroup>()
                         .eq("enabled", true)
                         .orderByAsc("id"))
@@ -446,20 +461,21 @@ public class RelayServiceImpl implements RelayService {
         if (dto.getEnabled() != null) group.setEnabled(dto.getEnabled());
     }
 
-    private void attachModelToDefaultGroup(Long modelId) {
-        RelayGroup defaultGroup = groupMapper.selectOne(new QueryWrapper<RelayGroup>().eq("code", "default"));
-        if (defaultGroup == null) return;
-        attachModelToGroup(defaultGroup.getId(), modelId);
+    private String normalizeIpWhitelist(String value) {
+        if (value == null || value.isBlank()) return "";
+        String normalized = value.replace('\r', ',').replace('\n', ',').trim();
+        if (normalized.length() > 500) {
+            throw new BusinessException(400, "IP whitelist is too long");
+        }
+        return normalized;
     }
 
-    private void attachModelToAllGroups(Long modelId) {
-        groupMapper.selectList(new QueryWrapper<RelayGroup>())
-                .forEach(group -> attachModelToGroup(group.getId(), modelId));
-    }
-
-    private void attachModelToAllChannels(Long modelId, String upstreamModel) {
-        channelMapper.selectList(new QueryWrapper<RelayChannel>())
-                .forEach(channel -> attachModelToChannel(channel.getId(), modelId, upstreamModel, true));
+    private LocalDateTime validateExpiresAt(LocalDateTime value) {
+        if (value == null) return null;
+        if (!value.isAfter(LocalDateTime.now())) {
+            throw new BusinessException(400, "API key expiration time must be in the future");
+        }
+        return value;
     }
 
     private void attachAllModelsToGroup(Long groupId) {
@@ -583,8 +599,48 @@ public class RelayServiceImpl implements RelayService {
                 channel.getTpmLimit(), channel.getMaxConcurrency(), channel.getPriceMultiplier(), channel.getEnabled(), channelModelMapper.modelsForChannel(channel.getId()));
     }
 
+    private RelayPublicChannelDto toPublicChannelDto(RelayChannel channel, int position) {
+        List<RelayPublicChannelModelDto> publicModels = channelModelMapper.modelsForChannel(channel.getId()).stream()
+                .map(model -> {
+                    String publicName = isBlank(model.getDisplayName()) ? model.getModel() : model.getDisplayName();
+                    return new RelayPublicChannelModelDto(
+                            model.getModelId(),
+                            publicName,
+                            publicName,
+                            model.getModelType(),
+                            model.getInputPrice(),
+                            model.getOutputPrice(),
+                            model.getCachedInputPrice(),
+                            model.getCacheCreationPrice(),
+                            model.getRequestPrice(),
+                            model.getFixedRequestBilling(),
+                            model.getEnabled()
+                    );
+                })
+                .toList();
+        String rule = normalizeChannelRule(channel.getChannelRule());
+        return new RelayPublicChannelDto(
+                channel.getId(),
+                isBlank(channel.getName()) ? "服务节点 " + String.format("%02d", position) : channel.getName(),
+                rule,
+                channel.getGroupNames(),
+                channel.getStatus(),
+                channel.getRpmLimit(),
+                channel.getMaxConcurrency(),
+                channel.getEnabled(),
+                publicModels
+        );
+    }
+
     private RelayModelDto toModelDto(RelayModel model) {
         return new RelayModelDto(model.getId(), model.getModel(), model.getDisplayName(), model.getModelType(),
+                model.getInputPrice(), model.getOutputPrice(), model.getCachedInputPrice(), model.getCacheCreationPrice(),
+                model.getRequestPrice(), model.getFixedRequestBilling(), model.getStatus(), model.getEnabled(), model.getSortOrder());
+    }
+
+    private RelayModelDto toPublicModelDto(RelayModel model) {
+        String publicName = publicModelName(model);
+        return new RelayModelDto(model.getId(), publicName, publicName, model.getModelType(),
                 model.getInputPrice(), model.getOutputPrice(), model.getCachedInputPrice(), model.getCacheCreationPrice(),
                 model.getRequestPrice(), model.getFixedRequestBilling(), model.getStatus(), model.getEnabled(), model.getSortOrder());
     }
@@ -607,16 +663,15 @@ public class RelayServiceImpl implements RelayService {
                 item.getLastUsedAt(), item.getCreatedAt());
     }
 
-    private RelayUsageLogDto toUsageDto(RelayUsageLog item) {
+    private RelayUsageLogDto toUsageDto(RelayUsageLog item, String publicModel) {
         return new RelayUsageLogDto(item.getId(), item.getTokenName(), item.getChannelName(), item.getGroupNames(),
-                item.getEndpoint(), item.getModel(), item.getModelType(), item.getPromptTokens(),
+                item.getEndpoint(), publicModel, item.getModelType(), item.getPromptTokens(),
                 item.getCompletionTokens(), item.getCachedTokens(), item.getCacheCreationTokens(), item.getTotalTokens(),
-                item.getInputCost(), item.getOutputCost(), item.getCacheReadCost(), item.getCacheCreationCost(),
-                item.getRequestCost(), item.getGroupRatio(), item.getChannelRatio(), item.getCost(), item.getStatusCode(),
-                item.getDurationMs(), item.getUserAgent(), item.getStatus(), item.getMessage(), item.getCreatedAt());
+                item.getCost(), item.getStatusCode(), item.getDurationMs(), item.getUserAgent(), item.getStatus(),
+                publicUsageMessage(item.getStatusCode()), item.getCreatedAt());
     }
 
-    private ErrorRequestLogDto toErrorRequestLogDto(RelayUsageLog item) {
+    private ErrorRequestLogDto toErrorRequestLogDto(RelayUsageLog item, String publicModel) {
         return new ErrorRequestLogDto(
                 item.getId(),
                 "relay",
@@ -625,34 +680,40 @@ public class RelayServiceImpl implements RelayService {
                 item.getGroupNames(),
                 item.getEndpoint(),
                 "",
-                item.getModel(),
+                publicModel,
                 item.getModelType(),
                 item.getStatusCode(),
                 item.getDurationMs(),
                 item.getUserAgent(),
                 item.getStatus(),
-                errorTypeFromMessage(item.getMessage()),
-                item.getMessage(),
+                publicErrorType(item.getStatusCode()),
+                publicUsageMessage(item.getStatusCode()),
                 "",
                 item.getCreatedAt()
         );
     }
 
-    private String errorTypeFromMessage(String message) {
-        if (message == null || message.isBlank()) return "";
-        try {
-            JsonNode root = objectMapper.readTree(message);
-            JsonNode error = root.path("error");
-            if (!error.isMissingNode() && !error.isNull()) {
-                String type = error.path("type").asText("");
-                if (!type.isBlank()) return type;
-                String code = error.path("code").asText("");
-                if (!code.isBlank()) return code;
-            }
-        } catch (Exception ignored) {
-            if (message.toLowerCase().contains("<html")) return "html_error";
-        }
-        return "";
+    private String publicErrorType(Integer statusCode) {
+        int status = statusCode == null ? 0 : statusCode;
+        if (status == 400 || status == 422) return "invalid_request";
+        if (status == 401 || status == 403) return "authentication_error";
+        if (status == 404) return "not_found";
+        if (status == 408 || status == 504) return "timeout";
+        if (status == 429) return "rate_limit";
+        if (status >= 500) return "service_unavailable";
+        return status >= 400 ? "request_failed" : "";
+    }
+
+    private String publicUsageMessage(Integer statusCode) {
+        int status = statusCode == null ? 0 : statusCode;
+        if (status >= 200 && status < 300) return "";
+        if (status == 400 || status == 422) return "请求参数不符合要求";
+        if (status == 401 || status == 403) return "身份验证失败";
+        if (status == 404) return "请求的资源不可用";
+        if (status == 408 || status == 504) return "请求处理超时，请稍后重试";
+        if (status == 429) return "请求过于频繁，请稍后重试";
+        if (status >= 500) return "服务暂时不可用，请稍后重试";
+        return "请求处理失败";
     }
 
     private BigDecimal nonNegative(BigDecimal value) {

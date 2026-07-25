@@ -5,10 +5,10 @@ export const relayApi = {
   overview() {
     return http.get<ApiResponse<RelayUserOverview>>('/relay/overview')
   },
-  createToken(payload: { name: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; enabled?: boolean }) {
+  createToken(payload: { name: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; expiresAt?: string; enabled?: boolean }) {
     return http.post<ApiResponse<RelayToken>>('/relay/tokens', payload)
   },
-  updateToken(id: number, payload: { name?: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; enabled?: boolean }) {
+  updateToken(id: number, payload: { name?: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; expiresAt?: string; enabled?: boolean }) {
     return http.put<ApiResponse<RelayToken>>(`/relay/tokens/${id}`, payload)
   },
   deleteToken(id: number) {
@@ -16,5 +16,8 @@ export const relayApi = {
   },
   syncChannelStatus() {
     return http.post<ApiResponse<void>>('/relay/channels/status/sync')
+  },
+  syncChannelStatusOne(id: number) {
+    return http.post<ApiResponse<string>>(`/relay/channels/${id}/status/sync`)
   }
 }
