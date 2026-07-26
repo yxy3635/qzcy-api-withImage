@@ -9,6 +9,10 @@ import { userApi } from '@/api/userApi'
 import { useToast } from '@/composables/useToast'
 import RequestLoader from '@/components/RequestLoader.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
+import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
+import RelayTrendChart from '@/components/relay/RelayTrendChart.vue'
+import RelayModelDistribution from '@/components/relay/RelayModelDistribution.vue'
+import RelayRecentCalls from '@/components/relay/RelayRecentCalls.vue'
 import type { Announcement, ErrorRequestLog, PaymentRecord, RelayModel, RelayPublicChannelModel, RelayToken, RelayUsageLog, RelayUserOverview } from '@/types'
 
 const router = useRouter()
@@ -42,7 +46,6 @@ const logSort = ref<'latest' | 'slowest' | 'cost'>('latest')
 const expandedLogIds = ref<Set<number>>(new Set())
 const keyActionDialog = ref<{ action: 'toggle' | 'delete'; token: RelayToken } | null>(null)
 const keyActionLoading = ref(false)
-const activeChartIndex = ref<number | null>(null)
 const activePricingTooltip = ref<{
   model: RelayPublicChannelModel
   detail: RelayModel
@@ -86,6 +89,23 @@ const newPassword = ref('')
 const confirmPassword = ref('')
 const profileError = ref('')
 const profileSaving = ref<'profile' | 'password' | ''>('')
+const pwdVisible = reactive({ current: false, next: false, confirm: false })
+
+const passwordStrength = computed(() => {
+  const value = newPassword.value
+  if (!value) return { score: 0, label: '', color: '#e2e8f0' }
+  let points = 0
+  if (value.length >= 6) points += 1
+  if (value.length >= 10) points += 1
+  if (/[a-z]/.test(value) && /[A-Z]/.test(value)) points += 1
+  if (/\d/.test(value)) points += 1
+  if (/[^A-Za-z0-9]/.test(value)) points += 1
+  if (points <= 2) return { score: 34, label: '强度：弱', color: '#f43f5e' }
+  if (points <= 3) return { score: 67, label: '强度：中', color: '#f59e0b' }
+  return { score: 100, label: '强度：强', color: '#10b981' }
+})
+
+const confirmMismatch = computed(() => Boolean(confirmPassword.value) && confirmPassword.value !== newPassword.value)
 
 const apiBase = computed(() => `${window.location.origin}/api/v1`)
 const siteOrigin = computed(() => window.location.origin)
@@ -159,6 +179,7 @@ const channelRows = computed(() => {
       return !keyword
         || channel.name.toLowerCase().includes(keyword)
         || channel.groupNames.toLowerCase().includes(keyword)
+        || String(channel.remark || '').toLowerCase().includes(keyword)
         || modelText.includes(keyword)
     })
     .map((channel) => ({
@@ -195,11 +216,7 @@ const todayTotalTokens = computed(() => Number(overview.value?.todayTotalTokens 
 const todayCost = computed(() => Number(overview.value?.todayCost || 0))
 const currentRpm = computed(() => Number(overview.value?.currentRpm || 0))
 const currentTpm = computed(() => Number(overview.value?.currentTpm || 0))
-const chartWidth = 680
-const chartHeight = 230
-const todayPrefix = computed(() => new Date().toISOString().slice(0, 10))
 
-type TrendField = 'promptTokens' | 'completionTokens' | 'cachedTokens' | 'cacheCreationTokens'
 type ChartRow = {
   date: string
   requests: number
@@ -264,15 +281,43 @@ const modelRows = computed(() => {
 })
 
 const dashboardCards = computed(() => [
-  { label: '今日消费', value: money(displayTodayCost.value), sub: `累计消费 ${money(totalCost.value)}`, tone: 'emerald', icon: 'M12 6v12m6-6H6' },
-  { label: '今日请求', value: compact(displayTodayRequests.value), sub: `总请求 ${compact(totalRequests.value)}`, tone: 'blue', icon: 'M4 7h16M4 12h16M4 17h10' },
-  { label: '今日输入 Token', value: compact(displayTodayPromptTokens.value), sub: `输出 ${compact(displayTodayCompletionTokens.value)}`, tone: 'amber', icon: 'M7 8l-4 4 4 4M17 8l4 4-4 4M14 4l-4 16' },
-  { label: '今日总 Token', value: compact(displayTodayTotalTokens.value), sub: `累计 ${compact(totalTokens.value)}`, tone: 'violet', icon: 'M5 7h14M5 12h14M5 17h14' },
-  { label: 'RPM', value: compact(currentRpm.value), sub: '最近 1 分钟请求数', tone: 'rose', icon: 'M4 13a8 8 0 1 1 16 0M12 13l4-4' },
-  { label: 'TPM', value: compact(currentTpm.value), sub: '最近 1 分钟 Token', tone: 'cyan', icon: 'M13 2L4 14h7l-1 8 9-12h-7l1-8z' },
-  { label: '缓存 Token', value: compact(cachedTotal.value + cacheCreateTotal.value), sub: `读 ${compact(cachedTotal.value)} / 写 ${compact(cacheCreateTotal.value)}`, tone: 'indigo', icon: 'M4 7c0-2 4-4 8-4s8 2 8 4-4 4-8 4-8-2-8-4zm0 0v10c0 2 4 4 8 4s8-2 8-4V7' },
-  { label: '平均响应', value: `${(avgDuration.value / 1000).toFixed(2)}s`, sub: '按历史调用平均', tone: 'slate', icon: 'M12 8v4l3 3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' }
+  { label: '今日消费', raw: displayTodayCost.value, kind: 'money', sub: `累计消费 ${money(totalCost.value)}`, tone: 'emerald', icon: 'M12 6v12m6-6H6' },
+  { label: '今日请求', raw: displayTodayRequests.value, kind: 'compact', sub: `总请求 ${compact(totalRequests.value)}`, tone: 'blue', icon: 'M4 7h16M4 12h16M4 17h10' },
+  { label: '今日输入 Token', raw: displayTodayPromptTokens.value, kind: 'compact', sub: `输出 ${compact(displayTodayCompletionTokens.value)}`, tone: 'amber', icon: 'M7 8l-4 4 4 4M17 8l4 4-4 4M14 4l-4 16' },
+  { label: '今日总 Token', raw: displayTodayTotalTokens.value, kind: 'compact', sub: `累计 ${compact(totalTokens.value)}`, tone: 'violet', icon: 'M5 7h14M5 12h14M5 17h14' },
+  { label: 'RPM', raw: currentRpm.value, kind: 'compact', sub: '最近 1 分钟请求数', tone: 'rose', icon: 'M4 13a8 8 0 1 1 16 0M12 13l4-4' },
+  { label: 'TPM', raw: currentTpm.value, kind: 'compact', sub: '最近 1 分钟 Token', tone: 'cyan', icon: 'M13 2L4 14h7l-1 8 9-12h-7l1-8z' },
+  { label: '缓存 Token', raw: cachedTotal.value + cacheCreateTotal.value, kind: 'compact', sub: `读 ${compact(cachedTotal.value)} / 写 ${compact(cacheCreateTotal.value)}`, tone: 'indigo', icon: 'M4 7c0-2 4-4 8-4s8 2 8 4-4 4-8 4-8-2-8-4zm0 0v10c0 2 4 4 8 4s8-2 8-4V7' },
+  { label: '平均响应', raw: avgDuration.value, kind: 'seconds', sub: '按历史调用平均', tone: 'slate', icon: 'M12 8v4l3 3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' }
 ])
+
+function cardFormat(kind: string) {
+  if (kind === 'money') return money
+  if (kind === 'seconds') return (value: number) => `${(value / 1000).toFixed(2)}s`
+  return (value: number) => compact(Math.round(value))
+}
+
+function toneGlow(tone: string) {
+  const map: Record<string, string> = {
+    emerald: '#10b981',
+    blue: '#3b82f6',
+    amber: '#f59e0b',
+    violet: '#8b5cf6',
+    rose: '#f43f5e',
+    cyan: '#06b6d4',
+    indigo: '#6366f1',
+    slate: '#64748b'
+  }
+  return map[tone] || map.slate
+}
+
+const distributionRows = computed(() => modelRows.value.map((row) => ({
+  name: publicModelName(row),
+  requests: row.requests,
+  tokens: row.tokens,
+  cost: row.cost,
+  status: row.lastStatus
+})))
 
 const chartRows = computed<ChartRow[]>(() => {
   const byDate = new Map(trend.value.map((item) => [item.date, item]))
@@ -299,21 +344,6 @@ const displayTodayCompletionTokens = computed(() => todayCompletionTokens.value 
 const displayTodayTotalTokens = computed(() => todayTotalTokens.value || Number(todayTrend.value?.totalTokens || 0))
 const displayTodayCost = computed(() => todayCost.value || Number(todayTrend.value?.cost || 0))
 
-const maxTrendToken = computed(() => Math.max(
-  1,
-  ...chartRows.value.flatMap((item) => [
-    item.promptTokens,
-    item.completionTokens,
-    item.cachedTokens,
-    item.cacheCreationTokens
-  ])
-))
-
-const recentLogs = computed(() => logs.value.slice(0, 5))
-const activeChartRow = computed(() => {
-  if (activeChartIndex.value === null) return null
-  return chartRows.value[activeChartIndex.value] || null
-})
 
 async function load() {
   if (!auth.isAuthenticated) return
@@ -625,33 +655,6 @@ function localDateKey(offsetDays = 0) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
-}
-
-function chartPoint(index: number, value: number) {
-  const x = 24 + index * ((chartWidth - 48) / Math.max(1, chartRows.value.length - 1))
-  const y = chartHeight - 28 - (Number(value || 0) / maxTrendToken.value) * (chartHeight - 64)
-  return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) }
-}
-
-function curvePath(field: TrendField) {
-  const points = chartRows.value.map((item, index) => chartPoint(index, item[field]))
-  if (!points.length) return ''
-  return points.reduce((path, point, index) => {
-    if (index === 0) return `M ${point.x} ${point.y}`
-    const prev = points[index - 1] || point
-    const distance = (point.x - prev.x) / 2
-    return `${path} C ${prev.x + distance} ${prev.y}, ${point.x - distance} ${point.y}, ${point.x} ${point.y}`
-  }, '')
-}
-
-function areaPath(field: TrendField) {
-  if (!chartRows.value.length) return ''
-  const baseline = chartHeight - 28
-  const firstRow = chartRows.value[0] as ChartRow
-  const lastRow = chartRows.value[chartRows.value.length - 1] as ChartRow
-  const first = chartPoint(0, firstRow[field])
-  const last = chartPoint(chartRows.value.length - 1, lastRow[field])
-  return `${curvePath(field)} L ${last.x} ${baseline} L ${first.x} ${baseline} Z`
 }
 
 function toneIconClass(tone: string) {
@@ -1081,26 +1084,30 @@ onMounted(async () => {
           <div v-if="auth.isAuthenticated" :key="activeMenu" class="relay-view-frame h-full min-h-0">
           <section v-if="activeMenu === 'dashboard'" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <article
-              v-for="card in dashboardCards"
+              v-for="(card, index) in dashboardCards"
               :key="card.label"
-              class="group rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:shadow-xl hover:shadow-slate-200/60"
+              class="dash-card group relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-slate-200 hover:shadow-xl hover:shadow-slate-200/60"
+              :style="{ '--d': `${index * 45}ms`, '--glow': toneGlow(card.tone) }"
             >
-              <div class="flex items-start justify-between gap-4">
-                <div>
+              <span class="dash-card-glow" aria-hidden="true"></span>
+              <div class="relative flex items-start justify-between gap-4">
+                <div class="min-w-0">
                   <p class="text-sm font-bold text-slate-500">{{ card.label }}</p>
-                  <p class="mt-2 text-3xl font-black tracking-normal" :class="toneTextClass(card.tone)">{{ card.value }}</p>
+                  <p class="mt-2 truncate text-3xl font-black tracking-normal" :class="toneTextClass(card.tone)">
+                    <AnimatedNumber :value="card.raw" :format="cardFormat(card.kind)" />
+                  </p>
                 </div>
-                <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl ring-1 transition group-hover:scale-105" :class="toneIconClass(card.tone)">
+                <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl ring-1 transition-transform duration-300 group-hover:-rotate-3 group-hover:scale-110" :class="toneIconClass(card.tone)">
                   <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path :d="card.icon" />
                   </svg>
                 </span>
               </div>
-              <p class="mt-3 text-xs font-semibold text-slate-500">{{ card.sub }}</p>
+              <p class="relative mt-3 text-xs font-semibold text-slate-500">{{ card.sub }}</p>
             </article>
           </section>
 
-          <section v-if="activeMenu === 'dashboard'" class="mt-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <section v-if="activeMenu === 'dashboard'" class="dash-section mt-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm" style="--d: 90ms">
             <div class="flex items-center justify-between gap-3">
               <div>
                 <p class="text-sm font-bold uppercase tracking-[0.18em] text-emerald-600">公告</p>
@@ -1125,119 +1132,13 @@ onMounted(async () => {
             </div>
           </section>
 
-          <section v-if="activeMenu === 'dashboard'" class="mt-6 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
-            <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <h2 class="text-lg font-black">模型分布</h2>
-                  <p class="mt-1 text-xs font-bold text-slate-500">按真实调用日志聚合</p>
-                </div>
-                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{{ modelUsage.length }} 个模型</span>
-              </div>
-              <div class="mt-5 space-y-4">
-                <div v-for="row in modelRows.slice(0, 8)" :key="row.model" class="rounded-xl border border-slate-100 p-3 transition hover:border-emerald-100 hover:bg-emerald-50/40">
-                  <div class="flex items-center justify-between gap-3 text-sm font-bold">
-                    <span class="truncate text-slate-900">{{ publicModelName(row) }}</span>
-                    <span class="shrink-0 text-slate-500">{{ row.requests }} 次</span>
-                  </div>
-                  <div class="mt-2 flex items-center gap-3">
-                    <div class="h-2 flex-1 rounded-full bg-slate-100">
-                      <div class="h-2 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500" :style="{ width: `${Math.min(100, (row.tokens / Math.max(1, totalTokens)) * 100)}%` }"></div>
-                    </div>
-                    <span class="w-20 text-right text-xs font-black text-slate-600">{{ compact(row.tokens) }}</span>
-                  </div>
-                  <div class="mt-2 flex justify-between text-[11px] font-bold text-slate-400">
-                    <span>{{ statusText(row.lastStatus) }}</span>
-                    <span>{{ money(row.cost) }}</span>
-                  </div>
-                </div>
-                <div v-if="!modelRows.length" class="grid h-40 place-items-center rounded-xl border border-dashed border-slate-200 text-sm font-black text-slate-400">暂无模型调用数据</div>
-              </div>
-            </div>
-
-            <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 class="text-lg font-black">Token 使用曲线</h2>
-                  <p class="mt-1 text-xs font-bold text-slate-500">近 7 天输入、输出与缓存 token</p>
-                </div>
-                <button class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700" @click="load">
-                  {{ loading ? '更新中' : '实时刷新' }}
-                </button>
-              </div>
-              <div class="relative mt-5 overflow-hidden rounded-xl border border-slate-100 bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)] p-3" @mouseleave="activeChartIndex = null">
-                <svg class="h-72 w-full" :viewBox="`0 0 ${chartWidth} ${chartHeight}`" preserveAspectRatio="none" role="img" aria-label="近 7 天 token 使用曲线">
-                  <defs>
-                    <linearGradient id="promptArea" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.18" />
-                      <stop offset="100%" stop-color="#2563eb" stop-opacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <g stroke="#e2e8f0" stroke-width="1">
-                    <line v-for="tick in [0, 1, 2, 3]" :key="tick" x1="20" :y1="36 + tick * 48" :x2="chartWidth - 20" :y2="36 + tick * 48" />
-                  </g>
-                  <path :d="areaPath('promptTokens')" fill="url(#promptArea)" />
-                  <path :d="curvePath('promptTokens')" fill="none" stroke="#2563eb" stroke-width="3.5" stroke-linecap="round" />
-                  <path :d="curvePath('completionTokens')" fill="none" stroke="#10b981" stroke-width="3.5" stroke-linecap="round" />
-                  <path :d="curvePath('cachedTokens')" fill="none" stroke="#06b6d4" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="8 7" />
-                  <path :d="curvePath('cacheCreationTokens')" fill="none" stroke="#f59e0b" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="4 7" />
-                  <g v-for="(item, index) in chartRows" :key="item.date" @mouseenter="activeChartIndex = index" @mousemove="activeChartIndex = index">
-                    <rect :x="Math.max(0, chartPoint(index, 0).x - 36)" y="20" width="72" :height="chartHeight - 36" fill="transparent" class="cursor-crosshair" />
-                    <line :x1="chartPoint(index, 0).x" y1="28" :x2="chartPoint(index, 0).x" :y2="chartHeight - 24" :stroke="activeChartIndex === index ? '#94a3b8' : '#e2e8f0'" stroke-width="1" stroke-dasharray="3 8" />
-                    <circle :cx="chartPoint(index, item.promptTokens).x" :cy="chartPoint(index, item.promptTokens).y" :r="activeChartIndex === index ? 6 : 4" fill="#2563eb" class="transition-all" />
-                    <circle :cx="chartPoint(index, item.completionTokens).x" :cy="chartPoint(index, item.completionTokens).y" :r="activeChartIndex === index ? 5 : 3.5" fill="#10b981" class="transition-all" />
-                    <circle :cx="chartPoint(index, item.cachedTokens).x" :cy="chartPoint(index, item.cachedTokens).y" :r="activeChartIndex === index ? 4.5 : 3" fill="#06b6d4" class="transition-all" />
-                    <circle :cx="chartPoint(index, item.cacheCreationTokens).x" :cy="chartPoint(index, item.cacheCreationTokens).y" :r="activeChartIndex === index ? 4.5 : 3" fill="#f59e0b" class="transition-all" />
-                    <text :x="chartPoint(index, 0).x" :y="chartHeight - 7" text-anchor="middle" class="fill-slate-400 text-[11px] font-bold">{{ item.date.slice(5) }}</text>
-                  </g>
-                </svg>
-                <div
-                  v-if="activeChartRow"
-                  class="pointer-events-none absolute top-6 z-10 w-56 rounded-2xl border border-slate-100 bg-white/95 p-4 text-xs font-bold text-slate-600 shadow-2xl shadow-slate-200/80 backdrop-blur"
-                  :style="{ left: `${Math.min(100, Math.max(0, ((chartPoint(activeChartIndex || 0, 0).x / chartWidth) * 100)))}%`, transform: (activeChartIndex || 0) > 4 ? 'translateX(-100%)' : 'translateX(0)' }"
-                >
-                  <div class="flex items-center justify-between gap-3">
-                    <p class="text-sm font-black text-slate-950">{{ activeChartRow.date }}</p>
-                    <p class="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-500">{{ activeChartRow.requests }} 次</p>
-                  </div>
-                  <div class="mt-3 space-y-2">
-                    <p class="flex justify-between"><span class="text-blue-600">输入</span><span>{{ compact(activeChartRow.promptTokens) }}</span></p>
-                    <p class="flex justify-between"><span class="text-emerald-600">输出</span><span>{{ compact(activeChartRow.completionTokens) }}</span></p>
-                    <p class="flex justify-between"><span class="text-cyan-600">缓存读</span><span>{{ compact(activeChartRow.cachedTokens) }}</span></p>
-                    <p class="flex justify-between"><span class="text-amber-600">缓存写</span><span>{{ compact(activeChartRow.cacheCreationTokens) }}</span></p>
-                    <p class="flex justify-between border-t border-slate-100 pt-2 text-slate-950"><span>总 Token</span><span>{{ compact(activeChartRow.totalTokens) }}</span></p>
-                    <p class="flex justify-between text-slate-950"><span>消费</span><span>{{ money(activeChartRow.cost) }}</span></p>
-                  </div>
-                </div>
-              </div>
-              <div class="mt-4 grid gap-3 text-xs font-bold text-slate-600 sm:grid-cols-4">
-                <span class="flex items-center gap-2"><i class="h-2.5 w-2.5 rounded-full bg-blue-600"></i>输入 {{ compact(promptTotal) }}</span>
-                <span class="flex items-center gap-2"><i class="h-2.5 w-2.5 rounded-full bg-emerald-500"></i>输出 {{ compact(completionTotal) }}</span>
-                <span class="flex items-center gap-2"><i class="h-2.5 w-2.5 rounded-full bg-cyan-500"></i>缓存读 {{ compact(cachedTotal) }}</span>
-                <span class="flex items-center gap-2"><i class="h-2.5 w-2.5 rounded-full bg-amber-500"></i>缓存写 {{ compact(cacheCreateTotal) }}</span>
-              </div>
-            </div>
+          <section v-if="activeMenu === 'dashboard'" class="dash-section mt-6 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]" style="--d: 140ms">
+            <RelayModelDistribution :rows="distributionRows" />
+            <RelayTrendChart :rows="chartRows" :loading="loading" @refresh="load" />
           </section>
 
-          <section v-if="activeMenu === 'dashboard'" class="mt-6 grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-            <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <div class="flex items-center justify-between gap-3">
-                <h2 class="text-lg font-black">最近调用</h2>
-                <span class="text-xs font-black text-slate-400">实时日志</span>
-              </div>
-              <div class="mt-4 divide-y divide-slate-100">
-                <div v-for="item in recentLogs" :key="item.id" class="grid gap-3 py-3 text-sm font-semibold text-slate-600 md:grid-cols-[1fr_auto_auto_auto] md:items-center">
-                  <div class="min-w-0">
-                    <p class="truncate font-black text-slate-900">{{ item.model }}</p>
-                    <p class="mt-1 truncate text-xs text-slate-400">{{ item.tokenName }} · {{ item.createdAt }}</p>
-                  </div>
-                  <span class="text-xs font-black" :class="item.status === 'success' ? 'text-emerald-600' : 'text-rose-600'">{{ statusText(item.status) }}</span>
-                  <span class="text-xs font-black text-slate-500">{{ compact(item.totalTokens) }} token</span>
-                  <span class="text-xs font-black text-slate-900">{{ money(item.cost) }}</span>
-                </div>
-                <div v-if="!recentLogs.length" class="grid h-32 place-items-center text-sm font-black text-slate-400">暂无调用日志</div>
-              </div>
-            </div>
+          <section v-if="activeMenu === 'dashboard'" class="dash-section mt-6 grid gap-6 xl:grid-cols-[1.08fr_0.92fr]" style="--d: 220ms">
+            <RelayRecentCalls :logs="logs" @view-all="selectMenu({ id: 'logs' })" />
 
             <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
               <div class="flex flex-wrap items-start justify-between gap-3">
@@ -1570,7 +1471,11 @@ onMounted(async () => {
                     </span>
                   </div>
 
-                  <p class="mt-3 min-h-10 line-clamp-2 text-xs font-semibold leading-5 text-slate-500">由系统自动选择并调度，节点内部配置不会公开。</p>
+                  <p
+                    class="mt-3 min-h-10 line-clamp-2 text-xs font-semibold leading-5"
+                    :class="channel.remark ? 'text-slate-600' : 'text-slate-400'"
+                    :title="channel.remark || undefined"
+                  >{{ channel.remark || '由系统自动选择并调度，节点内部配置不会公开。' }}</p>
 
                   <div class="mt-3 border-y border-slate-100 py-3">
                     <div class="min-w-0">
@@ -1722,61 +1627,120 @@ onMounted(async () => {
             <div class="relay-horizon-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
           </section>
 
-          <section v-if="activeMenu === 'profile'" class="profile-shell relative h-full min-h-0 overflow-y-auto overscroll-contain rounded-[24px] border border-white/80 p-3 shadow-[0_20px_65px_rgba(15,23,42,0.10)] sm:p-4 lg:p-5">
+          <section v-if="activeMenu === 'profile'" class="relative h-full min-h-0 overflow-y-auto overscroll-contain">
             <Transition name="zoom-fade">
               <div v-if="profileSaving" class="absolute inset-0 z-20 grid place-items-center rounded-[24px] bg-white/65 backdrop-blur-[4px]">
                 <RequestLoader :label="profileSaving === 'profile' ? '正在保存资料' : '正在更新密码'" :cell-size="11" />
               </div>
             </Transition>
 
-            <div class="grid min-h-full gap-4 xl:grid-cols-[minmax(250px,0.72fr)_minmax(0,1.55fr)]">
-              <aside class="profile-identity relative isolate overflow-hidden rounded-[22px] bg-slate-950 p-5 text-white sm:p-6">
-                <div class="profile-identity-grid" aria-hidden="true"></div>
-                <div class="relative z-10 flex h-full min-h-[280px] flex-col">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200">Account</span>
-                    <span class="inline-flex items-center gap-1.5 text-[10px] font-black text-emerald-300"><i class="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]"></i>正常</span>
+            <div class="mx-auto flex max-w-4xl flex-col gap-4 pb-4">
+              <header class="profile-hero dash-section relative isolate overflow-hidden rounded-[24px] p-5 text-white sm:p-7" style="--d: 0ms">
+                <div class="profile-hero-grid" aria-hidden="true"></div>
+                <span class="profile-hero-glow glow-a" aria-hidden="true"></span>
+                <span class="profile-hero-glow glow-b" aria-hidden="true"></span>
+
+                <div class="relative z-10 flex flex-col gap-5 sm:flex-row sm:items-center">
+                  <div class="profile-avatar grid h-20 w-20 shrink-0 place-items-center rounded-[26px] text-3xl font-black">{{ auth.userInfo?.username?.slice(0, 1).toUpperCase() || 'U' }}</div>
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <h2 class="break-all text-2xl font-black tracking-tight">{{ auth.userInfo?.username || 'User' }}</h2>
+                      <span class="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-black text-emerald-300">{{ auth.role === 'ADMIN' ? '管理员' : '普通用户' }}</span>
+                      <span class="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-black text-emerald-300"><i class="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#34d399]"></i>状态正常</span>
+                    </div>
+                    <p class="mt-1.5 break-all text-xs font-semibold text-slate-300">{{ auth.userInfo?.email || '尚未绑定邮箱' }}</p>
+                    <p class="mt-1 text-[10px] font-semibold text-slate-400">账号 ID {{ auth.userInfo?.id || '-' }}<span v-if="auth.userInfo?.createdAt"> · 加入于 {{ auth.userInfo.createdAt.slice(0, 10) }}</span></p>
                   </div>
-                  <div class="mt-8">
-                    <div class="grid h-20 w-20 place-items-center rounded-[24px] border border-white/15 bg-white/10 text-3xl font-black shadow-[0_18px_50px_rgba(16,185,129,0.20)] backdrop-blur">{{ auth.userInfo?.username?.slice(0, 1).toUpperCase() || 'U' }}</div>
-                    <h2 class="mt-5 break-all text-2xl font-black tracking-tight">{{ auth.userInfo?.username || 'User' }}</h2>
-                    <p class="mt-1 break-all text-xs font-semibold text-slate-400">{{ auth.userInfo?.email || '尚未绑定邮箱' }}</p>
+                  <div class="shrink-0 sm:ml-auto sm:text-right">
+                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">账户余额</p>
+                    <p class="mt-1 font-mono text-2xl font-black text-emerald-300"><AnimatedNumber :value="balance" :format="cardFormat('money')" /></p>
                   </div>
-                  <div class="mt-auto grid grid-cols-2 gap-2 pt-8">
-                    <div class="rounded-2xl border border-white/10 bg-white/[0.06] p-3"><span class="text-[9px] font-black uppercase tracking-[0.15em] text-slate-500">余额</span><strong class="mt-1.5 block truncate font-mono text-sm font-black text-emerald-300">${{ balance.toFixed(6) }}</strong></div>
-                    <div class="rounded-2xl border border-white/10 bg-white/[0.06] p-3"><span class="text-[9px] font-black uppercase tracking-[0.15em] text-slate-500">角色</span><strong class="mt-1.5 block text-sm font-black text-white">{{ auth.role || '-' }}</strong></div>
-                  </div>
-                  <p class="mt-3 text-[10px] font-semibold text-slate-500">账号 ID {{ auth.userInfo?.id || '-' }}<span v-if="auth.userInfo?.createdAt"> · 加入于 {{ auth.userInfo.createdAt.slice(0, 10) }}</span></p>
                 </div>
-              </aside>
 
-              <div class="grid content-start gap-4">
-                <p v-if="profileError" class="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs font-black text-rose-700">{{ profileError }}</p>
+                <div class="relative z-10 mt-6 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+                  <div class="rounded-2xl border border-white/10 bg-white/[0.06] p-3 backdrop-blur-sm"><span class="text-[9px] font-black uppercase tracking-[0.15em] text-slate-400">今日消费</span><strong class="mt-1.5 block truncate font-mono text-sm font-black text-white"><AnimatedNumber :value="displayTodayCost" :format="cardFormat('money')" /></strong></div>
+                  <div class="rounded-2xl border border-white/10 bg-white/[0.06] p-3 backdrop-blur-sm"><span class="text-[9px] font-black uppercase tracking-[0.15em] text-slate-400">总请求</span><strong class="mt-1.5 block truncate font-mono text-sm font-black text-white"><AnimatedNumber :value="totalRequests" :format="cardFormat('compact')" /></strong></div>
+                  <div class="rounded-2xl border border-white/10 bg-white/[0.06] p-3 backdrop-blur-sm"><span class="text-[9px] font-black uppercase tracking-[0.15em] text-slate-400">API 密钥</span><strong class="mt-1.5 block truncate font-mono text-sm font-black text-white"><AnimatedNumber :value="tokens.length" /> 个</strong></div>
+                  <div class="rounded-2xl border border-white/10 bg-white/[0.06] p-3 backdrop-blur-sm"><span class="text-[9px] font-black uppercase tracking-[0.15em] text-slate-400">可用渠道</span><strong class="mt-1.5 block truncate font-mono text-sm font-black text-white"><AnimatedNumber :value="availableChannels" /> 个</strong></div>
+                </div>
+              </header>
 
-                <article class="profile-settings-card rounded-[22px] border border-white/85 p-4 shadow-sm sm:p-5">
+              <p v-if="profileError" class="dash-section flex items-center gap-2 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs font-black text-rose-700" style="--d: 40ms">
+                <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 8v5m0 3.5v.5M12 2 2 20h20L12 2z" /></svg>
+                {{ profileError }}
+              </p>
+
+              <article class="dash-section rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6" style="--d: 90ms">
+                <div class="flex flex-wrap items-start justify-between gap-3">
                   <div class="flex items-start gap-3">
-                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M4 6h16v12H4V6zm0 2 8 6 8-6" /></svg></span>
+                    <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M4 6h16v12H4V6zm0 2 8 6 8-6" /></svg></span>
                     <div><h3 class="text-base font-black text-slate-950">联系邮箱</h3><p class="mt-0.5 text-xs font-semibold text-slate-500">用于账号通知、验证和密码找回。</p></div>
                   </div>
-                  <div class="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                    <label class="block"><span class="text-[11px] font-black text-slate-600">邮箱地址</span><input v-model="profileEmail" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100" type="email" placeholder="name@example.com" @keyup.enter="saveRelayProfile" /></label>
-                    <button type="button" class="h-11 rounded-xl bg-emerald-600 px-5 text-xs font-black text-white shadow-sm shadow-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="Boolean(profileSaving)" @click="saveRelayProfile">保存邮箱</button>
-                  </div>
-                </article>
+                  <span class="rounded-full px-2.5 py-1 text-[10px] font-black" :class="auth.userInfo?.email ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">{{ auth.userInfo?.email ? '已绑定' : '未绑定' }}</span>
+                </div>
+                <div class="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <label class="relative block">
+                    <span class="sr-only">邮箱地址</span>
+                    <svg viewBox="0 0 24 24" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M4 6h16v12H4V6zm0 2 8 6 8-6" /></svg>
+                    <input v-model="profileEmail" class="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3.5 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100" type="email" placeholder="name@example.com" @keyup.enter="saveRelayProfile" />
+                  </label>
+                  <button type="button" class="h-12 rounded-xl bg-emerald-600 px-6 text-xs font-black text-white shadow-sm shadow-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="Boolean(profileSaving)" @click="saveRelayProfile">保存邮箱</button>
+                </div>
+              </article>
 
-                <article class="profile-settings-card rounded-[22px] border border-white/85 p-4 shadow-sm sm:p-5">
-                  <div class="flex items-start gap-3">
-                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-700"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2M5 10h14v11H5V10zm7 4v3" /></svg></span>
-                    <div><h3 class="text-base font-black text-slate-950">登录安全</h3><p class="mt-0.5 text-xs font-semibold text-slate-500">更新密码后，后续登录立即使用新密码。</p></div>
-                  </div>
-                  <div class="mt-4 grid gap-3 md:grid-cols-3">
-                    <label><span class="text-[11px] font-black text-slate-600">当前密码</span><input v-model="oldPassword" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100" type="password" autocomplete="current-password" placeholder="输入当前密码" /></label>
-                    <label><span class="text-[11px] font-black text-slate-600">新密码</span><input v-model="newPassword" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100" type="password" autocomplete="new-password" placeholder="至少 6 位" /></label>
-                    <label><span class="text-[11px] font-black text-slate-600">确认新密码</span><input v-model="confirmPassword" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100" type="password" autocomplete="new-password" placeholder="再次输入" @keyup.enter="changeRelayPassword" /></label>
-                  </div>
-                  <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p class="text-[10px] font-semibold text-slate-400">建议使用包含大小写字母、数字和符号的独立密码。</p><button type="button" class="h-10 rounded-xl bg-slate-950 px-5 text-xs font-black text-white transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60" :disabled="Boolean(profileSaving)" @click="changeRelayPassword">更新密码</button></div>
-                </article>
-              </div>
+              <article class="dash-section rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6" style="--d: 160ms">
+                <div class="flex items-start gap-3">
+                  <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-amber-50 text-amber-700 ring-1 ring-amber-100"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2M5 10h14v11H5V10zm7 4v3" /></svg></span>
+                  <div><h3 class="text-base font-black text-slate-950">登录安全</h3><p class="mt-0.5 text-xs font-semibold text-slate-500">更新密码后，后续登录立即使用新密码。</p></div>
+                </div>
+
+                <div class="mt-5 grid gap-4 md:grid-cols-3">
+                  <label class="block">
+                    <span class="text-[11px] font-black text-slate-600">当前密码</span>
+                    <div class="relative mt-2">
+                      <input v-model="oldPassword" :type="pwdVisible.current ? 'text' : 'password'" class="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 pr-11 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100" autocomplete="current-password" placeholder="输入当前密码" />
+                      <button type="button" class="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" :aria-label="pwdVisible.current ? '隐藏密码' : '显示密码'" @click="pwdVisible.current = !pwdVisible.current">
+                        <svg v-if="pwdVisible.current" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7c2.1 0 3.9.7 5.4 1.7M22 12s-3.5 7-10 7c-2.1 0-3.9-.7-5.4-1.7M3 3l18 18" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></svg>
+                        <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                      </button>
+                    </div>
+                  </label>
+
+                  <label class="block">
+                    <span class="text-[11px] font-black text-slate-600">新密码</span>
+                    <div class="relative mt-2">
+                      <input v-model="newPassword" :type="pwdVisible.next ? 'text' : 'password'" class="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 pr-11 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100" autocomplete="new-password" placeholder="至少 6 位" />
+                      <button type="button" class="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" :aria-label="pwdVisible.next ? '隐藏密码' : '显示密码'" @click="pwdVisible.next = !pwdVisible.next">
+                        <svg v-if="pwdVisible.next" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7c2.1 0 3.9.7 5.4 1.7M22 12s-3.5 7-10 7c-2.1 0-3.9-.7-5.4-1.7M3 3l18 18" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></svg>
+                        <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                      </button>
+                    </div>
+                    <div v-if="newPassword" class="mt-2 flex items-center gap-2">
+                      <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                        <div class="h-full rounded-full transition-all duration-500" :style="{ width: `${passwordStrength.score}%`, backgroundColor: passwordStrength.color }"></div>
+                      </div>
+                      <span class="shrink-0 text-[10px] font-black" :style="{ color: passwordStrength.color }">{{ passwordStrength.label }}</span>
+                    </div>
+                  </label>
+
+                  <label class="block">
+                    <span class="text-[11px] font-black text-slate-600">确认新密码</span>
+                    <div class="relative mt-2">
+                      <input v-model="confirmPassword" :type="pwdVisible.confirm ? 'text' : 'password'" class="h-12 w-full rounded-xl border bg-slate-50 px-3.5 pr-11 text-sm font-semibold outline-none transition focus:bg-white focus:ring-2" :class="confirmMismatch ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-100' : 'border-slate-200 focus:border-amber-400 focus:ring-amber-100'" autocomplete="new-password" placeholder="再次输入" @keyup.enter="changeRelayPassword" />
+                      <button type="button" class="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" :aria-label="pwdVisible.confirm ? '隐藏密码' : '显示密码'" @click="pwdVisible.confirm = !pwdVisible.confirm">
+                        <svg v-if="pwdVisible.confirm" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7c2.1 0 3.9.7 5.4 1.7M22 12s-3.5 7-10 7c-2.1 0-3.9-.7-5.4-1.7M3 3l18 18" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></svg>
+                        <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                      </button>
+                    </div>
+                    <p v-if="confirmMismatch" class="mt-2 text-[10px] font-black text-rose-600">两次输入的密码不一致</p>
+                  </label>
+                </div>
+
+                <div class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                  <p class="text-[10px] font-semibold text-slate-400">建议使用包含大小写字母、数字和符号的独立密码。</p>
+                  <button type="button" class="h-11 rounded-xl bg-slate-950 px-6 text-xs font-black text-white transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60" :disabled="Boolean(profileSaving)" @click="changeRelayPassword">更新密码</button>
+                </div>
+              </article>
             </div>
           </section>
           </div>
@@ -2055,6 +2019,35 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.dash-card,
+.dash-section {
+  animation: dashSectionIn 500ms cubic-bezier(.16, 1, .3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.dash-card-glow {
+  position: absolute;
+  right: -34px;
+  top: -34px;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--glow, #10b981) 0%, transparent 68%);
+  opacity: 0;
+  filter: blur(8px);
+  transition: opacity 350ms ease;
+  pointer-events: none;
+}
+
+.dash-card:hover .dash-card-glow {
+  opacity: .18;
+}
+
+@keyframes dashSectionIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .relay-view-frame {
   width: 100%;
   transform-origin: 50% 16%;
@@ -2359,42 +2352,40 @@ onMounted(async () => {
 .relay-horizon-bars i:nth-child(5) { height: 35%; animation-delay: -1.1s; }
 .is-orders .relay-horizon-bars i { background: #7dd3fc; }
 
-.profile-shell {
-  background: rgba(248, 250, 252, .84) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .88), 0 24px 70px rgba(15, 23, 42, .12);
-  backdrop-filter: blur(30px) saturate(1.16);
-  -webkit-backdrop-filter: blur(30px) saturate(1.16);
+.profile-hero {
+  background: linear-gradient(150deg, #0b1220 0%, #0e2223 55%, #06251d 100%);
+  box-shadow: 0 24px 65px rgba(15, 23, 42, .22), inset 0 1px 0 rgba(255, 255, 255, .07);
 }
 
-.profile-settings-card {
-  background: rgba(255, 255, 255, .88) !important;
-  box-shadow: 0 16px 42px rgba(15, 23, 42, .08);
-  backdrop-filter: blur(24px) saturate(1.1);
-  -webkit-backdrop-filter: blur(24px) saturate(1.1);
-}
-
-.profile-identity {
-  background: linear-gradient(155deg, rgba(15, 23, 42, .98) 0%, rgba(15, 42, 44, .97) 58%, rgba(5, 94, 70, .95) 100%) !important;
-  box-shadow: 0 24px 65px rgba(15, 23, 42, .24), inset 0 1px 0 rgba(255, 255, 255, .08);
-  backdrop-filter: blur(24px) saturate(1.12);
-  -webkit-backdrop-filter: blur(24px) saturate(1.12);
-}
-
-.profile-identity :is(.text-slate-400, .text-slate-500) {
-  color: #cbd5e1 !important;
-}
-
-.profile-identity .text-white {
-  color: #fff !important;
-}
-
-.profile-identity-grid {
+.profile-hero-grid {
   position: absolute;
   inset: 0;
-  z-index: -1;
-  background-image: linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px), radial-gradient(circle at 80% 15%, rgba(16, 185, 129, .28), transparent 30%);
-  background-size: 30px 30px, 30px 30px, auto;
-  mask-image: linear-gradient(to bottom, #000, transparent 88%);
+  z-index: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, .05) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .05) 1px, transparent 1px);
+  background-size: 30px 30px;
+  mask-image: linear-gradient(to bottom, #000, transparent 90%);
+}
+
+.profile-hero-glow {
+  position: absolute;
+  z-index: 0;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  filter: blur(75px);
+  opacity: .3;
+  animation: horizonGlow 9s ease-in-out infinite alternate;
+}
+
+.profile-hero-glow.glow-a { left: -60px; top: -110px; background: #10b981; }
+.profile-hero-glow.glow-b { right: -70px; bottom: -130px; background: #22d3ee; animation-delay: -4s; }
+
+.profile-avatar {
+  background: linear-gradient(135deg, rgba(16, 185, 129, .35), rgba(34, 211, 238, .25));
+  border: 1px solid rgba(255, 255, 255, .18);
+  box-shadow: 0 18px 50px rgba(16, 185, 129, .25), inset 0 1px 0 rgba(255, 255, 255, .25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 @keyframes channelRadarSpin { to { transform: rotate(360deg); } }
@@ -2416,6 +2407,19 @@ onMounted(async () => {
   .relay-title-enter-active,
   .relay-title-leave-active {
     transition: none !important;
+  }
+
+  .dash-card,
+  .dash-section {
+    animation: none !important;
+  }
+
+  .dash-card-glow {
+    transition: none !important;
+  }
+
+  .profile-hero-glow {
+    animation: none !important;
   }
 
   .relay-menu-progress > span {

@@ -247,6 +247,7 @@ export interface RelayPublicChannel {
   name: string
   channelRule: 'openai' | 'anthropic' | string
   groupNames: string
+  remark?: string
   status: string
   rpmLimit: number
   maxConcurrency: number

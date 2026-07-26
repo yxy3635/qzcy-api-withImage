@@ -1,7 +1,6 @@
 package com.qzcy.backend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -213,7 +212,6 @@ public class RelayServiceImpl implements RelayService {
     public RelayModelDto updateModel(Long id, RelayModelUpdateDto dto) {
         RelayModel model = modelMapper.selectById(id);
         if (model == null) throw new BusinessException(404, "Relay model not found");
-        String oldModelName = model.getModel();
         apply(model, dto);
         if (isBlank(model.getModel())) throw new BusinessException(400, "Model is required");
         if (isBlank(model.getDisplayName())) model.setDisplayName(model.getModel());
@@ -223,7 +221,6 @@ public class RelayServiceImpl implements RelayService {
         if (model.getFixedRequestBilling() == null) model.setFixedRequestBilling(false);
         if (isBlank(model.getStatus())) model.setStatus("available");
         modelMapper.updateById(model);
-        syncDefaultChannelUpstreamModelName(model.getId(), oldModelName, model.getModel());
         return toModelDto(modelMapper.selectById(id));
     }
 
@@ -259,7 +256,10 @@ public class RelayServiceImpl implements RelayService {
             JsonNode data = objectMapper.readTree(response.body()).path("data");
             Set<String> configured = new HashSet<>(channelModelMapper.modelsForChannel(channelId).stream()
                     .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
-                    .map(RelayChannelModelDto::getUpstreamModel)
+                    .map(item -> isBlank(item.getUpstreamModel())
+                            ? (isBlank(item.getDisplayName()) ? item.getModel() : item.getDisplayName())
+                            : item.getUpstreamModel().trim())
+                    .filter(value -> !isBlank(value))
                     .toList());
             if (!data.isArray()) return List.of();
             return java.util.stream.StreamSupport.stream(data.spliterator(), false)
@@ -522,7 +522,8 @@ public class RelayServiceImpl implements RelayService {
                 .forEach(item -> {
                     RelayModel model = modelMapper.selectById(item.getModelId());
                     if (model == null) return;
-                    String upstreamModel = isBlank(item.getUpstreamModel()) ? model.getModel() : item.getUpstreamModel().trim();
+                    // Blank means "forward the client's model id unchanged".
+                    String upstreamModel = isBlank(item.getUpstreamModel()) ? "" : item.getUpstreamModel().trim();
                     attachModelToChannel(channelId, model.getId(), upstreamModel, item.getEnabled() == null || item.getEnabled());
                 });
     }
@@ -531,7 +532,7 @@ public class RelayServiceImpl implements RelayService {
         if (channelId == null || modelId == null) return;
         RelayChannelModel existing = channelModelMapper.selectByChannelAndModel(channelId, modelId);
         if (existing != null) {
-            existing.setUpstreamModel(isBlank(upstreamModel) ? existing.getUpstreamModel() : upstreamModel.trim());
+            existing.setUpstreamModel(isBlank(upstreamModel) ? "" : upstreamModel.trim());
             existing.setEnabled(enabled);
             channelModelMapper.updateById(existing);
             return;
@@ -542,22 +543,6 @@ public class RelayServiceImpl implements RelayService {
         item.setUpstreamModel(isBlank(upstreamModel) ? "" : upstreamModel.trim());
         item.setEnabled(enabled);
         channelModelMapper.insert(item);
-    }
-
-    private void syncDefaultChannelUpstreamModelName(Long modelId, String oldModelName, String newModelName) {
-        if (modelId == null || isBlank(newModelName) || oldModelName == null || oldModelName.equals(newModelName)) {
-            return;
-        }
-        RelayChannelModel update = new RelayChannelModel();
-        update.setUpstreamModel(newModelName.trim());
-        channelModelMapper.update(update, new UpdateWrapper<RelayChannelModel>()
-                .eq("model_id", modelId)
-                .and(wrapper -> wrapper
-                        .eq("upstream_model", oldModelName)
-                        .or()
-                        .isNull("upstream_model")
-                        .or()
-                        .eq("upstream_model", "")));
     }
 
     private List<String> accessibleModelsForTokenGroups(Long userId) {
@@ -624,6 +609,7 @@ public class RelayServiceImpl implements RelayService {
                 isBlank(channel.getName()) ? "服务节点 " + String.format("%02d", position) : channel.getName(),
                 rule,
                 channel.getGroupNames(),
+                channel.getRemark(),
                 channel.getStatus(),
                 channel.getRpmLimit(),
                 channel.getMaxConcurrency(),

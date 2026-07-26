@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { authApi } from '@/api/authApi'
 import { clearSavedText, loadSavedText, saveText, sessionText } from '@/utils/storage'
+import { tokenExpired } from '@/utils/jwt'
 import type { Role, UserInfo } from '@/types'
 
 interface AuthState {
@@ -42,7 +43,12 @@ export const useAuthStore = defineStore('auth', {
     },
     loadFromStorage() {
       const savedSession = sessionText()
-      this.token = savedSession || loadSavedText('imageCreater_token') || ''
+      const saved = savedSession || loadSavedText('imageCreater_token') || ''
+      if (saved && tokenExpired(saved)) {
+        this.logout()
+        return
+      }
+      this.token = saved
       const raw = loadSavedText('imageCreater_user')
       this.userInfo = raw ? JSON.parse(raw) : null
     },

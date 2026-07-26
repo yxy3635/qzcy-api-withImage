@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/authApi'
 import { useToast } from '@/composables/useToast'
@@ -8,7 +8,14 @@ import RequestLoader from '@/components/RequestLoader.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const toast = useToast()
+
+function safeRedirectPath() {
+  const raw = route.query.redirect
+  const value = typeof raw === 'string' ? raw : ''
+  return value.startsWith('/') && !value.startsWith('//') && value !== '/login' ? value : ''
+}
 const username = ref('')
 const password = ref('')
 const loading = ref(false)
@@ -44,7 +51,8 @@ async function submit() {
   loading.value = true
   try {
     const user = await auth.login(account, password.value)
-    router.push(user.role === 'ADMIN' ? '/admin/dashboard' : '/create')
+    const redirect = safeRedirectPath()
+    router.push(redirect || (user.role === 'ADMIN' ? '/admin/dashboard' : '/create'))
   } catch (err) {
     error.value = err instanceof Error ? err.message : '登录失败'
   } finally {

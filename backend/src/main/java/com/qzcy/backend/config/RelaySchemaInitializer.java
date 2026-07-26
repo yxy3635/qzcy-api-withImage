@@ -24,7 +24,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         ensureRelayChannelModelTable();
         ensureRelayModelAllowsDuplicateNames();
         ensureGroupModelNamesUniqueWithinGroup();
-        repairDefaultChannelUpstreamModelNames();
+        normalizeImplicitChannelUpstreamModels();
         ensureRelayPrecision();
         ensureRelayTokenIndexes();
         ensureGptImage2Model();
@@ -99,16 +99,21 @@ public class RelaySchemaInitializer implements CommandLineRunner {
                 """);
     }
 
-    private void repairDefaultChannelUpstreamModelNames() {
+    /**
+     * Older versions stored the internal model id as an implicit mapping.
+     * An empty mapping is now the explicit representation of "forward the
+     * client's model id", so normalize only rows that still look untouched.
+     */
+    private void normalizeImplicitChannelUpstreamModels() {
         if (!tableExists("relay_channel_model") || !tableExists("relay_model")) {
             return;
         }
         jdbcTemplate.update("""
                 UPDATE relay_channel_model cm
                 JOIN relay_model m ON m.id = cm.model_id
-                SET cm.upstream_model = m.model,
+                SET cm.upstream_model = '',
                     cm.updated_at = NOW()
-                WHERE cm.upstream_model <> m.model
+                WHERE cm.upstream_model = m.model
                   AND cm.created_at = cm.updated_at
                 """);
     }
@@ -187,7 +192,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         }
         jdbcTemplate.update("""
                 INSERT IGNORE INTO relay_channel_model (channel_id, model_id, upstream_model, enabled, created_at, updated_at)
-                SELECT c.id, m.id, m.model, 1, NOW(), NOW()
+                SELECT c.id, m.id, '', 1, NOW(), NOW()
                 FROM relay_channel c
                 JOIN relay_model m
                 WHERE m.model = ?
@@ -219,7 +224,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         }
         jdbcTemplate.update("""
                 INSERT IGNORE INTO relay_channel_model (channel_id, model_id, upstream_model, enabled, created_at, updated_at)
-                SELECT c.id, m.id, m.model, 1, NOW(), NOW()
+                SELECT c.id, m.id, '', 1, NOW(), NOW()
                 FROM relay_channel c
                 JOIN relay_model m
                 WHERE c.enabled = 1

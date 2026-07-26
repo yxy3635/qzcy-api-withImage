@@ -2,7 +2,9 @@ package com.qzcy.backend.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qzcy.backend.dto.RelayModelDto;
+import com.qzcy.backend.dto.RelayChannelModelUpdateDto;
 import com.qzcy.backend.dto.RelayModelUpdateDto;
+import com.qzcy.backend.entity.RelayChannelModel;
 import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.mapper.RelayChannelMapper;
 import com.qzcy.backend.mapper.RelayChannelModelMapper;
@@ -14,9 +16,13 @@ import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -75,5 +81,24 @@ class RelayServiceModelCreationTest {
         assertEquals("provider/model-v1", created.getModel());
         verify(modelMapper).insert(any(RelayModel.class));
         verifyNoInteractions(channelModelMapper, groupModelMapper);
+    }
+
+    @Test
+    void blankUpstreamModelIsStoredAsRawForwardingMapping() {
+        RelayModel model = new RelayModel();
+        model.setId(7L);
+        model.setModel("internal-model");
+        when(modelMapper.selectById(7L)).thenReturn(model);
+
+        RelayChannelModelUpdateDto request = new RelayChannelModelUpdateDto();
+        request.setModelId(7L);
+        request.setUpstreamModel("  ");
+        request.setEnabled(true);
+
+        ReflectionTestUtils.invokeMethod(service, "replaceChannelModels", 9L, List.of(request));
+
+        org.mockito.ArgumentCaptor<RelayChannelModel> captor = forClass(RelayChannelModel.class);
+        verify(channelModelMapper).insert(captor.capture());
+        assertEquals("", captor.getValue().getUpstreamModel());
     }
 }

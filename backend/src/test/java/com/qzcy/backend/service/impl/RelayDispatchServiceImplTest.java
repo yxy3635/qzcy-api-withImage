@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qzcy.backend.dto.relay.RelayContext;
 import com.qzcy.backend.entity.RelayChannel;
+import com.qzcy.backend.entity.RelayChannelModel;
 import com.qzcy.backend.entity.RelayModel;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -97,7 +98,7 @@ class RelayDispatchServiceImplTest {
                 """);
         ObjectNode original = inbound.deepCopy();
         RelayModel model = new RelayModel();
-        model.setModel("upstream-model");
+        model.setModel("internal-model");
         RelayContext context = new RelayContext(null, model, null, null, null, "chat");
 
         ObjectNode outbound = ReflectionTestUtils.invokeMethod(
@@ -109,6 +110,36 @@ class RelayDispatchServiceImplTest {
         assertEquals(original.path("input"), outbound.path("input"));
         assertEquals(original.path("parallel_tool_calls"), outbound.path("parallel_tool_calls"));
         assertEquals(original.path("previous_response_id"), outbound.path("previous_response_id"));
-        assertEquals("upstream-model", outbound.path("model").asText());
+        assertEquals("public-model", outbound.path("model").asText());
+    }
+
+    @Test
+    void explicitChannelMappingOverridesRequestModel() throws Exception {
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        ObjectNode inbound = (ObjectNode) OBJECT_MAPPER.readTree("""
+                {"model":"public-alias","messages":[{"role":"user","content":"ping"}]}
+                """);
+        RelayChannelModel binding = new RelayChannelModel();
+        binding.setUpstreamModel("provider/actual-model");
+        RelayContext context = new RelayContext(null, null, null, null, binding, "chat");
+
+        ObjectNode outbound = ReflectionTestUtils.invokeMethod(
+                service, "prepareOutboundBody", inbound, context, "/v1/chat/completions");
+
+        assertEquals("provider/actual-model", outbound.path("model").asText());
+        assertEquals("public-alias", inbound.path("model").asText());
+    }
+
+    @Test
+    void noMappingPreservesRequestModelForChatResponsesAndCompact() throws Exception {
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayContext context = new RelayContext(null, null, null, null, null, "chat");
+        for (String path : new String[]{"/v1/chat/completions", "/v1/responses", "/v1/responses/compact"}) {
+            ObjectNode inbound = (ObjectNode) OBJECT_MAPPER.readTree("{\"model\":\"public-alias\",\"input\":\"ping\"}");
+            ObjectNode outbound = ReflectionTestUtils.invokeMethod(
+                    service, "prepareOutboundBody", inbound, context, path);
+            assertEquals("public-alias", outbound.path("model").asText(), path);
+            assertEquals("public-alias", inbound.path("model").asText(), path);
+        }
     }
 }

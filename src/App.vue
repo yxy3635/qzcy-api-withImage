@@ -20,8 +20,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/store/authStore'
+import { useToast } from '@/composables/useToast'
 import AppToastHost from '@/components/AppToastHost.vue'
 import BannedModal from '@/components/BannedModal.vue'
 import backgroundImage from '@/assets/images/background.png'
@@ -29,6 +31,36 @@ import backgroundImage from '@/assets/images/background.png'
 const legacyUiKey = 'imageCreater_use_legacy_ui'
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
+const toast = useToast()
+
+let handlingUnauthorized = false
+
+function onUnauthorized() {
+  if (handlingUnauthorized) return
+  const hadSession = auth.isAuthenticated || Boolean(auth.userInfo)
+  auth.logout()
+  if (!hadSession) return
+  handlingUnauthorized = true
+  toast.warning('登录状态已过期，请重新登录')
+  const target = route.meta.requiresAuth
+    ? { path: '/login', query: { redirect: route.fullPath } }
+    : '/login'
+  router.push(target).finally(() => {
+    window.setTimeout(() => {
+      handlingUnauthorized = false
+    }, 800)
+  })
+}
+
+onMounted(() => {
+  window.addEventListener('imageCreater:unauthorized', onUnauthorized)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('imageCreater:unauthorized', onUnauthorized)
+})
 const useLegacyUi = ref(window.localStorage.getItem(legacyUiKey) === 'true')
 const isPortalPage = computed(() => route.path === '/')
 const isGeneratePage = computed(() => route.path === '/create' || route.path === '/user/generate')

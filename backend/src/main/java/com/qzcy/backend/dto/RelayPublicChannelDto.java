@@ -14,6 +14,7 @@ public class RelayPublicChannelDto {
     private String name;
     private String channelRule;
     private String groupNames;
+    private String remark;
     private String status;
     private Integer rpmLimit;
     private Integer maxConcurrency;

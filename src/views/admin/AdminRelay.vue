@@ -205,7 +205,7 @@ function setChannelDraft(channel: RelayChannel) {
       const binding = (channel.models || []).find((item) => item.modelId === model.id)
       return {
         modelId: model.id,
-        upstreamModel: binding?.upstreamModel || model.model,
+        upstreamModel: binding?.upstreamModel || '',
         enabled: binding ? Boolean(binding.enabled) : false
       }
     })
@@ -322,7 +322,7 @@ function modelOptionLabel(model: RelayModel) {
 function channelModelDraft(draft: ChannelDraft, model: RelayModel) {
   let item = draft.models.find((modelDraft) => modelDraft.modelId === model.id)
   if (!item) {
-    item = { modelId: model.id, upstreamModel: model.model, enabled: false }
+    item = { modelId: model.id, upstreamModel: '', enabled: false }
     draft.models = [...draft.models, item]
   }
   return item
@@ -357,7 +357,7 @@ function newGroupEditor() {
 function selectAllChannelModels(draft: ChannelDraft) {
   draft.models = models.value.map((model) => ({
     modelId: model.id,
-    upstreamModel: channelModelDraft(draft, model).upstreamModel || model.model,
+    upstreamModel: channelModelDraft(draft, model).upstreamModel || '',
     enabled: true
   }))
 }
@@ -365,7 +365,7 @@ function selectAllChannelModels(draft: ChannelDraft) {
 function clearChannelModels(draft: ChannelDraft) {
   draft.models = models.value.map((model) => ({
     modelId: model.id,
-    upstreamModel: channelModelDraft(draft, model).upstreamModel || model.model,
+    upstreamModel: channelModelDraft(draft, model).upstreamModel || '',
     enabled: false
   }))
 }
@@ -373,7 +373,7 @@ function clearChannelModels(draft: ChannelDraft) {
 function enableChannelModelsByType(draft: ChannelDraft, type: string) {
   draft.models = models.value.map((model) => ({
     modelId: model.id,
-    upstreamModel: channelModelDraft(draft, model).upstreamModel || model.model,
+    upstreamModel: channelModelDraft(draft, model).upstreamModel || '',
     enabled: type === 'all' || model.modelType === type
   }))
 }
@@ -786,7 +786,7 @@ onMounted(load)
                     <input v-model="channelModelDraft(newChannel, model).enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
                     <span>{{ modelOptionLabel(model) }}</span>
                   </span>
-                  <input v-model="channelModelDraft(newChannel, model).upstreamModel" class="input h-9 rounded-md text-xs" placeholder="上游模型 ID" />
+                  <input v-model="channelModelDraft(newChannel, model).upstreamModel" class="input h-9 rounded-md text-xs" placeholder="留空：原样转发模型 ID" />
                 </label>
               </div>
             </div>
@@ -966,7 +966,7 @@ onMounted(load)
                     <input v-model="channelModelDraft(channelDraftOf(channel), model).enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
                     <span class="truncate">{{ modelOptionLabel(model) }}</span>
                   </span>
-                  <input v-model="channelModelDraft(channelDraftOf(channel), model).upstreamModel" class="input h-9 rounded-md text-xs" placeholder="上游模型 ID" />
+                  <input v-model="channelModelDraft(channelDraftOf(channel), model).upstreamModel" class="input h-9 rounded-md text-xs" placeholder="留空：原样转发模型 ID" />
                 </label>
               </div>
             </div>

@@ -32,8 +32,12 @@ public class JwtUtil {
     }
 
     public boolean validateToken(String token) {
-        claims(token);
-        return true;
+        try {
+            claims(token);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public Long getUserId(String token) {

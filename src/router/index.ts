@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
+import { tokenExpired } from '@/utils/jwt'
 import HomePage from '@/views/HomePage.vue'
 import RelayPage from '@/views/RelayPage.vue'
 import LoginPage from '@/views/LoginPage.vue'
@@ -48,8 +49,11 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
+  if (auth.token && tokenExpired(auth.token)) {
+    auth.logout()
+  }
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return '/login'
+    return { path: '/login', query: { redirect: to.fullPath } }
   }
   if (to.meta.admin && auth.role !== 'ADMIN') {
     return '/user/dashboard'

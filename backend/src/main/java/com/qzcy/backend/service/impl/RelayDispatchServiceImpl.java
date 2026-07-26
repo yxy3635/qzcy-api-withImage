@@ -636,7 +636,10 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
 
     private ObjectNode prepareOutboundBody(ObjectNode body, RelayContext context, String path) {
         ObjectNode outbound = body.deepCopy();
-        String upstreamModel = upstreamModel(context);
+        // The public model id is the source of truth unless the channel has an
+        // explicit mapping. Do not silently replace it with the internal model
+        // record: public aliases are allowed to differ from that record.
+        String upstreamModel = upstreamModel(body, context);
         if (!upstreamModel.isBlank()) {
             outbound.put("model", upstreamModel);
         }
@@ -687,12 +690,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return "";
     }
 
-    private String upstreamModel(RelayContext context) {
+    private String upstreamModel(ObjectNode body, RelayContext context) {
         RelayChannelModel binding = context.channelModel();
         if (binding != null && binding.getUpstreamModel() != null && !binding.getUpstreamModel().isBlank()) {
             return binding.getUpstreamModel().trim();
         }
-        return context.model() == null || context.model().getModel() == null ? "" : context.model().getModel();
+        return body == null ? "" : body.path("model").asText("").trim();
     }
 
     private String acceptHeader(ObjectNode body) {

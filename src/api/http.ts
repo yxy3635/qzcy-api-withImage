@@ -15,6 +15,15 @@ function notifyBanned(message?: string) {
   }))
 }
 
+function notifyUnauthorized() {
+  const hadSession = Boolean(window.localStorage.getItem('imageCreater_token'))
+  window.localStorage.removeItem('imageCreater_token')
+  window.localStorage.removeItem('imageCreater_user')
+  if (hadSession) {
+    window.dispatchEvent(new CustomEvent('imageCreater:unauthorized'))
+  }
+}
+
 http.interceptors.request.use((config) => {
   const url = config.url || ''
   if (publicPaths.some((path) => url.startsWith(path))) {
@@ -37,6 +46,8 @@ http.interceptors.response.use(
         notifyBanned(body.message)
         window.localStorage.removeItem('imageCreater_token')
         window.localStorage.removeItem('imageCreater_user')
+      } else if (body.code === 401) {
+        notifyUnauthorized()
       }
       return Promise.reject(new Error(body.message || '请求失败'))
     }
@@ -45,10 +56,10 @@ http.interceptors.response.use(
   (error) => {
     if (error.response?.data?.code === 423) {
       notifyBanned(error.response?.data?.message)
-    }
-    if (error.response?.status === 401 || error.response?.status === 403) {
       window.localStorage.removeItem('imageCreater_token')
       window.localStorage.removeItem('imageCreater_user')
+    } else if (error.response?.status === 401 || error.response?.status === 403) {
+      notifyUnauthorized()
     }
     const message = error.response?.data?.message || error.message || '网络错误'
     return Promise.reject(new Error(message))
