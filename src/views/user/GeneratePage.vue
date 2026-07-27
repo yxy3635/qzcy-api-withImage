@@ -430,14 +430,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="min-h-screen bg-[#fbfbfc] pb-32 text-slate-950 md:pb-56" @paste="handlePaste">
-    <header class="fixed inset-x-0 top-0 z-50 border-b border-slate-100 bg-white/90 shadow-[0_1px_0_rgba(15,23,42,0.02)] backdrop-blur-2xl">
-      <div class="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-4 md:px-8">
-        <div class="flex min-w-0 items-center gap-2 sm:gap-3">
-          <RouterLink class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50 sm:text-sm" to="/user/dashboard">返回控制台</RouterLink>
-          <h1 class="truncate text-base font-black tracking-tight sm:text-lg">AI 图像创作台</h1>
+    <header class="create-liquid-header fixed inset-x-0 top-0 z-50">
+      <div class="mx-auto flex min-h-[104px] max-w-7xl flex-col items-stretch justify-center gap-2 px-3 py-2 sm:min-h-16 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4 sm:py-3 md:px-8">
+        <div class="flex min-w-0 w-full items-center gap-2 sm:w-auto sm:gap-3">
+          <RouterLink class="shrink-0 rounded-xl border border-white/80 bg-white/55 px-3 py-2 text-xs font-black text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_4px_14px_rgba(15,23,42,0.06)] backdrop-blur-md transition hover:bg-white/75 sm:text-sm" to="/user/dashboard">返回控制台</RouterLink>
+          <h1 class="min-w-0 truncate text-base font-black tracking-tight sm:text-lg">AI 图像创作台</h1>
           <div class="relative hidden h-10 w-[330px] shrink-0 xl:block">
             <RouterLink
-              class="group/ad absolute left-0 top-0 z-10 h-10 w-[330px] overflow-hidden rounded-2xl border border-sky-100 bg-sky-50/90 text-slate-800 shadow-sm transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)] hover:h-[220px] hover:w-[440px] hover:border-sky-300 hover:bg-white hover:shadow-[0_28px_80px_rgba(15,23,42,0.24)] focus:h-[220px] focus:w-[440px] focus:border-sky-300 focus:bg-white focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"
+              class="group/ad absolute left-0 top-0 z-10 h-10 w-[330px] overflow-hidden rounded-2xl border border-white/80 bg-white/52 text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_6px_18px_rgba(37,99,235,0.09)] backdrop-blur-xl transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)] hover:h-[220px] hover:w-[440px] hover:border-sky-200 hover:bg-white/92 hover:shadow-[0_28px_80px_rgba(15,23,42,0.24)] focus:h-[220px] focus:w-[440px] focus:border-sky-200 focus:bg-white/92 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"
               to="/relay"
               aria-label="使用 API 获得更加低价的服务"
             >
@@ -455,18 +455,18 @@ onBeforeUnmount(() => {
             </RouterLink>
           </div>
         </div>
-        <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          <RouterLink class="rounded-2xl bg-slate-950 px-3 py-2 text-xs font-black text-white sm:px-4 sm:text-sm" to="/user/history">画廊</RouterLink>
-          <RouterLink class="rounded-2xl px-3 py-2 text-xs font-bold text-slate-500 transition hover:bg-slate-100 sm:px-4 sm:text-sm" to="/user/dashboard">资产</RouterLink>
-          <span class="hidden rounded-2xl border border-sky-100 bg-sky-50 px-3 py-2 text-sm font-black text-sky-700 md:inline-flex">
+        <div class="grid w-full shrink-0 grid-cols-3 items-center gap-2 border-t border-white/55 pt-2 sm:flex sm:w-auto sm:border-t-0 sm:pt-0">
+          <RouterLink class="flex w-full items-center justify-center rounded-2xl bg-slate-950 px-3 py-2 text-xs font-black text-white sm:w-auto sm:px-4 sm:text-sm" to="/user/history">画廊</RouterLink>
+          <RouterLink class="flex w-full items-center justify-center rounded-2xl px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-white/50 sm:w-auto sm:px-4 sm:text-sm" to="/user/dashboard">资产</RouterLink>
+          <span class="hidden rounded-2xl border border-white/75 bg-white/52 px-3 py-2 text-sm font-black text-sky-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-md md:inline-flex">
             ￥{{ Number(auth.userInfo?.balance || 0).toFixed(6) }}
           </span>
-          <button class="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50 sm:px-4 sm:text-sm" @click="logout">退出</button>
+          <button class="flex w-full items-center justify-center rounded-2xl border border-white/80 bg-white/55 px-3 py-2 text-xs font-black text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_4px_14px_rgba(15,23,42,0.05)] backdrop-blur-md transition hover:bg-white/75 sm:w-auto sm:px-4 sm:text-sm" @click="logout">退出</button>
         </div>
       </div>
     </header>
 
-    <main class="mx-auto max-w-7xl px-3 pb-4 pt-24 sm:px-4 sm:pt-24 md:px-8 md:pb-7 md:pt-[108px]">
+    <main class="mx-auto max-w-7xl px-3 pb-4 pt-[124px] sm:px-4 sm:pt-24 md:px-8 md:pb-7 md:pt-[108px]">
       <Transition
         enter-active-class="transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)]"
         enter-from-class="!mb-0 !max-h-0 -translate-y-3 opacity-0"
@@ -876,9 +876,62 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.create-liquid-header {
+  isolation: isolate;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.78);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(239, 248, 255, 0.58) 48%, rgba(226, 246, 255, 0.64)),
+    rgba(241, 248, 255, 0.56);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 -1px 0 rgba(186, 230, 253, 0.24),
+    0 14px 38px rgba(15, 23, 42, 0.09);
+  backdrop-filter: blur(26px) saturate(1.42);
+  -webkit-backdrop-filter: blur(26px) saturate(1.42);
+}
+
+.create-liquid-header::before,
+.create-liquid-header::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+}
+
+.create-liquid-header::before {
+  background:
+    radial-gradient(circle at 16% 0%, rgba(255, 255, 255, 0.9), transparent 34%),
+    radial-gradient(circle at 76% 120%, rgba(125, 211, 252, 0.2), transparent 38%);
+}
+
+.create-liquid-header::after {
+  background: linear-gradient(105deg, transparent 18%, rgba(255, 255, 255, 0.42) 42%, transparent 66%);
+  background-position: 120% 0;
+  background-size: 220% 100%;
+  opacity: 0.7;
+  animation: liquidHeaderShimmer 8s ease-in-out infinite;
+}
+
+.create-liquid-header > div {
+  position: relative;
+  z-index: 1;
+}
+
 .mobile-api-promo-progress {
   transform-origin: left center;
   animation: mobileApiPromoProgress 3s linear forwards;
+}
+
+@keyframes liquidHeaderShimmer {
+  0%,
+  100% {
+    background-position: 120% 0;
+  }
+
+  50% {
+    background-position: -35% 0;
+  }
 }
 
 @keyframes mobileApiPromoProgress {
@@ -892,6 +945,7 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .create-liquid-header::after,
   .mobile-api-promo-progress {
     animation: none;
   }
