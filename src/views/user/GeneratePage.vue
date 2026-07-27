@@ -7,6 +7,7 @@ import RequestLoader from '@/components/RequestLoader.vue'
 import { imageApi } from '@/api/imageApi'
 import { useAuthStore } from '@/store/authStore'
 import { useToast } from '@/composables/useToast'
+import relayBanner from '@/assets/images/relay-api-banner.png'
 import type { ImageGenerationConfig, ImageRecord } from '@/types'
 
 const auth = useAuthStore()
@@ -33,6 +34,7 @@ const filterOpen = ref(false)
 const formatOpen = ref(false)
 const sizeModalOpen = ref(false)
 const mobilePanelOpen = ref(false)
+const mobileApiPromoVisible = ref(false)
 const imageFormat = ref('PNG')
 const elapsedSeconds = ref(0)
 const estimatedSeconds = ref(45)
@@ -45,6 +47,7 @@ const customRatio = ref('16:9')
 const customWidth = ref(1280)
 const customHeight = ref(720)
 let timer: number | undefined
+let mobileApiPromoTimer: number | undefined
 let activePollId = 0
 const POLL_INTERVAL_MS = 2000
 const MAX_UPLOAD_IMAGES = 4
@@ -404,6 +407,12 @@ function logout() {
 }
 
 onMounted(async () => {
+  if (window.matchMedia('(max-width: 767px)').matches) {
+    mobileApiPromoVisible.value = true
+    mobileApiPromoTimer = window.setTimeout(() => {
+      mobileApiPromoVisible.value = false
+    }, 3000)
+  }
   try {
     await Promise.all([auth.refreshUser(), loadRecent(), loadConfigs(), loadEstimate()])
   } finally {
@@ -414,17 +423,37 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   activePollId += 1
   window.clearInterval(timer)
+  window.clearTimeout(mobileApiPromoTimer)
   clearUploads()
 })
 </script>
 
 <template>
   <div class="min-h-screen bg-[#fbfbfc] pb-32 text-slate-950 md:pb-56" @paste="handlePaste">
-    <header class="sticky top-0 z-30 border-b border-slate-100 bg-white/86 backdrop-blur-2xl">
+    <header class="fixed inset-x-0 top-0 z-50 border-b border-slate-100 bg-white/90 shadow-[0_1px_0_rgba(15,23,42,0.02)] backdrop-blur-2xl">
       <div class="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-4 md:px-8">
         <div class="flex min-w-0 items-center gap-2 sm:gap-3">
           <RouterLink class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50 sm:text-sm" to="/user/dashboard">返回控制台</RouterLink>
           <h1 class="truncate text-base font-black tracking-tight sm:text-lg">AI 图像创作台</h1>
+          <div class="relative hidden h-10 w-[330px] shrink-0 xl:block">
+            <RouterLink
+              class="group/ad absolute left-0 top-0 z-10 h-10 w-[330px] overflow-hidden rounded-2xl border border-sky-100 bg-sky-50/90 text-slate-800 shadow-sm transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)] hover:h-[220px] hover:w-[440px] hover:border-sky-300 hover:bg-white hover:shadow-[0_28px_80px_rgba(15,23,42,0.24)] focus:h-[220px] focus:w-[440px] focus:border-sky-300 focus:bg-white focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"
+              to="/relay"
+              aria-label="使用 API 获得更加低价的服务"
+            >
+              <img
+                :src="relayBanner"
+                alt="中转 API 服务海报"
+                class="absolute left-2 top-1 h-8 w-20 rounded-xl border border-white object-cover shadow-sm transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)] group-hover/ad:left-3 group-hover/ad:top-3 group-hover/ad:h-[166px] group-hover/ad:w-[416px] group-focus/ad:left-3 group-focus/ad:top-3 group-focus/ad:h-[166px] group-focus/ad:w-[416px]"
+              />
+              <span class="absolute left-[100px] top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-black transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)] group-hover/ad:left-4 group-hover/ad:top-[188px] group-hover/ad:translate-y-0 group-hover/ad:text-sm group-focus/ad:left-4 group-focus/ad:top-[188px] group-focus/ad:translate-y-0 group-focus/ad:text-sm">
+                使用api获得更加低价的服务
+              </span>
+              <svg class="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-600 transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)] group-hover/ad:right-4 group-hover/ad:top-[196px] group-hover/ad:translate-y-0 group-focus/ad:right-4 group-focus/ad:top-[196px] group-focus/ad:translate-y-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m0 0-5-5m5 5-5 5" />
+              </svg>
+            </RouterLink>
+          </div>
         </div>
         <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
           <RouterLink class="rounded-2xl bg-slate-950 px-3 py-2 text-xs font-black text-white sm:px-4 sm:text-sm" to="/user/history">画廊</RouterLink>
@@ -437,7 +466,38 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <main class="mx-auto max-w-7xl px-3 py-4 sm:px-4 md:px-8 md:py-7">
+    <main class="mx-auto max-w-7xl px-3 pb-4 pt-24 sm:px-4 sm:pt-24 md:px-8 md:pb-7 md:pt-[108px]">
+      <Transition
+        enter-active-class="transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)]"
+        enter-from-class="!mb-0 !max-h-0 -translate-y-3 opacity-0"
+        enter-to-class="translate-y-0 opacity-100"
+        leave-active-class="transition-all duration-500 ease-[cubic-bezier(.4,0,.2,1)]"
+        leave-from-class="translate-y-0 opacity-100"
+        leave-to-class="!mb-0 !max-h-0 -translate-y-3 opacity-0"
+      >
+        <div v-if="mobileApiPromoVisible" class="mb-4 max-h-[260px] overflow-hidden md:hidden">
+          <RouterLink
+            class="relative block overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-[0_16px_44px_rgba(37,99,235,0.16)] focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"
+            to="/relay"
+            aria-label="使用 API 获得更加低价的服务"
+          >
+            <img :src="relayBanner" alt="中转 API 服务海报" class="aspect-[2.5/1] w-full object-cover" />
+            <div class="flex items-center justify-between gap-3 border-t border-sky-100 bg-gradient-to-r from-white to-sky-50 px-3 py-2.5">
+              <div class="min-w-0">
+                <p class="truncate text-sm font-black text-slate-900">使用api获得更加低价的服务</p>
+                <p class="mt-0.5 text-xs font-semibold text-slate-500">点击进入中转 API 服务</p>
+              </div>
+              <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-600 text-white shadow-[0_8px_20px_rgba(37,99,235,0.24)]" aria-hidden="true">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m0 0-5-5m5 5-5 5" />
+                </svg>
+              </span>
+            </div>
+            <span class="mobile-api-promo-progress absolute inset-x-0 bottom-0 h-1 bg-blue-500" aria-hidden="true"></span>
+          </RouterLink>
+        </div>
+      </Transition>
+
       <section class="fixed inset-x-3 bottom-3 z-40 mx-auto rounded-[24px] border border-slate-200 bg-white/94 p-3 shadow-[0_18px_60px_rgba(15,23,42,0.16)] backdrop-blur-2xl md:inset-x-0 md:bottom-6 md:w-[min(960px,calc(100%-32px))] md:overflow-visible md:rounded-[28px] md:p-4">
         <div v-if="uploadedImages.length" class="mb-3 flex items-center gap-3 overflow-x-auto pb-1">
           <div v-for="(image, index) in uploadedImages" :key="image.url" class="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm">
@@ -814,3 +874,26 @@ onBeforeUnmount(() => {
     />
   </div>
 </template>
+
+<style scoped>
+.mobile-api-promo-progress {
+  transform-origin: left center;
+  animation: mobileApiPromoProgress 3s linear forwards;
+}
+
+@keyframes mobileApiPromoProgress {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-api-promo-progress {
+    animation: none;
+  }
+}
+</style>

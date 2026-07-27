@@ -60,5 +60,5 @@ app:
   relay:
     model-status-cache:
       # 仅缓存模型状态页的全站最近调用条；仪表盘余额、用量等仍实时查询。
-      redis-enabled: ${RELAY_MODEL_STATUS_CACHE_REDIS_ENABLED:false}
+      redis-enabled: ${RELAY_MODEL_STATUS_CACHE_REDIS_ENABLED:true}
       ttl-seconds: ${RELAY_MODEL_STATUS_CACHE_TTL_SECONDS:30}
