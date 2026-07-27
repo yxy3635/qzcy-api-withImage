@@ -10,6 +10,8 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const passwordConfigured = ref(false)
+const testing = ref(false)
+const testRecipient = ref('')
 
 const form = reactive({
   host: '',
@@ -20,7 +22,11 @@ const form = reactive({
   sslEnabled: false,
   starttlsEnabled: true,
   enabled: false,
-  devReturnCode: true
+  devReturnCode: true,
+  rechargeNoticeEnabled: true,
+  brandName: 'imageCreater · API Relay',
+  brandLogoUrl: `${window.location.origin}/favicon.ico`,
+  siteUrl: window.location.origin
 })
 
 async function load() {
@@ -37,7 +43,11 @@ async function load() {
       sslEnabled: data.data.sslEnabled,
       starttlsEnabled: data.data.starttlsEnabled,
       enabled: data.data.enabled,
-      devReturnCode: data.data.devReturnCode
+      devReturnCode: data.data.devReturnCode,
+      rechargeNoticeEnabled: data.data.rechargeNoticeEnabled ?? true,
+      brandName: data.data.brandName || 'imageCreater · API Relay',
+      brandLogoUrl: data.data.brandLogoUrl || `${window.location.origin}/favicon.ico`,
+      siteUrl: data.data.siteUrl || window.location.origin
     })
     passwordConfigured.value = data.data.passwordConfigured
   } catch (err) {
@@ -60,7 +70,11 @@ async function save() {
       sslEnabled: form.sslEnabled,
       starttlsEnabled: form.starttlsEnabled,
       enabled: form.enabled,
-      devReturnCode: form.devReturnCode
+      devReturnCode: form.devReturnCode,
+      rechargeNoticeEnabled: form.rechargeNoticeEnabled,
+      brandName: form.brandName,
+      brandLogoUrl: form.brandLogoUrl,
+      siteUrl: form.siteUrl
     })
     form.password = ''
     passwordConfigured.value = data.data.passwordConfigured
@@ -70,6 +84,20 @@ async function save() {
     toast.error(error.value)
   } finally {
     saving.value = false
+  }
+}
+
+async function sendTest() {
+  testing.value = true
+  error.value = ''
+  try {
+    await adminApi.testMail(testRecipient.value)
+    toast.success('测试邮件已发送，请检查收件箱')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '测试邮件发送失败'
+    toast.error(error.value)
+  } finally {
+    testing.value = false
   }
 }
 
@@ -145,6 +173,24 @@ onMounted(load)
           </label>
         </div>
 
+        <div class="mt-6 border-t border-slate-100 pt-5">
+          <p class="text-xs font-black uppercase tracking-[0.16em] text-sky-600">Brand template</p>
+          <p class="mt-1 text-sm font-semibold text-slate-500">用于验证码、充值到账和测试邮件；Logo 地址必须可从公网访问。</p>
+          <div class="mt-4 grid gap-4 md:grid-cols-2">
+            <label class="block"><span class="text-xs font-black text-slate-500">品牌名称</span><input v-model="form.brandName" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-semibold outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="imageCreater · API Relay" /></label>
+            <label class="block"><span class="text-xs font-black text-slate-500">站点地址</span><input v-model="form.siteUrl" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-semibold outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="https://your-domain.com" /></label>
+            <label class="block md:col-span-2"><span class="text-xs font-black text-slate-500">Logo 公网地址</span><input v-model="form.brandLogoUrl" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-semibold outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="https://your-domain.com/favicon.ico" /></label>
+          </div>
+        </div>
+
+        <div class="mt-6 overflow-hidden rounded-2xl border border-sky-100 bg-slate-50">
+          <div class="flex items-center gap-3 bg-gradient-to-r from-slate-950 via-sky-950 to-teal-800 px-4 py-3">
+            <img class="h-9 w-9 rounded-xl object-cover" :src="form.brandLogoUrl || '/favicon.ico'" alt="品牌 Logo" />
+            <div><p class="text-sm font-black text-white">{{ form.brandName || 'imageCreater · API Relay' }}</p><p class="text-[10px] font-bold tracking-[0.14em] text-sky-200">API RELAY SERVICE</p></div>
+          </div>
+          <div class="p-4"><p class="text-xs font-black tracking-[0.14em] text-sky-600">邮件模板预览</p><p class="mt-2 text-lg font-black text-slate-900">你的余额已更新</p><p class="mt-2 text-sm font-medium leading-6 text-slate-500">注册、找回密码和充值到账都会使用这套品牌化模板。</p></div>
+        </div>
+
         <button class="mt-6 h-12 w-full rounded-2xl bg-slate-950 text-sm font-black text-white shadow-[0_18px_45px_rgba(15,23,42,0.16)] transition hover:-translate-y-0.5 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60" :disabled="saving" @click="save">
           {{ saving ? '保存中' : '保存邮箱配置' }}
         </button>
@@ -156,14 +202,14 @@ onMounted(load)
           <label class="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <span>
               <span class="block text-sm font-black text-slate-800">启用邮件发送</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">关闭时验证码仅用于开发返回。</span>
+              <span class="mt-1 block text-xs font-semibold text-slate-500">关闭时仅本机开发请求可返回验证码。</span>
             </span>
             <input v-model="form.enabled" class="h-5 w-5 accent-sky-500" type="checkbox" />
           </label>
           <label class="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <span>
               <span class="block text-sm font-black text-slate-800">开发模式返回验证码</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">上线后建议关闭。</span>
+              <span class="mt-1 block text-xs font-semibold text-slate-500">启用真实邮件后不会向前端回传验证码。</span>
             </span>
             <input v-model="form.devReturnCode" class="h-5 w-5 accent-sky-500" type="checkbox" />
           </label>
@@ -181,6 +227,16 @@ onMounted(load)
             </span>
             <input v-model="form.starttlsEnabled" class="h-5 w-5 accent-sky-500" type="checkbox" />
           </label>
+          <label class="flex items-center justify-between gap-4 rounded-2xl border border-sky-100 bg-sky-50/60 p-4">
+            <span><span class="block text-sm font-black text-slate-800">充值到账通知</span><span class="mt-1 block text-xs font-semibold text-slate-500">支付回调确认到账后，自动向用户邮箱发送通知。</span></span>
+            <input v-model="form.rechargeNoticeEnabled" class="h-5 w-5 accent-sky-500" type="checkbox" />
+          </label>
+        </div>
+        <div class="mt-6 border-t border-slate-100 pt-5">
+          <p class="text-sm font-black text-slate-800">发送测试邮件</p>
+          <p class="mt-1 text-xs font-semibold leading-5 text-slate-500">保存并启用 SMTP 后，可向指定地址发送完整品牌模板。</p>
+          <input v-model="testRecipient" class="mt-3 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold outline-none transition focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" type="email" placeholder="test@example.com" />
+          <button class="mt-3 h-11 w-full rounded-xl border border-sky-200 bg-sky-50 text-sm font-black text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60" :disabled="testing" @click="sendTest">{{ testing ? '发送中…' : '发送测试邮件' }}</button>
         </div>
       </aside>
     </section>

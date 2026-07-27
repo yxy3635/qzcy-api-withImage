@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
@@ -12,6 +13,8 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const editingId = ref<number | null>(null)
+const deleteAnnouncementId = ref<number | null>(null)
+const deleteAnnouncementLoading = ref(false)
 const form = reactive({
   title: '',
   content: '',
@@ -84,12 +87,30 @@ async function save() {
   }
 }
 
-async function removeItem(id: number) {
-  if (!window.confirm('确定删除这条公告吗？')) return
-  await adminApi.deleteAnnouncement(id)
-  if (editingId.value === id) resetForm()
-  await load()
-  toast.success('公告已删除')
+function removeItem(id: number) {
+  deleteAnnouncementId.value = id
+}
+
+function closeDeleteAnnouncement() {
+  if (!deleteAnnouncementLoading.value) deleteAnnouncementId.value = null
+}
+
+async function confirmDeleteAnnouncement() {
+  const id = deleteAnnouncementId.value
+  if (!id) return
+  deleteAnnouncementLoading.value = true
+  try {
+    await adminApi.deleteAnnouncement(id)
+    if (editingId.value === id) resetForm()
+    await load()
+    toast.success('公告已删除')
+    deleteAnnouncementId.value = null
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '删除公告失败'
+    toast.error(error.value)
+  } finally {
+    deleteAnnouncementLoading.value = false
+  }
 }
 
 onMounted(load)
@@ -172,5 +193,15 @@ onMounted(load)
         </section>
       </div>
     </div>
+    <AppConfirmDialog
+      :open="Boolean(deleteAnnouncementId)"
+      title="删除这条公告？"
+      description="删除后，用户仪表盘中的这条公告将立即消失，且无法恢复。"
+      confirm-label="确认删除"
+      tone="danger"
+      :loading="deleteAnnouncementLoading"
+      @cancel="closeDeleteAnnouncement"
+      @confirm="confirmDeleteAnnouncement"
+    />
   </AppLayout>
 </template>

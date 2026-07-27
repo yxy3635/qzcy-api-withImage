@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import Pagination from '@/components/Pagination.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
@@ -28,6 +29,8 @@ const banSavingId = ref<number | null>(null)
 const editingUser = ref<UserInfo | null>(null)
 const selectedUser = ref<UserInfo | null>(null)
 const selectedOverview = ref<RelayUserOverview | null>(null)
+const userActionDialog = ref<{ kind: 'delete' | 'ban'; user: UserInfo } | null>(null)
+const userActionLoading = ref(false)
 
 const activeUsers = computed(() => users.value.filter((user) => user.role === 'USER').length)
 const adminUsers = computed(() => users.value.filter((user) => user.role === 'ADMIN').length)
@@ -113,8 +116,11 @@ async function saveUser(user: UserInfo) {
   }
 }
 
-async function remove(user: UserInfo) {
-  if (!confirm(`确认删除用户 ${user.username}？`)) return
+function remove(user: UserInfo) {
+  userActionDialog.value = { kind: 'delete', user }
+}
+
+async function removeNow(user: UserInfo) {
   error.value = ''
   try {
     await adminApi.deleteUser(user.id)
@@ -126,10 +132,13 @@ async function remove(user: UserInfo) {
   }
 }
 
-async function toggleBan(user: UserInfo) {
+function toggleBan(user: UserInfo) {
+  userActionDialog.value = { kind: 'ban', user }
+}
+
+async function toggleBanNow(user: UserInfo) {
   const nextBanned = !user.banned
   const action = nextBanned ? '封禁' : '解封'
-  if (!confirm(`确认${action}用户 ${user.username}？`)) return
   error.value = ''
   banSavingId.value = user.id
   try {
@@ -141,6 +150,23 @@ async function toggleBan(user: UserInfo) {
     toast.error(error.value)
   } finally {
     banSavingId.value = null
+  }
+}
+
+function closeUserActionDialog() {
+  if (!userActionLoading.value) userActionDialog.value = null
+}
+
+async function confirmUserAction() {
+  const action = userActionDialog.value
+  if (!action) return
+  userActionLoading.value = true
+  try {
+    if (action.kind === 'delete') await removeNow(action.user)
+    else await toggleBanNow(action.user)
+    userActionDialog.value = null
+  } finally {
+    userActionLoading.value = false
   }
 }
 
@@ -539,5 +565,20 @@ onMounted(load)
         </div>
       </Teleport>
     </div>
+    <AppConfirmDialog
+      :open="Boolean(userActionDialog)"
+      :title="userActionDialog?.kind === 'delete' ? '删除用户？' : userActionDialog?.user.banned ? '解封用户？' : '封禁用户？'"
+      :description="userActionDialog?.kind === 'delete'
+        ? '删除后该用户的账户数据将无法恢复。'
+        : userActionDialog?.user.banned
+          ? '解封后，该用户将可以重新登录并使用服务。'
+          : '封禁后，该用户将无法登录和发起新的服务请求。'"
+      :confirm-label="userActionDialog?.kind === 'delete' ? '确认删除' : userActionDialog?.user.banned ? '确认解封' : '确认封禁'"
+      :subject="userActionDialog?.user.username || ''"
+      :tone="userActionDialog?.kind === 'delete' ? 'danger' : userActionDialog?.user.banned ? 'success' : 'warning'"
+      :loading="userActionLoading"
+      @cancel="closeUserActionDialog"
+      @confirm="confirmUserAction"
+    />
   </AppLayout>
 </template>

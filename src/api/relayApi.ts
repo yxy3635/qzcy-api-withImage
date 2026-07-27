@@ -11,6 +11,9 @@ export const relayApi = {
   updateToken(id: number, payload: { name?: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; expiresAt?: string; enabled?: boolean }) {
     return http.put<ApiResponse<RelayToken>>(`/relay/tokens/${id}`, payload)
   },
+  revealToken(id: number) {
+    return http.get<ApiResponse<string>>(`/relay/tokens/${id}/secret`)
+  },
   deleteToken(id: number) {
     return http.delete<ApiResponse<void>>(`/relay/tokens/${id}`)
   },

@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import RelayModal from '@/components/RelayModal.vue'
+import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import type { RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel } from '@/types'
@@ -76,6 +77,12 @@ const editingChannelId = ref<number | 'new' | null>(null)
 const editingGroupId = ref<number | 'new' | null>(null)
 const modelSyncOpen = ref(false)
 const editingModelId = ref<number | 'new' | null>(null)
+type RelayDeleteAction =
+  | { kind: 'group'; item: RelayGroup }
+  | { kind: 'channel'; item: RelayChannel }
+  | { kind: 'model'; item: RelayModel }
+const relayDeleteDialog = ref<RelayDeleteAction | null>(null)
+const relayDeleteLoading = ref(false)
 
 const newChannel = reactive<ChannelDraft>({
   name: 'OpenAI Compatible',
@@ -452,8 +459,11 @@ async function saveGroup(group: RelayGroup) {
   }
 }
 
-async function deleteGroup(group: RelayGroup) {
-  if (!window.confirm(`确定删除分组 ${group.code} 吗？已使用该分组的令牌需要重新配置。`)) return
+function deleteGroup(group: RelayGroup) {
+  relayDeleteDialog.value = { kind: 'group', item: group }
+}
+
+async function deleteGroupNow(group: RelayGroup) {
   saving.value = `group-delete-${group.id}`
   error.value = ''
   try {
@@ -504,8 +514,11 @@ async function saveChannel(channel: RelayChannel) {
   }
 }
 
-async function deleteChannel(channel: RelayChannel) {
-  if (!window.confirm(`确定删除渠道 ${channel.name} 吗？该渠道的模型绑定也会一并删除。`)) return
+function deleteChannel(channel: RelayChannel) {
+  relayDeleteDialog.value = { kind: 'channel', item: channel }
+}
+
+async function deleteChannelNow(channel: RelayChannel) {
   saving.value = `channel-delete-${channel.id}`
   error.value = ''
   try {
@@ -553,8 +566,11 @@ async function saveModel(model: RelayModel) {
   }
 }
 
-async function deleteModel(model: RelayModel) {
-  if (!window.confirm(`确定删除模型 ${model.model} 吗？删除后用户将不能再使用这个模型。`)) return
+function deleteModel(model: RelayModel) {
+  relayDeleteDialog.value = { kind: 'model', item: model }
+}
+
+async function deleteModelNow(model: RelayModel) {
   saving.value = `model-delete-${model.id}`
   error.value = ''
   try {
@@ -567,6 +583,32 @@ async function deleteModel(model: RelayModel) {
     toast.error(error.value)
   } finally {
     saving.value = null
+  }
+}
+
+function closeRelayDeleteDialog() {
+  if (!relayDeleteLoading.value) relayDeleteDialog.value = null
+}
+
+function relayDeleteSubject() {
+  const action = relayDeleteDialog.value
+  if (!action) return ''
+  if (action.kind === 'group') return action.item.code
+  if (action.kind === 'channel') return action.item.name
+  return action.item.model
+}
+
+async function confirmRelayDelete() {
+  const action = relayDeleteDialog.value
+  if (!action) return
+  relayDeleteLoading.value = true
+  try {
+    if (action.kind === 'group') await deleteGroupNow(action.item)
+    else if (action.kind === 'channel') await deleteChannelNow(action.item)
+    else await deleteModelNow(action.item)
+    relayDeleteDialog.value = null
+  } finally {
+    relayDeleteLoading.value = false
   }
 }
 
@@ -1449,5 +1491,20 @@ onMounted(load)
           </div>
       </section>
     </div>
+    <AppConfirmDialog
+      :open="Boolean(relayDeleteDialog)"
+      :title="relayDeleteDialog?.kind === 'group' ? '删除中转分组？' : relayDeleteDialog?.kind === 'channel' ? '删除上游渠道？' : '删除模型？'"
+      :description="relayDeleteDialog?.kind === 'group'
+        ? '删除后，已使用该分组的密钥需要重新配置。'
+        : relayDeleteDialog?.kind === 'channel'
+          ? '删除后，该渠道的模型绑定也会一并移除。'
+          : '删除后，用户将不能再使用这个模型。'"
+      confirm-label="确认删除"
+      :subject="relayDeleteSubject()"
+      tone="danger"
+      :loading="relayDeleteLoading"
+      @cancel="closeRelayDeleteDialog"
+      @confirm="confirmRelayDelete"
+    />
   </AppLayout>
 </template>

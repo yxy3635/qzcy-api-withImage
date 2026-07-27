@@ -1,46 +1,49 @@
 package com.qzcy.backend.service.impl;
 
-import com.qzcy.backend.entity.MailConfig;
 import com.qzcy.backend.exception.BusinessException;
+import com.qzcy.backend.entity.User;
+import com.qzcy.backend.mapper.UserMapper;
+import com.qzcy.backend.service.EmailCodeRateLimiter;
 import com.qzcy.backend.service.EmailCodeService;
+import com.qzcy.backend.service.MailDeliveryService;
 import com.qzcy.backend.service.MailConfigService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.Map;
-import java.util.Properties;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
 public class EmailCodeServiceImpl implements EmailCodeService {
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final int MAX_VERIFY_ATTEMPTS = 5;
     private final MailConfigService mailConfigService;
+    private final MailDeliveryService mailDeliveryService;
+    private final EmailCodeRateLimiter rateLimiter;
+    private final UserMapper userMapper;
     private final Map<String, CodeEntry> codes = new ConcurrentHashMap<>();
 
     @Override
-    public Map<String, Object> sendCode(String email, String scene) {
+    public Map<String, Object> sendCode(String email, String scene, String clientIp) {
         String normalizedEmail = normalizeEmail(email);
         String normalizedScene = normalizeScene(scene);
-        String code = String.valueOf(100000 + RANDOM.nextInt(900000));
-        codes.put(key(normalizedEmail, normalizedScene), new CodeEntry(code, LocalDateTime.now().plusMinutes(10)));
-
-        MailConfig config = mailConfigService.current();
-        if (Boolean.TRUE.equals(config.getEnabled()) && config.getHost() != null && !config.getHost().isBlank()) {
-            JavaMailSenderImpl mailSender = mailSender(config);
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(config.getFromAddress() == null || config.getFromAddress().isBlank() ? config.getUsername() : config.getFromAddress());
-            message.setTo(normalizedEmail);
-            message.setSubject("imageCreater 邮箱验证码");
-            message.setText("你的验证码是：" + code + "，10分钟内有效。");
-            mailSender.send(message);
+        rateLimiter.checkAndRecord(normalizedEmail, clientIp);
+        if (!shouldSendForScene(normalizedEmail, normalizedScene)) {
+            // Use the same success response to avoid exposing whether an email is registered.
+            return Map.of("sent", true);
         }
+        String code = String.valueOf(100000 + RANDOM.nextInt(900000));
+        codes.put(key(normalizedEmail, normalizedScene), new CodeEntry(code, LocalDateTime.now().plusMinutes(10), 0));
 
-        if (Boolean.TRUE.equals(config.getDevReturnCode()) || !Boolean.TRUE.equals(config.getEnabled())) {
+        mailDeliveryService.sendVerificationCode(normalizedEmail, normalizedScene, code);
+
+        var config = mailConfigService.current();
+        if (!Boolean.TRUE.equals(config.getEnabled()) && Boolean.TRUE.equals(config.getDevReturnCode()) && isLoopback(clientIp)) {
             return Map.of("sent", true, "devCode", code);
         }
         return Map.of("sent", true);
@@ -50,11 +53,25 @@ public class EmailCodeServiceImpl implements EmailCodeService {
     public void verify(String email, String scene, String code) {
         String normalizedEmail = normalizeEmail(email);
         String normalizedScene = normalizeScene(scene);
-        CodeEntry entry = codes.get(key(normalizedEmail, normalizedScene));
-        if (entry == null || entry.expireAt().isBefore(LocalDateTime.now()) || !entry.code().equals(code)) {
+        AtomicBoolean verified = new AtomicBoolean(false);
+        String codeKey = key(normalizedEmail, normalizedScene);
+        codes.compute(codeKey, (ignored, entry) -> {
+            if (entry == null || entry.expireAt().isBefore(LocalDateTime.now())) {
+                return null;
+            }
+            if (MessageDigest.isEqual(entry.code().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    (code == null ? "" : code.trim()).getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+                verified.set(true);
+                return null;
+            }
+            if (entry.failedAttempts() + 1 >= MAX_VERIFY_ATTEMPTS) {
+                return null;
+            }
+            return new CodeEntry(entry.code(), entry.expireAt(), entry.failedAttempts() + 1);
+        });
+        if (!verified.get()) {
             throw new BusinessException(400, "邮箱验证码无效或已过期");
         }
-        codes.remove(key(normalizedEmail, normalizedScene));
     }
 
     private String normalizeEmail(String email) {
@@ -73,27 +90,21 @@ public class EmailCodeServiceImpl implements EmailCodeService {
         return normalized;
     }
 
+    private boolean shouldSendForScene(String email, String scene) {
+        Long usersWithEmail = userMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                .eq(User::getEmail, email));
+        boolean exists = usersWithEmail != null && usersWithEmail > 0;
+        return "register".equals(scene) ? !exists : exists;
+    }
+
     private String key(String email, String scene) {
         return scene + ":" + email;
     }
 
-    private JavaMailSenderImpl mailSender(MailConfig config) {
-        JavaMailSenderImpl sender = new JavaMailSenderImpl();
-        sender.setHost(config.getHost());
-        sender.setPort(config.getPort() == null ? 587 : config.getPort());
-        sender.setUsername(config.getUsername());
-        sender.setPassword(config.getPassword());
-        sender.setDefaultEncoding("UTF-8");
-        Properties properties = sender.getJavaMailProperties();
-        properties.put("mail.smtp.auth", "true");
-        properties.put("mail.smtp.ssl.enable", String.valueOf(Boolean.TRUE.equals(config.getSslEnabled())));
-        properties.put("mail.smtp.starttls.enable", String.valueOf(Boolean.TRUE.equals(config.getStarttlsEnabled())));
-        properties.put("mail.smtp.connectiontimeout", "10000");
-        properties.put("mail.smtp.timeout", "10000");
-        properties.put("mail.smtp.writetimeout", "10000");
-        return sender;
+    private boolean isLoopback(String clientIp) {
+        return "127.0.0.1".equals(clientIp) || "0:0:0:0:0:0:0:1".equals(clientIp) || "::1".equals(clientIp);
     }
 
-    private record CodeEntry(String code, LocalDateTime expireAt) {
+    private record CodeEntry(String code, LocalDateTime expireAt, int failedAttempts) {
     }
 }

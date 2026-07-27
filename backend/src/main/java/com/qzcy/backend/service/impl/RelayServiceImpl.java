@@ -13,6 +13,7 @@ import com.qzcy.backend.dto.RelayChannelUpdateDto;
 import com.qzcy.backend.dto.RelayGroupDto;
 import com.qzcy.backend.dto.RelayGroupUpdateDto;
 import com.qzcy.backend.dto.RelayModelDto;
+import com.qzcy.backend.dto.RelayModelRecentCallDto;
 import com.qzcy.backend.dto.RelayModelUpdateDto;
 import com.qzcy.backend.dto.RelayModelUsageDto;
 import com.qzcy.backend.dto.RelayPublicChannelDto;
@@ -41,6 +42,7 @@ import com.qzcy.backend.mapper.RelayTokenMapper;
 import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.RelayService;
+import com.qzcy.backend.service.RelayModelStatusCache;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -53,9 +55,13 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -73,6 +79,7 @@ public class RelayServiceImpl implements RelayService {
     private final RelayUsageLogMapper usageLogMapper;
     private final UserMapper userMapper;
     private final ObjectMapper objectMapper;
+    private final RelayModelStatusCache relayModelStatusCache;
     private final SecureRandom random = new SecureRandom();
 
     @Override
@@ -324,6 +331,15 @@ public class RelayServiceImpl implements RelayService {
     }
 
     @Override
+    public String revealToken(Long userId, Long tokenId) {
+        RelayToken item = tokenMapper.selectById(tokenId);
+        if (item == null || !userId.equals(item.getUserId())) {
+            throw new BusinessException(404, "API key not found");
+        }
+        return item.getToken();
+    }
+
+    @Override
     public void deleteToken(Long userId, Long tokenId) {
         RelayToken item = tokenMapper.selectById(tokenId);
         if (item == null || !userId.equals(item.getUserId())) {
@@ -337,15 +353,12 @@ public class RelayServiceImpl implements RelayService {
         User user = userMapper.selectById(userId);
         if (user == null) throw new BusinessException(404, "User not found");
 
-        List<String> accessibleModels = accessibleModelsForTokenGroups(userId);
-        List<RelayModel> enabledModels = modelMapper.selectList(new QueryWrapper<RelayModel>()
-                        .eq("enabled", true)
+        List<RelayModel> systemModels = modelMapper.selectList(new QueryWrapper<RelayModel>()
                         .orderByAsc("sort_order")
                         .orderByAsc("id"));
         Map<String, String> publicModelNames = new HashMap<>();
-        enabledModels.forEach(model -> publicModelNames.putIfAbsent(model.getModel(), publicModelName(model)));
-        List<RelayModelDto> models = enabledModels.stream()
-                .filter(model -> accessibleModels.contains(publicModelName(model)))
+        systemModels.forEach(model -> publicModelNames.putIfAbsent(model.getModel(), publicModelName(model)));
+        List<RelayModelDto> models = systemModels.stream()
                 .filter(distinctByModelName())
                 .map(this::toPublicModelDto).toList();
         List<RelayTokenDto> tokens = tokenMapper.selectList(new QueryWrapper<RelayToken>()
@@ -386,6 +399,11 @@ public class RelayServiceImpl implements RelayService {
                         item.getTotalTokens(),
                         item.getCost()))
                 .toList();
+        List<RelayModelRecentCallDto> modelRecentCalls = relayModelStatusCache.getRecentCalls();
+        if (modelRecentCalls == null) {
+            modelRecentCalls = loadModelRecentCalls(systemModels, publicModelNames);
+            relayModelStatusCache.putRecentCalls(modelRecentCalls);
+        }
         List<RelayGroupDto> groups = groupMapper.selectList(new QueryWrapper<RelayGroup>()
                         .eq("enabled", true)
                         .orderByAsc("id"))
@@ -400,7 +418,7 @@ public class RelayServiceImpl implements RelayService {
         LocalDateTime minuteStart = LocalDateTime.now().minusMinutes(1);
 
         return new RelayUserOverviewDto(
-                user.getBalance(), models, tokens, channels, logs, errorLogs, modelUsage, usageLogMapper.userTrend(userId), groups,
+                user.getBalance(), models, tokens, channels, logs, errorLogs, modelUsage, modelRecentCalls, usageLogMapper.userTrend(userId), groups,
                 totalRequests, totalTokens, totalCost, usageLogMapper.averageDurationMs(userId),
                 usageLogMapper.userPromptTokens(userId),
                 usageLogMapper.userCompletionTokens(userId),
@@ -414,6 +432,38 @@ public class RelayServiceImpl implements RelayService {
                 usageLogMapper.userRequestsSince(userId, minuteStart),
                 usageLogMapper.userTokensSince(userId, minuteStart)
         );
+    }
+
+    private List<RelayModelRecentCallDto> loadModelRecentCalls(List<RelayModel> systemModels, Map<String, String> publicModelNames) {
+        Set<String> statusModelNames = new LinkedHashSet<>();
+        systemModels.forEach(model -> {
+            if (!isBlank(model.getModel())) statusModelNames.add(model.getModel());
+            String publicName = publicModelName(model);
+            if (!isBlank(publicName)) statusModelNames.add(publicName);
+        });
+        Map<Long, RelayModelRecentCallDto> uniqueRecentCalls = new LinkedHashMap<>();
+        statusModelNames.forEach(modelName -> usageLogMapper.recentCallsForModel(modelName)
+                .forEach(call -> uniqueRecentCalls.putIfAbsent(call.getId(), call)));
+
+        Map<String, List<RelayModelRecentCallDto>> recentCallsByPublicModel = new LinkedHashMap<>();
+        uniqueRecentCalls.values().forEach(call -> {
+            String publicName = publicModelNames.getOrDefault(call.getModel(), call.getModel());
+            recentCallsByPublicModel.computeIfAbsent(publicName, ignored -> new ArrayList<>())
+                    .add(new RelayModelRecentCallDto(
+                            call.getId(), publicName, call.getStatus(), call.getStatusCode(),
+                            call.getDurationMs(), call.getCreatedAt()));
+        });
+        Comparator<RelayModelRecentCallDto> newestFirst = Comparator
+                .comparing(RelayModelRecentCallDto::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(RelayModelRecentCallDto::getId, Comparator.nullsLast(Comparator.reverseOrder()));
+        List<RelayModelRecentCallDto> result = new ArrayList<>();
+        recentCallsByPublicModel.values().forEach(calls -> {
+            calls.sort(newestFirst);
+            List<RelayModelRecentCallDto> latestCalls = new ArrayList<>(calls.subList(0, Math.min(20, calls.size())));
+            latestCalls.sort(newestFirst.reversed());
+            result.addAll(latestCalls);
+        });
+        return result;
     }
 
     private void apply(RelayChannel channel, RelayChannelUpdateDto dto) {

@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/authApi'
 import { useToast } from '@/composables/useToast'
+import { useEmailCodeCooldown } from '@/composables/useEmailCodeCooldown'
 import RequestLoader from '@/components/RequestLoader.vue'
 
 const auth = useAuthStore()
@@ -19,6 +20,7 @@ const inviteCode = ref('')
 const error = ref('')
 const loading = ref(false)
 const sending = ref(false)
+const { secondsLeft: codeCooldown, start: startCodeCooldown } = useEmailCodeCooldown()
 
 const isVisible = ref(false)
 
@@ -46,6 +48,7 @@ async function sendCode() {
   try {
     const { data } = await authApi.sendEmailCode(email.value, 'register')
     const devCode = data.data && typeof data.data.devCode === 'string' ? data.data.devCode : ''
+    startCodeCooldown()
     toast.success(devCode ? `验证码已发送，开发验证码：${devCode}` : '验证码已发送，请查收邮箱')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '验证码发送失败'
@@ -152,10 +155,10 @@ const title = 'imageCreater'
               <button
                 class="h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 type="button"
-                :disabled="sending"
+                :disabled="sending || codeCooldown > 0"
                 @click="sendCode"
               >
-                {{ sending ? '发送中' : '获取验证码' }}
+                {{ sending ? '发送中' : codeCooldown > 0 ? `${codeCooldown}s 后重试` : '获取验证码' }}
               </button>
             </div>
           </div>

@@ -91,6 +91,15 @@ public class RelayController {
         return ApiResponse.success(relayService.updateToken(SecurityUtil.current().userId(), id, dto));
     }
 
+    @GetMapping("/relay/tokens/{id}/secret")
+    public ResponseEntity<ApiResponse<String>> revealToken(@PathVariable Long id) {
+        String secret = relayService.revealToken(SecurityUtil.current().userId(), id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, private, max-age=0")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .body(ApiResponse.success(secret));
+    }
+
     @DeleteMapping("/relay/tokens/{id}")
     public ApiResponse<Void> deleteToken(@PathVariable Long id) {
         relayService.deleteToken(SecurityUtil.current().userId(), id);

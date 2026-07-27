@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminImageRecordDto;
 import com.qzcy.backend.dto.AdminRelayUsageLogDto;
 import com.qzcy.backend.dto.AdminUserUpdateDto;
+import com.qzcy.backend.dto.AdminUserUsageDto;
 import com.qzcy.backend.dto.AnnouncementDto;
 import com.qzcy.backend.dto.AnnouncementUpdateDto;
 import com.qzcy.backend.dto.ApiResponse;
@@ -12,6 +13,7 @@ import com.qzcy.backend.dto.ImageGenerationConfigDto;
 import com.qzcy.backend.dto.ImageGenerationConfigUpdateDto;
 import com.qzcy.backend.dto.MailConfigDto;
 import com.qzcy.backend.dto.MailConfigUpdateDto;
+import com.qzcy.backend.dto.MailTestDto;
 import com.qzcy.backend.dto.PaymentConfigDto;
 import com.qzcy.backend.dto.PaymentConfigUpdateDto;
 import com.qzcy.backend.dto.ReferralActionDto;
@@ -32,6 +34,7 @@ import com.qzcy.backend.service.AdminService;
 import com.qzcy.backend.service.AnnouncementService;
 import com.qzcy.backend.service.ImageGenerationConfigService;
 import com.qzcy.backend.service.MailConfigService;
+import com.qzcy.backend.service.MailDeliveryService;
 import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.ReferralService;
 import com.qzcy.backend.service.RelayChannelStatusService;
@@ -56,6 +59,7 @@ public class AdminController {
     private final AnnouncementService announcementService;
     private final ImageGenerationConfigService imageGenerationConfigService;
     private final MailConfigService mailConfigService;
+    private final MailDeliveryService mailDeliveryService;
     private final PaymentConfigService paymentConfigService;
     private final ReferralService referralService;
     private final RelayService relayService;
@@ -92,6 +96,13 @@ public class AdminController {
                                           @RequestParam(defaultValue = "10") long size,
                                           @RequestParam(required = false) String keyword) {
         return ApiResponse.success(adminService.users(page, size, keyword));
+    }
+
+    @GetMapping("/user-usage")
+    public ApiResponse<Page<AdminUserUsageDto>> userUsage(@RequestParam(defaultValue = "1") long page,
+                                                           @RequestParam(defaultValue = "20") long size,
+                                                           @RequestParam(required = false) String keyword) {
+        return ApiResponse.success(adminService.userUsage(page, size, keyword));
     }
 
     @GetMapping("/users/{id}/relay-overview")
@@ -201,6 +212,12 @@ public class AdminController {
     @PutMapping("/mail-config")
     public ApiResponse<MailConfigDto> updateMailConfig(@RequestBody MailConfigUpdateDto dto) {
         return ApiResponse.success(mailConfigService.update(dto));
+    }
+
+    @PostMapping("/mail-config/test")
+    public ApiResponse<Void> sendMailTest(@RequestBody MailTestDto dto) {
+        mailDeliveryService.sendTest(dto.getRecipient());
+        return ApiResponse.success(null);
     }
 
     @GetMapping("/payment-config")

@@ -18,6 +18,7 @@ public class RelayUserOverviewDto {
     private List<RelayUsageLogDto> logs;
     private List<ErrorRequestLogDto> errorLogs;
     private List<RelayModelUsageDto> modelUsage;
+    private List<RelayModelRecentCallDto> modelRecentCalls;
     private List<RelayTrendDto> trend;
     private List<RelayGroupDto> groups;
     private Long totalRequests;

@@ -10,6 +10,7 @@ import com.qzcy.backend.dto.RegisterDto;
 import com.qzcy.backend.service.AuthService;
 import com.qzcy.backend.service.EmailCodeService;
 import lombok.RequiredArgsConstructor;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,8 +24,8 @@ public class AuthController {
     private final EmailCodeService emailCodeService;
 
     @PostMapping("/email-code")
-    public ApiResponse<Object> sendEmailCode(@RequestBody EmailCodeDto dto) {
-        return ApiResponse.success(emailCodeService.sendCode(dto.getEmail(), dto.getScene()));
+    public ApiResponse<Object> sendEmailCode(@RequestBody EmailCodeDto dto, HttpServletRequest request) {
+        return ApiResponse.success(emailCodeService.sendCode(dto.getEmail(), dto.getScene(), clientIp(request)));
     }
 
     @PostMapping("/register")
@@ -41,5 +42,20 @@ public class AuthController {
     public ApiResponse<Void> forgotPassword(@RequestBody ForgotPasswordDto dto) {
         authService.resetPassword(dto);
         return ApiResponse.success(null);
+    }
+
+    private String clientIp(HttpServletRequest request) {
+        String remoteAddress = request.getRemoteAddr();
+        if ("127.0.0.1".equals(remoteAddress) || "0:0:0:0:0:0:0:1".equals(remoteAddress) || "::1".equals(remoteAddress)) {
+            String forwardedFor = request.getHeader("X-Forwarded-For");
+            if (forwardedFor != null && !forwardedFor.isBlank()) {
+                return forwardedFor.split(",", 2)[0].trim();
+            }
+            String realIp = request.getHeader("X-Real-IP");
+            if (realIp != null && !realIp.isBlank()) {
+                return realIp.trim();
+            }
+        }
+        return remoteAddress;
     }
 }

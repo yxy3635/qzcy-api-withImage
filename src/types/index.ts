@@ -65,6 +65,10 @@ export interface MailConfig {
   starttlsEnabled: boolean
   enabled: boolean
   devReturnCode: boolean
+  rechargeNoticeEnabled: boolean
+  brandName: string
+  brandLogoUrl: string
+  siteUrl: string
   passwordConfigured: boolean
 }
 
@@ -203,6 +207,33 @@ export interface RelayChannelProfit {
   upstreamCost: number
   siteCost: number
   profit: number
+  todayRequests: number
+  yesterdayRequests: number
+  todayTokens: number
+  yesterdayTokens: number
+  todayUpstreamCost: number
+  yesterdayUpstreamCost: number
+  todaySiteCost: number
+  yesterdaySiteCost: number
+  todayProfit: number
+  yesterdayProfit: number
+}
+
+export interface AdminUserUsage {
+  id: number
+  username: string
+  email?: string
+  role: Role
+  banned?: boolean
+  balance: number
+  createdAt?: string
+  todayRequests: number
+  yesterdayRequests: number
+  todayCost: number
+  yesterdayCost: number
+  totalTokens: number
+  totalCost: number
+  totalRecharge: number
 }
 
 export interface RelayChannel {
@@ -318,6 +349,7 @@ export interface RelayUserOverview {
   logs: RelayUsageLog[]
   errorLogs: ErrorRequestLog[]
   modelUsage: RelayModelUsage[]
+  modelRecentCalls: RelayModelRecentCall[]
   trend: RelayTrend[]
   groups: RelayGroup[]
   totalRequests: number
@@ -440,4 +472,13 @@ export interface RelayModelUsage {
   requests: number
   totalTokens: number
   cost: number
+}
+
+export interface RelayModelRecentCall {
+  id: number
+  model: string
+  status: string
+  statusCode: number
+  durationMs: number
+  createdAt: string
 }

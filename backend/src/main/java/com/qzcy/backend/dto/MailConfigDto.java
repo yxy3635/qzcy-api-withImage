@@ -15,5 +15,9 @@ public class MailConfigDto {
     private Boolean starttlsEnabled;
     private Boolean enabled;
     private Boolean devReturnCode;
+    private Boolean rechargeNoticeEnabled;
+    private String brandName;
+    private String brandLogoUrl;
+    private String siteUrl;
     private Boolean passwordConfigured;
 }

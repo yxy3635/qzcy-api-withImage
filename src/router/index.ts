@@ -14,6 +14,7 @@ import ReferralPage from '@/views/user/ReferralPage.vue'
 import AdminDashboard from '@/views/admin/AdminDashboard.vue'
 import AdminAnnouncements from '@/views/admin/AdminAnnouncements.vue'
 import AdminUsers from '@/views/admin/AdminUsers.vue'
+import AdminUserUsage from '@/views/admin/AdminUserUsage.vue'
 import AdminPricing from '@/views/admin/AdminPricing.vue'
 import AdminMail from '@/views/admin/AdminMail.vue'
 import AdminPayment from '@/views/admin/AdminPayment.vue'
@@ -25,6 +26,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: HomePage },
+    { path: '/docs', component: () => import('@/views/ApiDocsPage.vue') },
     { path: '/relay', component: RelayPage, meta: { requiresAuth: true } },
     { path: '/login', component: LoginPage },
     { path: '/register', component: RegisterPage },
@@ -38,6 +40,7 @@ const router = createRouter({
     { path: '/admin/dashboard', component: AdminDashboard, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/announcements', component: AdminAnnouncements, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/users', component: AdminUsers, meta: { requiresAuth: true, admin: true } },
+    { path: '/admin/user-usage', component: AdminUserUsage, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/pricing', component: AdminPricing, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/relay', component: AdminRelay, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/payment', component: AdminPayment, meta: { requiresAuth: true, admin: true } },

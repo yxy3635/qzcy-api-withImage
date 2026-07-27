@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
+import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import Pagination from '@/components/Pagination.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
 import { imageApi } from '@/api/imageApi'
@@ -15,6 +16,8 @@ const pages = ref(1)
 const preview = ref('')
 const error = ref('')
 const loading = ref(true)
+const deleteRecordDialog = ref<ImageRecord | null>(null)
+const deleteRecordLoading = ref(false)
 
 async function load(page = 1) {
   error.value = ''
@@ -31,16 +34,29 @@ async function load(page = 1) {
   }
 }
 
-async function remove(record: ImageRecord) {
-  if (!confirm('确认删除这张图片记录？')) return
+function remove(record: ImageRecord) {
+  deleteRecordDialog.value = record
+}
+
+function closeDeleteRecord() {
+  if (!deleteRecordLoading.value) deleteRecordDialog.value = null
+}
+
+async function confirmDeleteRecord() {
+  const record = deleteRecordDialog.value
+  if (!record) return
+  deleteRecordLoading.value = true
   error.value = ''
   try {
     await imageApi.remove(record.id)
     toast.success('图片记录已删除')
     await load(current.value)
+    deleteRecordDialog.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : '删除失败'
     toast.error(error.value)
+  } finally {
+    deleteRecordLoading.value = false
   }
 }
 onMounted(() => load())
@@ -81,5 +97,16 @@ onMounted(() => load())
       <div v-if="!loading" class="border-t border-slate-100 bg-white/70 p-4"><Pagination :current="current" :pages="pages" @change="load" /></div>
     </section>
     <ImagePreviewModal :src="preview" @close="preview = ''" />
+    <AppConfirmDialog
+      :open="Boolean(deleteRecordDialog)"
+      title="删除这张图片？"
+      description="删除后，图片记录和已生成的结果将无法恢复。"
+      confirm-label="确认删除"
+      :subject="deleteRecordDialog?.prompt || ''"
+      tone="danger"
+      :loading="deleteRecordLoading"
+      @cancel="closeDeleteRecord"
+      @confirm="confirmDeleteRecord"
+    />
   </AppLayout>
 </template>

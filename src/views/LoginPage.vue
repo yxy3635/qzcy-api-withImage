@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/authApi'
 import { useToast } from '@/composables/useToast'
+import { useEmailCodeCooldown } from '@/composables/useEmailCodeCooldown'
 import RequestLoader from '@/components/RequestLoader.vue'
 
 const auth = useAuthStore()
@@ -26,6 +27,7 @@ const resetCode = ref('')
 const resetPassword = ref('')
 const resetConfirmPassword = ref('')
 const sending = ref(false)
+const { secondsLeft: resetCodeCooldown, start: startResetCodeCooldown } = useEmailCodeCooldown()
 const resetting = ref(false)
 
 const isVisible = ref(false)
@@ -71,6 +73,7 @@ async function sendResetCode() {
   try {
     const { data } = await authApi.sendEmailCode(resetEmail.value, 'forgot_password')
     const devCode = data.data && typeof data.data.devCode === 'string' ? data.data.devCode : ''
+    startResetCodeCooldown()
     toast.success(devCode ? `验证码已发送，开发验证码：${devCode}` : '验证码已发送，请查收邮箱')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '验证码发送失败'
@@ -185,10 +188,10 @@ const title = 'imageCreater'
                 <button
                   class="h-12 w-full rounded-xl border border-blue-200 bg-white px-3 text-sm font-bold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   type="button"
-                  :disabled="sending"
+                  :disabled="sending || resetCodeCooldown > 0"
                   @click="sendResetCode"
                 >
-                  {{ sending ? '发送中' : '获取验证码' }}
+                  {{ sending ? '发送中' : resetCodeCooldown > 0 ? `${resetCodeCooldown}s 后重试` : '获取验证码' }}
                 </button>
               </div>
               <input

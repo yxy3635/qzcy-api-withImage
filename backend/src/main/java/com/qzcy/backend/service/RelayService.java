@@ -28,6 +28,7 @@ public interface RelayService {
     List<RelayUpstreamModelDto> fetchUpstreamModels(Long channelId);
     RelayTokenDto createToken(Long userId, RelayTokenCreateDto dto);
     RelayTokenDto updateToken(Long userId, Long tokenId, RelayTokenCreateDto dto);
+    String revealToken(Long userId, Long tokenId);
     void deleteToken(Long userId, Long tokenId);
     RelayUserOverviewDto userOverview(Long userId);
 }

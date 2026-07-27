@@ -15,6 +15,7 @@ import com.qzcy.backend.mapper.RelayModelMapper;
 import com.qzcy.backend.mapper.RelayTokenMapper;
 import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
+import com.qzcy.backend.service.RelayModelStatusCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -45,7 +46,8 @@ class RelayPublicDataPrivacyTest {
                 mock(RelayTokenMapper.class),
                 mock(RelayUsageLogMapper.class),
                 mock(UserMapper.class),
-                objectMapper
+                objectMapper,
+                mock(RelayModelStatusCache.class)
         );
     }
 

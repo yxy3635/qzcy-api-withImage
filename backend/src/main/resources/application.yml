@@ -24,6 +24,13 @@ spring:
           auth: true
           starttls:
             enable: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT:2s}
   ai:
     openai:
       api-key: ${OPENAI_API_KEY:replace-me}
@@ -50,3 +57,8 @@ app:
   mail:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}
     dev-return-code: true
+  relay:
+    model-status-cache:
+      # 仅缓存模型状态页的全站最近调用条；仪表盘余额、用量等仍实时查询。
+      redis-enabled: ${RELAY_MODEL_STATUS_CACHE_REDIS_ENABLED:false}
+      ttl-seconds: ${RELAY_MODEL_STATUS_CACHE_TTL_SECONDS:30}

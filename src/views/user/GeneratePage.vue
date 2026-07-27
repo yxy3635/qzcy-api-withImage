@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
+import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
 import { imageApi } from '@/api/imageApi'
 import { useAuthStore } from '@/store/authStore'
@@ -19,6 +20,8 @@ const error = ref('')
 const result = ref<ImageRecord | null>(null)
 const previewRecord = ref<ImageRecord | null>(null)
 const errorRecord = ref<ImageRecord | null>(null)
+const deleteRecordDialog = ref<ImageRecord | null>(null)
+const deleteRecordLoading = ref(false)
 const reusingRecordId = ref<number | null>(null)
 const editingRecordId = ref<number | null>(null)
 const recent = ref<ImageRecord[]>([])
@@ -213,8 +216,18 @@ async function waitForGeneration(recordId: number, pollId: number) {
   throw new Error('生成轮询已取消')
 }
 
-async function remove(record: ImageRecord) {
-  if (!confirm('确认删除这张图片记录？')) return
+function remove(record: ImageRecord) {
+  deleteRecordDialog.value = record
+}
+
+function closeDeleteRecord() {
+  if (!deleteRecordLoading.value) deleteRecordDialog.value = null
+}
+
+async function confirmDeleteRecord() {
+  const record = deleteRecordDialog.value
+  if (!record) return
+  deleteRecordLoading.value = true
   error.value = ''
   try {
     await imageApi.remove(record.id)
@@ -222,9 +235,12 @@ async function remove(record: ImageRecord) {
     if (previewRecord.value?.id === record.id) previewRecord.value = null
     await loadRecent()
     toast.success('图片记录已删除')
+    deleteRecordDialog.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : '删除失败'
     toast.error(error.value)
+  } finally {
+    deleteRecordLoading.value = false
   }
 }
 
@@ -785,5 +801,16 @@ onBeforeUnmount(() => {
     </div>
 
     <ImagePreviewModal :record="previewRecord || undefined" :src="previewRecord?.generatedImageUrl" @close="previewRecord = null" @delete="remove" />
+    <AppConfirmDialog
+      :open="Boolean(deleteRecordDialog)"
+      title="删除这张图片？"
+      description="删除后，图片记录和已生成的结果将无法恢复。"
+      confirm-label="确认删除"
+      :subject="deleteRecordDialog?.prompt || ''"
+      tone="danger"
+      :loading="deleteRecordLoading"
+      @cancel="closeDeleteRecord"
+      @confirm="confirmDeleteRecord"
+    />
   </div>
 </template>

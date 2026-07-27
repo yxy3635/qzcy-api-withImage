@@ -68,6 +68,18 @@ public class MailConfigServiceImpl implements MailConfigService {
         if (dto.getDevReturnCode() != null) {
             config.setDevReturnCode(dto.getDevReturnCode());
         }
+        if (dto.getRechargeNoticeEnabled() != null) {
+            config.setRechargeNoticeEnabled(dto.getRechargeNoticeEnabled());
+        }
+        if (dto.getBrandName() != null) {
+            config.setBrandName(dto.getBrandName().trim());
+        }
+        if (dto.getBrandLogoUrl() != null) {
+            config.setBrandLogoUrl(dto.getBrandLogoUrl().trim());
+        }
+        if (dto.getSiteUrl() != null) {
+            config.setSiteUrl(dto.getSiteUrl().trim());
+        }
         validate(config);
         mapper.updateById(config);
         return toDto(mapper.selectById(config.getId()));
@@ -84,6 +96,10 @@ public class MailConfigServiceImpl implements MailConfigService {
         config.setStarttlsEnabled(true);
         config.setEnabled(false);
         config.setDevReturnCode(true);
+        config.setRechargeNoticeEnabled(true);
+        config.setBrandName("imageCreater · API Relay");
+        config.setBrandLogoUrl("");
+        config.setSiteUrl("");
         config.setCreatedAt(LocalDateTime.now());
         config.setUpdatedAt(LocalDateTime.now());
         return config;
@@ -114,6 +130,10 @@ public class MailConfigServiceImpl implements MailConfigService {
                 config.getStarttlsEnabled(),
                 config.getEnabled(),
                 config.getDevReturnCode(),
+                Boolean.TRUE.equals(config.getRechargeNoticeEnabled()),
+                config.getBrandName(),
+                config.getBrandLogoUrl(),
+                config.getSiteUrl(),
                 !isBlank(config.getPassword())
         );
     }

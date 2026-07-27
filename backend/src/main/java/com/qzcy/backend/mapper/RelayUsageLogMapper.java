@@ -3,8 +3,10 @@ package com.qzcy.backend.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminRelayUsageLogDto;
+import com.qzcy.backend.dto.AdminUserUsageDto;
 import com.qzcy.backend.dto.RelayChannelProfitDto;
 import com.qzcy.backend.dto.RelayModelUsageDto;
+import com.qzcy.backend.dto.RelayModelRecentCallDto;
 import com.qzcy.backend.dto.RelayTrendDto;
 import com.qzcy.backend.entity.RelayUsageLog;
 import org.apache.ibatis.annotations.Mapper;
@@ -110,13 +112,66 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
                    COALESCE(SUM(total_tokens), 0) AS totalTokens,
                    COALESCE(SUM((input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio), 0) AS upstreamCost,
                    COALESCE(SUM(cost), 0) AS siteCost,
-                   COALESCE(SUM(cost), 0) - COALESCE(SUM((input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio), 0) AS profit
+                   COALESCE(SUM(cost), 0) - COALESCE(SUM((input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio), 0) AS profit,
+                   COALESCE(SUM(CASE WHEN created_at >= CURDATE() THEN 1 ELSE 0 END), 0) AS todayRequests,
+                   COALESCE(SUM(CASE WHEN created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() THEN 1 ELSE 0 END), 0) AS yesterdayRequests,
+                   COALESCE(SUM(CASE WHEN created_at >= CURDATE() THEN total_tokens ELSE 0 END), 0) AS todayTokens,
+                   COALESCE(SUM(CASE WHEN created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() THEN total_tokens ELSE 0 END), 0) AS yesterdayTokens,
+                   COALESCE(SUM(CASE WHEN created_at >= CURDATE() THEN (input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio ELSE 0 END), 0) AS todayUpstreamCost,
+                   COALESCE(SUM(CASE WHEN created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() THEN (input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio ELSE 0 END), 0) AS yesterdayUpstreamCost,
+                   COALESCE(SUM(CASE WHEN created_at >= CURDATE() THEN cost ELSE 0 END), 0) AS todaySiteCost,
+                   COALESCE(SUM(CASE WHEN created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() THEN cost ELSE 0 END), 0) AS yesterdaySiteCost,
+                   COALESCE(SUM(CASE WHEN created_at >= CURDATE() THEN cost - (input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio ELSE 0 END), 0) AS todayProfit,
+                   COALESCE(SUM(CASE WHEN created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() THEN cost - (input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio ELSE 0 END), 0) AS yesterdayProfit
             FROM relay_usage_log
             GROUP BY channel_id, channel_name
             ORDER BY profit DESC, requests DESC
             LIMIT 20
             """)
     List<RelayChannelProfitDto> channelProfits();
+
+    @Select("""
+            SELECT u.id,
+                   u.username,
+                   u.email,
+                   u.role,
+                   u.banned,
+                   u.balance,
+                   u.created_at AS createdAt,
+                   COALESCE(usageSummary.todayRequests, 0) AS todayRequests,
+                   COALESCE(usageSummary.yesterdayRequests, 0) AS yesterdayRequests,
+                   COALESCE(usageSummary.todayCost, 0) AS todayCost,
+                   COALESCE(usageSummary.yesterdayCost, 0) AS yesterdayCost,
+                   COALESCE(usageSummary.totalTokens, 0) AS totalTokens,
+                   COALESCE(usageSummary.totalCost, 0) AS totalCost,
+                   COALESCE(recharge.totalRecharge, 0) AS totalRecharge
+            FROM `user` u
+            LEFT JOIN (
+                SELECT user_id,
+                       SUM(CASE WHEN created_at >= CURDATE() THEN 1 ELSE 0 END) AS todayRequests,
+                       SUM(CASE WHEN created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() THEN 1 ELSE 0 END) AS yesterdayRequests,
+                       SUM(CASE WHEN created_at >= CURDATE() THEN cost ELSE 0 END) AS todayCost,
+                       SUM(CASE WHEN created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() THEN cost ELSE 0 END) AS yesterdayCost,
+                       SUM(total_tokens) AS totalTokens,
+                       SUM(cost) AS totalCost
+                FROM relay_usage_log
+                GROUP BY user_id
+            ) usageSummary ON usageSummary.user_id = u.id
+            LEFT JOIN (
+                SELECT user_id,
+                       SUM(amount) AS totalRecharge
+                FROM payment_record
+                WHERE status = 'completed'
+                  AND type IN ('third_party', 'alipay', 'wxpay', 'qqpay', 'wechat')
+                GROUP BY user_id
+            ) recharge ON recharge.user_id = u.id
+            WHERE COALESCE(usageSummary.todayRequests, 0) > 0
+              AND (#{keyword} IS NULL OR #{keyword} = ''
+                   OR u.username LIKE CONCAT('%', #{keyword}, '%')
+                   OR u.email LIKE CONCAT('%', #{keyword}, '%'))
+            ORDER BY COALESCE(usageSummary.todayCost, 0) DESC, COALESCE(usageSummary.totalCost, 0) DESC, u.id DESC
+            """)
+    Page<AdminUserUsageDto> adminUserUsage(Page<AdminUserUsageDto> page, @Param("keyword") String keyword);
 
     @Select("SELECT COALESCE(AVG(duration_ms), 0) FROM relay_usage_log WHERE user_id = #{userId}")
     Long averageDurationMs(@Param("userId") Long userId);
@@ -148,6 +203,20 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
             LIMIT 10
             """)
     List<RelayModelUsageDto> modelUsage(@Param("userId") Long userId);
+
+    @Select("""
+            SELECT id,
+                   model,
+                   status,
+                   status_code AS statusCode,
+                   duration_ms AS durationMs,
+                   created_at AS createdAt
+            FROM relay_usage_log
+            WHERE model = #{model}
+            ORDER BY created_at DESC, id DESC
+            LIMIT 20
+            """)
+    List<RelayModelRecentCallDto> recentCallsForModel(@Param("model") String model);
 
     @Select("""
             SELECT DATE(created_at) AS date,

@@ -3,6 +3,7 @@ package com.qzcy.backend.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.RechargeDto;
+import com.qzcy.backend.event.RechargeSucceededEvent;
 import com.qzcy.backend.entity.PaymentConfig;
 import com.qzcy.backend.entity.PaymentRecord;
 import com.qzcy.backend.exception.BusinessException;
@@ -12,6 +13,7 @@ import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.PaymentService;
 import com.qzcy.backend.service.ReferralService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +34,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRecordMapper paymentRecordMapper;
     private final PaymentConfigService paymentConfigService;
     private final ReferralService referralService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -154,6 +157,7 @@ public class PaymentServiceImpl implements PaymentService {
         record.setStatus("completed");
         userMapper.addBalance(record.getUserId(), record.getAmount());
         referralService.rewardForRecharge(record);
+        eventPublisher.publishEvent(new RechargeSucceededEvent(record.getUserId(), record.getId()));
         return "success";
     }
 

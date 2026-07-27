@@ -1,5 +1,5 @@
 import http from './http'
-import type { AdminImageRecord, AdminRelayUsageLog, AdminStats, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
+import type { AdminImageRecord, AdminRelayUsageLog, AdminStats, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
 export const adminApi = {
   dashboard() {
@@ -19,6 +19,9 @@ export const adminApi = {
   },
   users(page = 1, size = 10, keyword = '') {
     return http.get<ApiResponse<PageResult<UserInfo>>>('/admin/users', { params: { page, size, keyword } })
+  },
+  userUsage(page = 1, size = 20, keyword = '') {
+    return http.get<ApiResponse<PageResult<AdminUserUsage>>>('/admin/user-usage', { params: { page, size, keyword } })
   },
   userRelayOverview(id: number) {
     return http.get<ApiResponse<RelayUserOverview>>(`/admin/users/${id}/relay-overview`)
@@ -80,6 +83,9 @@ export const adminApi = {
   },
   updateMailConfig(payload: Partial<Omit<MailConfig, 'id' | 'passwordConfigured'>> & { password?: string }) {
     return http.put<ApiResponse<MailConfig>>('/admin/mail-config', payload)
+  },
+  testMail(recipient: string) {
+    return http.post<ApiResponse<void>>('/admin/mail-config/test', { recipient })
   },
   paymentConfig() {
     return http.get<ApiResponse<PaymentConfig>>('/admin/payment-config')

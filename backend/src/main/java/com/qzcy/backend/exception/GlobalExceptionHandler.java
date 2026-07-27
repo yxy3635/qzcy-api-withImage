@@ -8,8 +8,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import lombok.extern.slf4j.Slf4j;
 
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException ex) {
@@ -28,7 +30,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception ex) {
-        return json(HttpStatus.INTERNAL_SERVER_ERROR, ApiResponse.error(500, ex.getMessage()));
+        log.error("Unhandled server exception", ex);
+        return json(HttpStatus.INTERNAL_SERVER_ERROR, ApiResponse.error(500, "系统繁忙，请稍后重试"));
     }
 
     private ResponseEntity<ApiResponse<Void>> json(HttpStatus status, ApiResponse<Void> body) {

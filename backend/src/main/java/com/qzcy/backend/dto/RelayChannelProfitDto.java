@@ -17,4 +17,14 @@ public class RelayChannelProfitDto {
     private BigDecimal upstreamCost;
     private BigDecimal siteCost;
     private BigDecimal profit;
+    private Long todayRequests;
+    private Long yesterdayRequests;
+    private Long todayTokens;
+    private Long yesterdayTokens;
+    private BigDecimal todayUpstreamCost;
+    private BigDecimal yesterdayUpstreamCost;
+    private BigDecimal todaySiteCost;
+    private BigDecimal yesterdaySiteCost;
+    private BigDecimal todayProfit;
+    private BigDecimal yesterdayProfit;
 }

@@ -7,17 +7,19 @@ import { relayApi } from '@/api/relayApi'
 import { paymentApi } from '@/api/paymentApi'
 import { userApi } from '@/api/userApi'
 import { useToast } from '@/composables/useToast'
+import { useSidebarPreference } from '@/composables/useSidebarPreference'
 import RequestLoader from '@/components/RequestLoader.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
 import RelayTrendChart from '@/components/relay/RelayTrendChart.vue'
 import RelayModelDistribution from '@/components/relay/RelayModelDistribution.vue'
 import RelayRecentCalls from '@/components/relay/RelayRecentCalls.vue'
-import type { Announcement, ErrorRequestLog, PaymentRecord, RelayModel, RelayPublicChannelModel, RelayToken, RelayUsageLog, RelayUserOverview } from '@/types'
+import type { Announcement, ErrorRequestLog, PaymentRecord, RelayModel, RelayModelRecentCall, RelayPublicChannelModel, RelayToken, RelayUsageLog, RelayUserOverview } from '@/types'
 
 const router = useRouter()
 const auth = useAuthStore()
 const toast = useToast()
+const { sidebarCollapsed, toggleSidebar } = useSidebarPreference()
 
 const overview = ref<RelayUserOverview | null>(null)
 const activeMenu = ref('dashboard')
@@ -25,13 +27,13 @@ const loading = ref(false)
 const copied = ref('')
 const creatingKey = ref(false)
 const showKeyDialog = ref(false)
+const tokenSecretActionId = ref<number | null>(null)
 const syncingStatus = ref(false)
 const checkingChannelId = ref<number | null>(null)
 const checkedChannelIds = ref<Set<number>>(new Set())
 const showErrorLogsDialog = ref(false)
 const showIntegrationGuide = ref(false)
 const mobileMenuOpen = ref(false)
-const sidebarCollapsed = ref(false)
 const menuDirection = ref<'forward' | 'backward'>('forward')
 const menuSwitching = ref(false)
 const menuProgressKey = ref(0)
@@ -46,6 +48,8 @@ const logSort = ref<'latest' | 'slowest' | 'cost'>('latest')
 const expandedLogIds = ref<Set<number>>(new Set())
 const keyActionDialog = ref<{ action: 'toggle' | 'delete'; token: RelayToken } | null>(null)
 const keyActionLoading = ref(false)
+const ccSwitchImportDialog = ref<RelayToken | null>(null)
+const ccSwitchImportLoading = ref(false)
 const activePricingTooltip = ref<{
   model: RelayPublicChannelModel
   detail: RelayModel
@@ -60,6 +64,7 @@ const rechargeLoading = ref(false)
 const rechargeError = ref('')
 const paymentRecords = ref<PaymentRecord[]>([])
 const announcements = ref<Announcement[]>([])
+const showAnnouncementsDialog = ref(false)
 const selectedAnnouncement = ref<Announcement | null>(null)
 const paymentOptions = ref([
   { value: 'alipay', label: '支付宝', desc: '推荐使用支付宝扫码支付', enabled: true },
@@ -171,6 +176,7 @@ const modelsById = computed(() => new Map(models.value.map((model) => [model.id,
 const groups = computed(() => overview.value?.groups || [{ id: 0, code: 'default', name: '默认分组', ratio: 1, enabled: true }])
 const trend = computed(() => overview.value?.trend || [])
 const modelUsage = computed(() => overview.value?.modelUsage || [])
+const modelRecentCalls = computed(() => overview.value?.modelRecentCalls || [])
 const channelRows = computed(() => {
   const keyword = channelSearch.value.trim().toLowerCase()
   return channels.value
@@ -241,6 +247,22 @@ const menus = [
   { id: 'referral', label: '邀请返利', icon: 'gift', route: '/user/referral' }
 ]
 
+const comingSoonPanel = computed(() => activeMenu.value === 'orders'
+  ? {
+      title: '我的订单',
+      subtitle: '查看订单与支付记录',
+      description: '订单查询功能正在准备中，开放后完整记录会显示在这里。',
+      icon: 'file',
+      columns: ['订单号', '订单类型', '金额', '状态', '创建时间']
+    }
+  : {
+      title: '我的订阅',
+      subtitle: '管理当前套餐与订阅周期',
+      description: '订阅管理功能正在准备中，开放后套餐信息会显示在这里。',
+      icon: 'card',
+      columns: ['套餐名称', '计费周期', '生效时间', '状态', '操作']
+    })
+
 const menuTransitionName = computed(() => menuDirection.value === 'backward' ? 'relay-view-back' : 'relay-view-forward')
 
 const menuIconPaths: Record<string, string> = {
@@ -267,15 +289,23 @@ const modelRows = computed(() => {
     const model = models.value.find((row) => row.model === item.model || publicModelName(row) === item.model)
     return model ? [[model.model, item], [publicModelName(model), item]] : [[item.model, item]]
   }))
+  const callsByModel = new Map<string, RelayModelRecentCall[]>()
+  modelRecentCalls.value.forEach((call) => {
+    const rows = callsByModel.get(call.model) || []
+    rows.push(call)
+    callsByModel.set(call.model, rows)
+  })
   return models.value.map((model) => {
     const usage = usageByModel.get(publicModelName(model)) || usageByModel.get(model.model)
-    const latest = logs.value.find((item) => item.model === publicModelName(model) || item.model === model.model)
+    const recentCalls = callsByModel.get(publicModelName(model)) || callsByModel.get(model.model) || []
+    const latest = recentCalls.at(-1)
     return {
       ...model,
       requests: Number(usage?.requests || 0),
       tokens: Number(usage?.totalTokens || 0),
       cost: Number(usage?.cost || 0),
-      lastStatus: latest?.status || model.status || 'unknown'
+      recentCalls,
+      lastStatus: latest?.status || (model.enabled ? model.status || 'unknown' : 'disabled')
     }
   })
 })
@@ -383,6 +413,21 @@ async function loadPaymentHistory() {
 async function loadAnnouncements() {
   const { data } = await noticeApi.list()
   announcements.value = data.data
+}
+
+function openAnnouncements() {
+  selectedAnnouncement.value = null
+  showAnnouncementsDialog.value = true
+}
+
+function openAnnouncement(item: Announcement) {
+  showAnnouncementsDialog.value = false
+  selectedAnnouncement.value = item
+}
+
+function backToAnnouncementList() {
+  selectedAnnouncement.value = null
+  showAnnouncementsDialog.value = true
 }
 
 function compact(value: number) {
@@ -797,6 +842,78 @@ async function createKey() {
   }
 }
 
+async function copyToken(token: RelayToken) {
+  tokenSecretActionId.value = token.id
+  try {
+    const { data } = await relayApi.revealToken(token.id)
+    await copyText(data.data, `token-${token.id}`)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '读取密钥失败')
+  } finally {
+    tokenSecretActionId.value = null
+  }
+}
+
+function ccSwitchTargetForToken(token: RelayToken) {
+  const tokenGroups = new Set(csvValues(token.groups).map((group) => group.toLowerCase()))
+  const matchingChannels = channels.value.filter((channel) => csvValues(channel.groupNames)
+    .some((group) => tokenGroups.has(group.toLowerCase())))
+  const hasOpenAiChannel = matchingChannels.some((channel) => String(channel.channelRule || '').toLowerCase() !== 'anthropic')
+
+  // A token may be shared by both protocols. Prefer Codex/OpenAI unless every matching channel is Anthropic.
+  return hasOpenAiChannel || !matchingChannels.length
+    ? { app: 'codex', label: 'Codex（OpenAI）' }
+    : { app: 'claude', label: 'Claude' }
+}
+
+async function importToCcSwitch(token: RelayToken) {
+  tokenSecretActionId.value = token.id
+  try {
+    const { data } = await relayApi.revealToken(token.id)
+    const target = ccSwitchTargetForToken(token)
+    const params = new URLSearchParams({
+      resource: 'provider',
+      app: target.app,
+      name: `${token.name} · imageCreater API`,
+      endpoint: apiBase.value,
+      apiKey: data.data,
+      homepage: siteOrigin.value,
+      notes: `由 imageCreater API 中转站安全导入 · ${target.label}`
+    })
+    const link = document.createElement('a')
+    link.href = `ccswitch://v1/import?${params.toString()}`
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    toast.success(`已唤起 CCSwitch，将导入到 ${target.label}`)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '唤起 CCSwitch 失败')
+  } finally {
+    tokenSecretActionId.value = null
+  }
+}
+
+function requestCcSwitchImport(token: RelayToken) {
+  ccSwitchImportDialog.value = token
+}
+
+function closeCcSwitchImport() {
+  if (!ccSwitchImportLoading.value) ccSwitchImportDialog.value = null
+}
+
+async function confirmCcSwitchImport() {
+  const token = ccSwitchImportDialog.value
+  if (!token) return
+  ccSwitchImportLoading.value = true
+  try {
+    await importToCcSwitch(token)
+    ccSwitchImportDialog.value = null
+  } finally {
+    ccSwitchImportLoading.value = false
+  }
+}
+
 function groupOf(code: string) {
   return groups.value.find((item) => item.code === code)
 }
@@ -946,7 +1063,38 @@ async function changeRelayPassword() {
 function statusText(status: string) {
   if (status === 'available' || status === 'success') return '可用'
   if (status === 'failed') return '异常'
+  if (status === 'disabled') return '已停用'
+  if (status === 'unknown') return '待调用'
   return '未知'
+}
+
+function recentCallSucceeded(call: RelayModelRecentCall) {
+  return call.status === 'success' && Number(call.statusCode || 0) >= 200 && Number(call.statusCode || 0) < 300
+}
+
+function recentCallBarClass(call: RelayModelRecentCall) {
+  if (recentCallSucceeded(call)) return 'bg-emerald-400 shadow-[0_2px_5px_rgba(16,185,129,0.28)]'
+  if (call.status === 'failed' || Number(call.statusCode || 0) >= 400) return 'bg-rose-400 shadow-[0_2px_5px_rgba(244,63,94,0.22)]'
+  return 'bg-amber-400'
+}
+
+function recentCallBarHeight(call: RelayModelRecentCall, index: number) {
+  const durationFactor = Math.min(10, Math.round(Number(call.durationMs || 0) / 1_000))
+  return 6 + ((index * 3 + durationFactor) % 11)
+}
+
+function recentCallTitle(call: RelayModelRecentCall) {
+  const label = recentCallSucceeded(call) ? '调用成功' : call.status === 'failed' ? '调用失败' : '调用状态未知'
+  const duration = Number(call.durationMs || 0) ? ` · ${(Number(call.durationMs) / 1_000).toFixed(2)}s` : ''
+  const time = call.createdAt ? ` · ${new Date(call.createdAt).toLocaleString()}` : ''
+  return `${label}${duration}${time}`
+}
+
+function modelStateBadgeClass(model: { lastStatus: string }) {
+  if (model.lastStatus === 'success' || model.lastStatus === 'available') return 'bg-emerald-50 text-emerald-700'
+  if (model.lastStatus === 'failed') return 'bg-rose-50 text-rose-700'
+  if (model.lastStatus === 'disabled') return 'bg-slate-100 text-slate-500'
+  return 'bg-amber-50 text-amber-700'
 }
 
 function selectMenu(item: { id: string; route?: string }) {
@@ -1000,10 +1148,10 @@ onMounted(async () => {
       class="fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-slate-200/80 bg-white shadow-[12px_0_40px_rgba(15,23,42,0.04)] transition-[width,transform] duration-300 ease-[cubic-bezier(.2,.8,.2,1)] md:translate-x-0"
       :class="[
         mobileMenuOpen ? 'translate-x-0' : '-translate-x-full',
-        sidebarCollapsed ? 'md:w-[84px]' : 'md:w-[248px]'
+        sidebarCollapsed ? 'md:w-[72px]' : 'md:w-[248px]'
       ]"
     >
-      <div class="relative flex h-[72px] shrink-0 items-center border-b border-slate-100 px-5">
+      <div class="relative flex h-[72px] shrink-0 items-center border-b border-slate-100 px-5" :class="sidebarCollapsed ? 'md:justify-center md:px-0' : ''">
         <button class="flex min-w-0 items-center gap-3 text-left" @click="router.push('/')">
           <img class="h-10 w-10 shrink-0 rounded-xl" src="/favicon.ico" alt="logo" />
           <span
@@ -1016,7 +1164,7 @@ onMounted(async () => {
           class="absolute -right-3 top-1/2 hidden h-7 w-7 -translate-y-1/2 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-emerald-300 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 md:grid"
           :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
           :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
-          @click="sidebarCollapsed = !sidebarCollapsed"
+          @click="toggleSidebar"
         >
           <svg viewBox="0 0 24 24" class="h-4 w-4 transition-transform duration-300" :class="sidebarCollapsed ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
@@ -1026,14 +1174,14 @@ onMounted(async () => {
           <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
         </button>
       </div>
-      <nav class="app-sidebar-nav flex-1 space-y-1 overflow-y-auto px-3 py-4">
+      <nav class="app-sidebar-nav flex-1 space-y-1 overflow-y-auto px-3 py-4" :class="sidebarCollapsed ? 'md:flex md:flex-col md:items-center md:px-0' : ''">
         <button
           v-for="item in menus"
           :key="item.id"
           class="group flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-bold transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           :class="[
             activeMenu === item.id ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-950',
-            sidebarCollapsed ? 'md:justify-center md:px-0' : ''
+            sidebarCollapsed ? 'md:h-11 md:w-11 md:flex-none md:justify-center md:px-0' : ''
           ]"
           :title="sidebarCollapsed ? item.label : undefined"
           @click="selectMenu(item)"
@@ -1046,7 +1194,7 @@ onMounted(async () => {
       </nav>
     </aside>
 
-    <div class="transition-[padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" :class="sidebarCollapsed ? 'md:pl-[84px]' : 'md:pl-[248px]'">
+    <div class="transition-[padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" :class="sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-[248px]'">
       <header class="sticky top-0 z-20 flex min-h-[72px] items-center justify-between gap-3 border-b border-slate-200/80 bg-white/92 px-3 backdrop-blur-xl sm:px-5 md:px-7">
         <div class="flex min-w-0 items-center gap-3">
           <button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 md:hidden" aria-label="打开导航" @click="mobileMenuOpen = true">
@@ -1061,6 +1209,20 @@ onMounted(async () => {
         </div>
         <div class="flex shrink-0 items-center gap-2 sm:gap-3">
           <span class="hidden rounded-full bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700 sm:inline-flex">${{ balance.toFixed(6) }}</span>
+          <button
+            type="button"
+            class="relative inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 text-slate-600 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 sm:px-3"
+            aria-label="打开公告中心"
+            title="公告中心"
+            @click="openAnnouncements"
+          >
+            <svg viewBox="0 0 24 24" class="h-[19px] w-[19px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+            </svg>
+            <span class="hidden text-sm font-black sm:inline">公告</span>
+            <span class="hidden min-w-5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-center text-[10px] font-black leading-4 text-emerald-700 sm:inline-block">{{ announcements.length > 99 ? '99+' : announcements.length }}</span>
+            <span v-if="announcements.length" class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white sm:hidden" aria-hidden="true"></span>
+          </button>
           <button class="hidden rounded-full border border-slate-200 px-3 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 sm:inline-flex" :disabled="loading" @click="load">{{ loading ? '刷新中' : '刷新' }}</button>
           <button class="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-pink-100 to-sky-100 text-sm font-black">{{ auth.userInfo?.username?.slice(0, 1).toUpperCase() || 'U' }}</button>
         </div>
@@ -1120,7 +1282,7 @@ onMounted(async () => {
                 v-for="item in announcements"
                 :key="item.id"
                 class="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-emerald-200 hover:bg-emerald-50/60"
-                @click="selectedAnnouncement = item"
+                @click="openAnnouncement(item)"
               >
                 <div class="flex items-center justify-between gap-3">
                   <p class="text-base font-black text-slate-950">{{ item.title }}</p>
@@ -1242,8 +1404,9 @@ onMounted(async () => {
                     <div class="text-right xl:mt-2 xl:text-left"><p class="text-[10px] font-semibold text-slate-400">上次使用</p><p class="mt-1 text-[11px] font-black text-slate-600">{{ item.lastUsedAt ? item.lastUsedAt.replace('T', ' ').slice(5, 16) : '尚未使用' }}</p></div>
                   </div>
 
-                  <div class="grid grid-cols-[1fr_1fr_42px] gap-2 xl:flex xl:justify-end">
-                    <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white shadow-sm shadow-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2" @click="copyText(item.plainToken || item.tokenPreview, `token-${item.id}`)"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>{{ copied === `token-${item.id}` ? '已复制' : '复制密钥' }}</button>
+                  <div class="grid grid-cols-2 gap-2 xl:flex xl:flex-wrap xl:justify-end">
+                    <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white shadow-sm shadow-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" :disabled="tokenSecretActionId === item.id" @click="copyToken(item)"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>{{ tokenSecretActionId === item.id ? '读取中' : copied === `token-${item.id}` ? '已复制' : '复制密钥' }}</button>
+                    <button type="button" class="group inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 px-3 text-xs font-black text-blue-700 shadow-sm shadow-blue-100 transition hover:-translate-y-0.5 hover:border-blue-300 hover:from-blue-100 hover:to-indigo-100 hover:shadow-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" :disabled="tokenSecretActionId === item.id" title="按密钥分组自动导入 Codex（OpenAI）或 Claude" @click="requestCcSwitchImport(item)"><svg viewBox="0 0 24 24" class="h-[18px] w-[18px] transition-transform duration-200 group-hover:translate-x-0.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="12" height="12" rx="2.2" /><path d="M7 19.5h5M9.5 16.5v3M13 10.5h7m-2.5-2.5 2.5 2.5-2.5 2.5" /></svg><span class="hidden 2xl:inline">导入 CCSwitch</span><span class="2xl:hidden">导入</span></button>
                     <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2" :class="item.enabled ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 focus-visible:ring-amber-500' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 focus-visible:ring-emerald-500'" @click="openKeyAction(item, 'toggle')"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 2v10M6.3 5.8a8 8 0 1 0 11.4 0" /></svg>{{ item.enabled ? '禁用' : '启用' }}</button>
                     <button type="button" class="grid h-10 w-[42px] place-items-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2" aria-label="删除密钥" title="删除密钥" @click="openKeyAction(item, 'delete')"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 14h8l1-14M10 11v6m4-6v6" /></svg></button>
                   </div>
@@ -1510,7 +1673,7 @@ onMounted(async () => {
           </section>
 
           <section v-if="activeMenu === 'models'" class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-            <h2 class="text-xl font-black">模型状态</h2>
+            <div class="flex flex-wrap items-end justify-between gap-3"><div><h2 class="text-xl font-black">模型状态</h2><p class="mt-1 text-xs font-semibold text-slate-500">默认展示系统全部模型；状态条来自所有用户的最近调用。</p></div><span class="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700"><span class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>全站实时</span></div>
             <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               <article v-for="model in modelRows" :key="model.id" class="rounded-xl border border-slate-100 bg-slate-50 p-4">
                 <div class="flex items-start justify-between gap-3">
@@ -1518,9 +1681,10 @@ onMounted(async () => {
                     <p class="font-black">{{ model.displayName || model.model }}</p>
                     <p class="mt-1 font-mono text-xs font-bold text-slate-500">{{ model.model }}</p>
                   </div>
-                  <span class="rounded-full px-3 py-1 text-xs font-black" :class="model.lastStatus === 'success' || model.status === 'available' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">{{ statusText(model.lastStatus) }}</span>
+                  <span class="rounded-full px-3 py-1 text-xs font-black" :class="modelStateBadgeClass(model)">{{ statusText(model.lastStatus) }}</span>
                 </div>
                 <p class="mt-3 text-xs font-semibold text-slate-500">{{ model.modelType }} · 请求 {{ model.requests }} · Token {{ compact(model.tokens) }}</p>
+                <div class="mt-4 border-t border-slate-200/80 pt-3"><div class="flex items-center justify-between gap-3"><span class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Recent calls</span><span class="text-[10px] font-bold text-slate-400">{{ model.recentCalls.length ? `最近 ${model.recentCalls.length}/20 次` : '暂无调用' }}</span></div><div class="mt-2 flex h-5 items-end gap-1" role="list" :aria-label="`${model.displayName || model.model} 最近调用状态`"><span v-if="!model.recentCalls.length" class="h-1.5 w-full rounded-full bg-slate-200"></span><span v-for="(call, index) in model.recentCalls" v-else :key="call.id" class="w-1.5 min-w-1.5 rounded-full transition-transform duration-200 hover:scale-y-125" :class="recentCallBarClass(call)" :style="{ height: `${recentCallBarHeight(call, index)}px` }" role="listitem" :title="recentCallTitle(call)"></span></div></div>
               </article>
             </div>
           </section>
@@ -1612,19 +1776,46 @@ onMounted(async () => {
             </div>
           </section>
 
-          <section v-if="activeMenu === 'subscription' || activeMenu === 'orders'" class="relay-horizon h-full min-h-[420px] overflow-hidden rounded-[24px] border border-slate-200/70" :class="activeMenu === 'orders' ? 'is-orders' : 'is-subscription'" :aria-label="activeMenu === 'orders' ? '订单页面动态占位' : '订阅页面动态占位'">
-            <div class="relay-horizon-grid" aria-hidden="true"></div>
-            <div class="relay-horizon-glow glow-one" aria-hidden="true"></div>
-            <div class="relay-horizon-glow glow-two" aria-hidden="true"></div>
-            <div class="relay-orbit orbit-one" aria-hidden="true"><span></span></div>
-            <div class="relay-orbit orbit-two" aria-hidden="true"><span></span></div>
-            <div class="relay-orbit orbit-three" aria-hidden="true"><span></span></div>
-            <div class="relay-horizon-core" aria-hidden="true">
-              <span class="core-ring ring-one"></span>
-              <span class="core-ring ring-two"></span>
-              <span class="core-dot"></span>
+          <section
+            v-if="activeMenu === 'subscription' || activeMenu === 'orders'"
+            class="relay-pending-page h-full min-h-[420px] overflow-hidden rounded-[22px] border border-slate-200/80"
+            :class="activeMenu === 'orders' ? 'is-orders' : 'is-subscription'"
+            :aria-labelledby="`pending-page-${activeMenu}`"
+          >
+            <header class="pending-page-header">
+              <div class="pending-page-identity">
+                <span class="pending-page-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path :d="menuIconPaths[comingSoonPanel.icon]"></path>
+                  </svg>
+                </span>
+                <div>
+                  <h2 :id="`pending-page-${activeMenu}`">{{ comingSoonPanel.title }}</h2>
+                  <p>{{ comingSoonPanel.subtitle }}</p>
+                </div>
+              </div>
+              <span class="pending-page-badge">即将开放</span>
+            </header>
+
+            <div class="pending-table" role="table" :aria-label="`${comingSoonPanel.title}列表`">
+              <div class="pending-table-head" role="row">
+                <span v-for="column in comingSoonPanel.columns" :key="column" role="columnheader">{{ column }}</span>
+              </div>
+              <div class="pending-empty" role="row">
+                <div role="cell">
+                  <span class="pending-empty-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                      <path :d="menuIconPaths[comingSoonPanel.icon]"></path>
+                    </svg>
+                  </span>
+                  <h3>即将来临...</h3>
+                  <p>{{ comingSoonPanel.description }}</p>
+                  <div class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+                </div>
+              </div>
             </div>
-            <div class="relay-horizon-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+
+            <footer class="pending-page-footer">页面开放后，数据将自动显示在此处</footer>
           </section>
 
           <section v-if="activeMenu === 'profile'" class="relative h-full min-h-0 overflow-y-auto overscroll-contain">
@@ -1930,6 +2121,19 @@ onMounted(async () => {
       @confirm="confirmKeyAction"
     />
 
+    <AppConfirmDialog
+      :open="Boolean(ccSwitchImportDialog)"
+      title="导入到 CCSwitch？"
+      :description="ccSwitchImportDialog ? `将为「${ccSwitchImportDialog.name}」创建 ${ccSwitchTargetForToken(ccSwitchImportDialog).label} 配置。点击后会打开 CCSwitch，应用内仍需完成一次导入确认。` : ''"
+      confirm-label="打开 CCSwitch"
+      cancel-label="暂不导入"
+      :subject="ccSwitchImportDialog ? `${ccSwitchImportDialog.tokenPreview} → ${ccSwitchTargetForToken(ccSwitchImportDialog).label}` : ''"
+      tone="success"
+      :loading="ccSwitchImportLoading"
+      @cancel="closeCcSwitchImport"
+      @confirm="confirmCcSwitchImport"
+    />
+
     <Teleport to="body">
       <div
         v-if="activePricingTooltip"
@@ -1998,22 +2202,128 @@ onMounted(async () => {
         </div>
       </Transition>
 
-      <div
-        v-if="selectedAnnouncement"
-        class="fixed inset-0 z-[70] flex min-h-dvh items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"
-        @click.self="selectedAnnouncement = null"
-      >
-        <section class="max-h-[calc(100dvh-32px)] w-full max-w-2xl overflow-y-auto rounded-[24px] bg-white p-5 shadow-[0_28px_90px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-6">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <h2 class="text-xl font-black text-slate-950 sm:text-2xl">{{ selectedAnnouncement.title }}</h2>
-              <p class="mt-2 text-xs font-semibold text-slate-400">{{ (selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt || '').replace('T', ' ') }}</p>
+      <Transition name="zoom-fade">
+        <div
+          v-if="showAnnouncementsDialog"
+          class="fixed inset-0 z-[80] grid min-h-dvh place-items-center overflow-y-auto bg-slate-950/45 p-3 backdrop-blur-[6px] sm:p-5"
+          @click.self="showAnnouncementsDialog = false"
+        >
+          <section
+            class="flex max-h-[calc(100dvh-24px)] w-full max-w-2xl flex-col overflow-hidden rounded-[24px] border border-white/80 bg-white/95 shadow-[0_32px_100px_rgba(15,23,42,0.28)] sm:max-h-[calc(100dvh-40px)] sm:rounded-[28px]"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="announcement-center-title"
+          >
+            <header class="flex shrink-0 items-center justify-between gap-4 border-b border-slate-100 bg-white/90 px-4 py-4 backdrop-blur-xl sm:px-6 sm:py-5">
+              <div class="flex min-w-0 items-center gap-3">
+                <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                  <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+                  </svg>
+                </span>
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2">
+                    <h2 id="announcement-center-title" class="truncate text-lg font-black text-slate-950 sm:text-xl">公告中心</h2>
+                    <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">{{ announcements.length }} 条</span>
+                  </div>
+                  <p class="mt-0.5 text-xs font-semibold text-slate-500">查看平台发布的全部通知</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                aria-label="关闭公告中心"
+                @click="showAnnouncementsDialog = false"
+              >
+                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              </button>
+            </header>
+
+            <div class="min-h-0 overflow-y-auto p-3 sm:p-5">
+              <div v-if="announcements.length" class="grid gap-3">
+                <button
+                  v-for="item in announcements"
+                  :key="item.id"
+                  type="button"
+                  class="group w-full rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/50 hover:shadow-md hover:shadow-emerald-100/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 sm:p-5"
+                  @click="openAnnouncement(item)"
+                >
+                  <div class="flex items-start gap-3 sm:gap-4">
+                    <span class="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500 transition group-hover:bg-emerald-100 group-hover:text-emerald-700">
+                      <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" /><path d="M8 9h8M8 13h8M8 17h5" /></svg>
+                    </span>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                        <h3 class="break-words text-sm font-black leading-6 text-slate-900 transition group-hover:text-emerald-800 sm:text-base">{{ item.title }}</h3>
+                        <time class="shrink-0 text-[11px] font-semibold text-slate-400">{{ (item.publishedAt || item.createdAt || '').slice(0, 16).replace('T', ' ') || '发布时间待定' }}</time>
+                      </div>
+                      <p class="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-slate-500 sm:text-sm sm:leading-6">{{ item.content }}</p>
+                    </div>
+                    <svg viewBox="0 0 24 24" class="mt-2 h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-emerald-600" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                  </div>
+                </button>
+              </div>
+
+              <div v-else class="grid min-h-64 place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center">
+                <div>
+                  <span class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-slate-400 shadow-sm ring-1 ring-slate-100">
+                    <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+                  </span>
+                  <p class="mt-4 text-sm font-black text-slate-700">暂无公告</p>
+                  <p class="mt-1 text-xs font-semibold text-slate-400">新公告发布后会显示在这里</p>
+                </div>
+              </div>
             </div>
-            <button class="rounded-xl px-3 py-2 text-xl font-black text-slate-400 hover:bg-slate-50" @click="selectedAnnouncement = null">×</button>
-          </div>
-          <div class="mt-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{{ selectedAnnouncement.content }}</div>
-        </section>
-      </div>
+          </section>
+        </div>
+      </Transition>
+
+      <Transition name="zoom-fade">
+        <div
+          v-if="selectedAnnouncement"
+          class="fixed inset-0 z-[80] grid min-h-dvh place-items-center overflow-y-auto bg-slate-950/45 p-3 backdrop-blur-[6px] sm:p-5"
+          @click.self="selectedAnnouncement = null"
+        >
+          <section
+            class="flex max-h-[calc(100dvh-24px)] w-full max-w-2xl flex-col overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-[0_32px_100px_rgba(15,23,42,0.28)] sm:max-h-[calc(100dvh-40px)] sm:rounded-[28px]"
+            role="dialog"
+            aria-modal="true"
+            :aria-labelledby="`announcement-title-${selectedAnnouncement.id}`"
+          >
+            <header class="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 bg-white/90 px-4 py-3 backdrop-blur-xl sm:px-6 sm:py-4">
+              <button
+                type="button"
+                class="inline-flex h-10 items-center gap-2 rounded-xl px-2.5 text-xs font-black text-slate-600 transition hover:bg-emerald-50 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 sm:px-3"
+                @click="backToAnnouncementList"
+              >
+                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                返回公告列表
+              </button>
+              <button
+                type="button"
+                class="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                aria-label="关闭公告详情"
+                @click="selectedAnnouncement = null"
+              >
+                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              </button>
+            </header>
+
+            <article class="min-h-0 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8">
+              <div class="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-emerald-600">
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                平台公告
+              </div>
+              <h2 :id="`announcement-title-${selectedAnnouncement.id}`" class="mt-3 break-words text-xl font-black leading-tight text-slate-950 sm:text-2xl">{{ selectedAnnouncement.title }}</h2>
+              <p class="mt-3 flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v3M18 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" /></svg>
+                {{ (selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt || '').replace('T', ' ') || '发布时间待定' }}
+              </p>
+              <div class="mt-6 border-t border-slate-100 pt-6 whitespace-pre-wrap break-words text-sm font-semibold leading-7 text-slate-700 sm:text-[15px] sm:leading-8">{{ selectedAnnouncement.content }}</div>
+            </article>
+          </section>
+        </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
@@ -2247,110 +2557,162 @@ onMounted(async () => {
   animation: channelCheckComplete 560ms cubic-bezier(.16, 1, .3, 1);
 }
 
-.relay-horizon {
-  position: relative;
-  isolation: isolate;
-  background: #07110f;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .03), 0 24px 70px rgba(15, 23, 42, .12);
-}
-
-.relay-horizon.is-orders { background: #0b0e16; }
-
-.relay-horizon-grid {
-  position: absolute;
-  inset: 0;
-  z-index: -4;
-  background-image: linear-gradient(rgba(52, 211, 153, .075) 1px, transparent 1px), linear-gradient(90deg, rgba(52, 211, 153, .075) 1px, transparent 1px);
-  background-size: 54px 54px;
-  mask-image: radial-gradient(circle at center, #000 18%, transparent 76%);
-  animation: horizonGridDrift 16s linear infinite;
-}
-
-.is-orders .relay-horizon-grid {
-  background-image: linear-gradient(rgba(56, 189, 248, .075) 1px, transparent 1px), linear-gradient(90deg, rgba(56, 189, 248, .075) 1px, transparent 1px);
-}
-
-.relay-horizon-glow {
-  position: absolute;
-  z-index: -3;
-  width: 34vw;
-  height: 34vw;
-  min-width: 340px;
-  min-height: 340px;
-  border-radius: 50%;
-  filter: blur(85px);
-  opacity: .17;
-  animation: horizonGlow 8s ease-in-out infinite alternate;
-}
-
-.glow-one { left: -8%; top: -20%; background: #10b981; }
-.glow-two { right: -7%; bottom: -24%; background: #22d3ee; animation-delay: -3s; }
-.is-orders .glow-one { background: #3b82f6; }
-.is-orders .glow-two { background: #f59e0b; }
-
-.relay-horizon-core {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: clamp(130px, 15vw, 220px);
-  aspect-ratio: 1;
-  border: 1px solid rgba(110, 231, 183, .2);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: inset 0 0 60px rgba(16, 185, 129, .08), 0 0 70px rgba(16, 185, 129, .08);
-}
-
-.is-orders .relay-horizon-core { border-radius: 34%; border-color: rgba(125, 211, 252, .22); box-shadow: inset 0 0 60px rgba(59, 130, 246, .09), 0 0 70px rgba(59, 130, 246, .08); transform: translate(-50%, -50%) rotate(45deg); }
-
-.core-ring {
-  position: absolute;
-  border: 1px solid rgba(52, 211, 153, .35);
-  border-radius: inherit;
-}
-
-.ring-one { inset: 17%; animation: corePulse 2.8s ease-in-out infinite; }
-.ring-two { inset: 34%; animation: corePulse 2.8s .7s ease-in-out infinite; }
-.core-dot { position: absolute; inset: 44%; border-radius: 50%; background: #6ee7b7; box-shadow: 0 0 24px #34d399; animation: coreBlink 1.8s ease-in-out infinite; }
-.is-orders .core-ring { border-color: rgba(125, 211, 252, .38); }
-.is-orders .core-dot { border-radius: 2px; background: #7dd3fc; box-shadow: 0 0 24px #38bdf8; }
-
-.relay-orbit {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  border: 1px solid rgba(148, 163, 184, .16);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.orbit-one { width: clamp(280px, 34vw, 560px); aspect-ratio: 1; animation: orbitSpin 15s linear infinite; }
-.orbit-two { width: clamp(390px, 48vw, 760px); aspect-ratio: 1; animation: orbitSpin 23s linear infinite reverse; }
-.orbit-three { width: clamp(520px, 65vw, 1040px); aspect-ratio: 1; animation: orbitSpin 32s linear infinite; }
-.relay-orbit > span { position: absolute; left: 50%; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 18px #10b981; }
-.orbit-two > span { left: 18%; top: 89%; width: 6px; height: 6px; background: #22d3ee; box-shadow: 0 0 16px #06b6d4; }
-.orbit-three > span { left: 91%; top: 28%; width: 5px; height: 5px; opacity: .75; }
-.is-orders .relay-orbit > span { border-radius: 1px; background: #38bdf8; box-shadow: 0 0 18px #3b82f6; }
-.is-orders .orbit-two > span { background: #fbbf24; box-shadow: 0 0 16px #f59e0b; }
-
-.relay-horizon-bars {
-  position: absolute;
-  left: 50%;
-  bottom: 8%;
+.relay-pending-page {
+  --pending-accent: #059669;
+  --pending-soft: #ecfdf5;
   display: flex;
-  align-items: end;
-  gap: 5px;
-  height: 28px;
-  transform: translateX(-50%);
-  opacity: .55;
+  flex-direction: column;
+  background: rgba(255, 255, 255, .88);
+  color: #0f172a;
+  box-shadow: 0 14px 45px rgba(15, 23, 42, .06), inset 0 1px 0 rgba(255, 255, 255, .92);
+  backdrop-filter: blur(20px) saturate(125%);
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
+  animation: pendingPageIn 380ms cubic-bezier(.16, 1, .3, 1) both;
 }
 
-.relay-horizon-bars i { width: 3px; border-radius: 3px; background: #6ee7b7; animation: horizonBars 1.3s ease-in-out infinite alternate; }
-.relay-horizon-bars i:nth-child(1) { height: 30%; }
-.relay-horizon-bars i:nth-child(2) { height: 70%; animation-delay: -.3s; }
-.relay-horizon-bars i:nth-child(3) { height: 100%; animation-delay: -.6s; }
-.relay-horizon-bars i:nth-child(4) { height: 55%; animation-delay: -.9s; }
-.relay-horizon-bars i:nth-child(5) { height: 35%; animation-delay: -1.1s; }
-.is-orders .relay-horizon-bars i { background: #7dd3fc; }
+.relay-pending-page.is-orders {
+  --pending-accent: #2563eb;
+  --pending-soft: #eff6ff;
+}
+
+.pending-page-header {
+  display: flex;
+  min-height: 76px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #e8edf3;
+  padding: 14px 20px;
+  background: rgba(255, 255, 255, .72);
+}
+
+.pending-page-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.pending-page-icon,
+.pending-empty-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #dbe3ec;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--pending-accent);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .05);
+}
+
+.pending-page-icon { width: 42px; height: 42px; }
+.pending-page-icon svg { width: 19px; height: 19px; }
+.pending-page-identity h2 { margin: 0; color: #0f172a; font-size: 17px; font-weight: 900; letter-spacing: 0; }
+.pending-page-identity p { margin: 4px 0 0; color: #7b8a9d; font-size: 10px; font-weight: 650; }
+
+.pending-page-badge {
+  border: 1px solid color-mix(in srgb, var(--pending-accent) 18%, #e2e8f0);
+  border-radius: 999px;
+  background: var(--pending-soft);
+  padding: 6px 10px;
+  color: var(--pending-accent);
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.pending-table {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.pending-table-head {
+  display: grid;
+  min-height: 43px;
+  flex: 0 0 auto;
+  align-items: center;
+  border-bottom: 1px solid #e8edf3;
+  background: #f8fafc;
+  padding: 0 20px;
+  grid-template-columns: 1.35fr 1fr .85fr 1fr 1.15fr;
+}
+
+.pending-table-head span {
+  color: #718096;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.pending-empty {
+  display: grid;
+  min-height: 300px;
+  flex: 1 1 auto;
+  place-items: center;
+  padding: 36px 20px;
+  text-align: center;
+}
+
+.pending-empty > div { width: min(100%, 370px); }
+.pending-empty-icon { width: 56px; height: 56px; margin: 0 auto; background: var(--pending-soft); }
+.pending-empty-icon svg { width: 24px; height: 24px; }
+.pending-empty h3 { margin: 18px 0 0; color: #263244; font-size: 20px; font-weight: 850; letter-spacing: 0; }
+.pending-empty p { margin: 9px 0 0; color: #718096; font-size: 12px; font-weight: 600; line-height: 1.75; }
+
+.pending-dots {
+  display: flex;
+  min-height: 8px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 18px;
+}
+
+.pending-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--pending-accent);
+  opacity: .28;
+  animation: pendingDot 1.4s ease-in-out infinite;
+}
+
+.pending-dots i:nth-child(2) { animation-delay: 140ms; }
+.pending-dots i:nth-child(3) { animation-delay: 280ms; }
+
+.pending-page-footer {
+  min-height: 42px;
+  flex: 0 0 auto;
+  border-top: 1px solid #e8edf3;
+  background: rgba(248, 250, 252, .76);
+  padding: 13px 20px;
+  color: #8b98a9;
+  font-size: 10px;
+  font-weight: 650;
+  text-align: center;
+}
+
+@keyframes pendingPageIn {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pendingDot {
+  0%, 70%, 100% { opacity: .22; transform: translateY(0); }
+  35% { opacity: .82; transform: translateY(-2px); }
+}
+
+@media (max-width: 640px) {
+  .pending-page-header { min-height: 68px; padding: 12px 14px; }
+  .pending-page-icon { width: 38px; height: 38px; }
+  .pending-page-identity p { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pending-table-head { display: none; }
+  .pending-empty { min-height: 360px; padding: 40px 22px; }
+  .pending-page-footer { padding-right: 14px; padding-left: 14px; }
+}
 
 .profile-hero {
   background: linear-gradient(150deg, #0b1220 0%, #0e2223 55%, #06251d 100%);
@@ -2392,12 +2754,7 @@ onMounted(async () => {
 @keyframes channelCardShimmer { from { transform: translateX(-90%); } to { transform: translateX(90%); } }
 @keyframes channelScanLine { 0%, 100% { top: 0; opacity: .55; } 50% { top: calc(100% - 2px); opacity: 1; } }
 @keyframes channelCheckComplete { 0% { transform: scale(.985); } 45% { transform: scale(1.012); } 100% { transform: scale(1); } }
-@keyframes horizonGridDrift { to { background-position: 54px 54px; } }
 @keyframes horizonGlow { to { transform: translate3d(8%, 5%, 0) scale(1.08); opacity: .25; } }
-@keyframes orbitSpin { to { transform: translate(-50%, -50%) rotate(360deg); } }
-@keyframes corePulse { 0%, 100% { opacity: .25; transform: scale(.85); } 50% { opacity: .9; transform: scale(1.1); } }
-@keyframes coreBlink { 50% { opacity: .45; transform: scale(.7); } }
-@keyframes horizonBars { to { transform: scaleY(.35); opacity: .4; } }
 
 @media (prefers-reduced-motion: reduce) {
   .relay-view-forward-enter-active,
@@ -2430,12 +2787,8 @@ onMounted(async () => {
   .channel-card.is-checking::after,
   .channel-scan-line,
   .channel-check-complete,
-  .relay-horizon-grid,
-  .relay-horizon-glow,
-  .relay-orbit,
-  .core-ring,
-  .core-dot,
-  .relay-horizon-bars i {
+  .relay-pending-page,
+  .pending-dots i {
     animation: none !important;
   }
 

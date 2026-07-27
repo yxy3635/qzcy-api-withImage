@@ -87,7 +87,7 @@ const routerToGithub = () => {
       <div class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-500">
         <button class="hover:text-blue-600 transition-colors" @click="router.push('/relay')">中转站</button>
         <button class="hover:text-blue-600 transition-colors" @click="scrollToGallery">视觉矩阵</button>
-        <button class="hover:text-blue-600 transition-colors">对接文档</button>
+        <button class="hover:text-blue-600 transition-colors" @click="router.push('/docs')">对接文档</button>
 		<button class="hover:text-blue-600 transition-colors" 
 			style="color: aqua;"
 			@click="routerToGithub">
@@ -95,12 +95,20 @@ const routerToGithub = () => {
 		</button>
       </div>
 
-      <button 
-        class="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-md transition-colors hover:bg-blue-600 hover:shadow-blue-500/30 sm:px-5 sm:text-sm"
-        @click="router.push(primaryTarget)"
-      >
-        进入控制台
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          class="rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:border-cyan-300 hover:text-cyan-700 md:hidden"
+          @click="router.push('/docs')"
+        >
+          文档
+        </button>
+        <button
+          class="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-md transition-colors hover:bg-blue-600 hover:shadow-blue-500/30 sm:px-5 sm:text-sm"
+          @click="router.push(primaryTarget)"
+        >
+          进入控制台
+        </button>
+      </div>
     </nav>
 
     <!-- Hero Section -->

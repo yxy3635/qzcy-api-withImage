@@ -170,6 +170,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         addIndexIfMissing("relay_token", "idx_relay_token_value_enabled", "CREATE INDEX idx_relay_token_value_enabled ON relay_token (token, enabled)");
         if (tableExists("relay_usage_log")) {
             addIndexIfMissing("relay_usage_log", "idx_relay_usage_token_created", "CREATE INDEX idx_relay_usage_token_created ON relay_usage_log (token_id, created_at)");
+            addIndexIfMissing("relay_usage_log", "idx_relay_usage_model_created", "CREATE INDEX idx_relay_usage_model_created ON relay_usage_log (model, created_at)");
         }
     }
 
