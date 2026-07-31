@@ -95,6 +95,7 @@ function paymentTypeText(value: string) {
   if (value === 'wxpay') return '微信支付'
   if (value === 'qqpay') return 'QQ钱包'
   if (value === 'referral_rebate') return '邀请返利'
+  if (value === 'admin_gift') return '管理员赠送'
   if (value === 'balance') return '余额扣费'
   if (value === 'image_refund') return '生图失败退款'
   return value || '-'
@@ -228,9 +229,10 @@ onMounted(async () => {
         </div>
         <RequestLoader v-if="historyLoading" class="p-12" label="正在加载支付记录" :cell-size="15" />
         <div v-else class="divide-y divide-slate-100">
-          <div v-for="record in records" :key="record.id" class="interactive-row grid gap-2 p-4 text-sm md:grid-cols-[120px_1fr_120px_180px] md:p-5">
+          <div v-for="record in records" :key="record.id" class="interactive-row grid gap-2 p-4 text-sm md:grid-cols-[120px_150px_1fr_120px_180px] md:p-5">
             <span class="font-black text-slate-950">￥{{ Number(record.amount).toFixed(6) }}</span>
             <span class="text-slate-600">{{ paymentTypeText(record.type) }}</span>
+            <span class="min-w-0 truncate text-slate-500" :title="record.remark || ''">{{ record.remark || '-' }}</span>
             <span class="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{{ record.status }}</span>
             <span class="text-slate-500">{{ record.createdAt }}</span>
           </div>

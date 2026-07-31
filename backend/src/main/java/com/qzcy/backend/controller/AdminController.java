@@ -5,6 +5,8 @@ import com.qzcy.backend.dto.AdminImageRecordDto;
 import com.qzcy.backend.dto.AdminRelayUsageLogDto;
 import com.qzcy.backend.dto.AdminUserUpdateDto;
 import com.qzcy.backend.dto.AdminUserUsageDto;
+import com.qzcy.backend.dto.AdminUserRankingsDto;
+import com.qzcy.backend.dto.AdminUserGiftDto;
 import com.qzcy.backend.dto.AnnouncementDto;
 import com.qzcy.backend.dto.AnnouncementUpdateDto;
 import com.qzcy.backend.dto.ApiResponse;
@@ -103,6 +105,17 @@ public class AdminController {
                                                            @RequestParam(defaultValue = "20") long size,
                                                            @RequestParam(required = false) String keyword) {
         return ApiResponse.success(adminService.userUsage(page, size, keyword));
+    }
+
+    @GetMapping("/user-rankings")
+    public ApiResponse<AdminUserRankingsDto> userRankings() {
+        return ApiResponse.success(adminService.userRankings());
+    }
+
+    @PostMapping("/users/{id}/gift-balance")
+    public ApiResponse<Void> giftBalance(@PathVariable Long id, @RequestBody AdminUserGiftDto dto) {
+        adminService.giftBalance(id, dto);
+        return ApiResponse.success(null);
     }
 
     @GetMapping("/users/{id}/relay-overview")

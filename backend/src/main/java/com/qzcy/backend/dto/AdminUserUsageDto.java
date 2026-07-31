@@ -15,6 +15,7 @@ public class AdminUserUsageDto {
     private BigDecimal balance;
     private LocalDateTime createdAt;
     private Long todayRequests;
+    private Long todayTokens;
     private Long yesterdayRequests;
     private BigDecimal todayCost;
     private BigDecimal yesterdayCost;

@@ -47,6 +47,13 @@ mybatis-plus:
       id-type: auto
 
 app:
+  admin:
+    user-ranking-cache:
+      redis-enabled: ${ADMIN_USER_RANKING_CACHE_REDIS_ENABLED:true}
+      ttl-seconds: ${ADMIN_USER_RANKING_CACHE_TTL_SECONDS:60}
+  payment:
+    pending-cleanup:
+      interval-ms: ${PENDING_PAYMENT_CLEANUP_INTERVAL_MS:900000}
   jwt:
     secret: ${JWT_SECRET:imageCreater-development-secret-key-change-me-please-32}
     expiration-ms: 86400000

@@ -3,6 +3,7 @@ package com.qzcy.backend.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminRelayUsageLogDto;
+import com.qzcy.backend.dto.AdminUserRankingDto;
 import com.qzcy.backend.dto.AdminUserUsageDto;
 import com.qzcy.backend.dto.RelayChannelProfitDto;
 import com.qzcy.backend.dto.RelayModelUsageDto;
@@ -25,35 +26,37 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
     @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log")
     BigDecimal totalCost();
 
-    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE DATE(created_at) = CURDATE()")
+    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     Long todayRequests();
 
-    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)")
+    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE()")
     Long yesterdayRequests();
 
-    @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE DATE(created_at) = CURDATE()")
+    @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     Long todayTokens();
 
-    @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)")
+    @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE()")
     Long yesterdayTokens();
 
-    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE DATE(created_at) = CURDATE()")
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     BigDecimal todayCost();
 
-    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)")
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE()")
     BigDecimal yesterdayCost();
 
     @Select("""
             SELECT COALESCE(SUM((input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio), 0)
             FROM relay_usage_log
-            WHERE DATE(created_at) = CURDATE()
+            WHERE created_at >= CURDATE()
+              AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
             """)
     BigDecimal todayUpstreamCost();
 
     @Select("""
             SELECT COALESCE(SUM((input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio), 0)
             FROM relay_usage_log
-            WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+              AND created_at < CURDATE()
             """)
     BigDecimal yesterdayUpstreamCost();
 
@@ -72,31 +75,31 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
     @Select("SELECT COUNT(*) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= #{since}")
     Long userRequestsSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
-    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE user_id = #{userId} AND DATE(created_at) = CURDATE()")
+    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     Long userTodayRequests(@Param("userId") Long userId);
 
     @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= #{since}")
     Long userTokensSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
-    @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId} AND DATE(created_at) = CURDATE()")
+    @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     Long userTodayTokens(@Param("userId") Long userId);
 
     @Select("SELECT COALESCE(SUM(prompt_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= #{since}")
     Long userPromptTokensSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
-    @Select("SELECT COALESCE(SUM(prompt_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId} AND DATE(created_at) = CURDATE()")
+    @Select("SELECT COALESCE(SUM(prompt_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     Long userTodayPromptTokens(@Param("userId") Long userId);
 
     @Select("SELECT COALESCE(SUM(completion_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= #{since}")
     Long userCompletionTokensSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
-    @Select("SELECT COALESCE(SUM(completion_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId} AND DATE(created_at) = CURDATE()")
+    @Select("SELECT COALESCE(SUM(completion_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     Long userTodayCompletionTokens(@Param("userId") Long userId);
 
     @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= #{since}")
     BigDecimal userCostSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
-    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE user_id = #{userId} AND DATE(created_at) = CURDATE()")
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     BigDecimal userTodayCost(@Param("userId") Long userId);
 
     @Select("""
@@ -139,39 +142,82 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
                    u.balance,
                    u.created_at AS createdAt,
                    COALESCE(usageSummary.todayRequests, 0) AS todayRequests,
+                   COALESCE(usageSummary.todayTokens, 0) AS todayTokens,
                    COALESCE(usageSummary.yesterdayRequests, 0) AS yesterdayRequests,
                    COALESCE(usageSummary.todayCost, 0) AS todayCost,
                    COALESCE(usageSummary.yesterdayCost, 0) AS yesterdayCost,
                    COALESCE(usageSummary.totalTokens, 0) AS totalTokens,
                    COALESCE(usageSummary.totalCost, 0) AS totalCost,
                    COALESCE(recharge.totalRecharge, 0) AS totalRecharge
-            FROM `user` u
-            LEFT JOIN (
-                SELECT user_id,
+            FROM (
+                SELECT r.user_id AS user_id,
                        SUM(CASE WHEN created_at >= CURDATE() THEN 1 ELSE 0 END) AS todayRequests,
+                       SUM(CASE WHEN created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY) THEN total_tokens ELSE 0 END) AS todayTokens,
                        SUM(CASE WHEN created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() THEN 1 ELSE 0 END) AS yesterdayRequests,
                        SUM(CASE WHEN created_at >= CURDATE() THEN cost ELSE 0 END) AS todayCost,
                        SUM(CASE WHEN created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() THEN cost ELSE 0 END) AS yesterdayCost,
                        SUM(total_tokens) AS totalTokens,
                        SUM(cost) AS totalCost
-                FROM relay_usage_log
-                GROUP BY user_id
-            ) usageSummary ON usageSummary.user_id = u.id
+                FROM relay_usage_log r
+                INNER JOIN (
+                    SELECT DISTINCT user_id
+                    FROM relay_usage_log
+                    WHERE created_at >= CURDATE()
+                      AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+                ) activeUsers ON activeUsers.user_id = r.user_id
+                GROUP BY r.user_id
+            ) usageSummary
+            INNER JOIN `user` u ON u.id = usageSummary.user_id
             LEFT JOIN (
-                SELECT user_id,
+                SELECT p.user_id AS user_id,
                        SUM(amount) AS totalRecharge
-                FROM payment_record
-                WHERE status = 'completed'
-                  AND type IN ('third_party', 'alipay', 'wxpay', 'qqpay', 'wechat')
-                GROUP BY user_id
+                FROM payment_record p
+                INNER JOIN (
+                    SELECT DISTINCT user_id
+                    FROM relay_usage_log
+                    WHERE created_at >= CURDATE()
+                      AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+                ) activeUsers ON activeUsers.user_id = p.user_id
+                WHERE p.status = 'completed'
+                  AND p.type IN ('third_party', 'alipay', 'wxpay', 'qqpay', 'wechat')
+                GROUP BY p.user_id
             ) recharge ON recharge.user_id = u.id
-            WHERE COALESCE(usageSummary.todayRequests, 0) > 0
-              AND (#{keyword} IS NULL OR #{keyword} = ''
+            WHERE (#{keyword} IS NULL OR #{keyword} = ''
                    OR u.username LIKE CONCAT('%', #{keyword}, '%')
                    OR u.email LIKE CONCAT('%', #{keyword}, '%'))
             ORDER BY COALESCE(usageSummary.todayCost, 0) DESC, COALESCE(usageSummary.totalCost, 0) DESC, u.id DESC
             """)
     Page<AdminUserUsageDto> adminUserUsage(Page<AdminUserUsageDto> page, @Param("keyword") String keyword);
+
+    @Select("""
+            SELECT u.id,
+                   u.username,
+                   u.email,
+                   SUM(p.amount) AS totalRecharge
+            FROM payment_record p
+            INNER JOIN `user` u ON u.id = p.user_id
+            WHERE p.status = 'completed'
+              AND p.type IN ('third_party', 'alipay', 'wxpay', 'qqpay', 'wechat')
+            GROUP BY u.id, u.username, u.email
+            HAVING SUM(p.amount) > 0
+            ORDER BY totalRecharge DESC, u.id DESC
+            LIMIT #{limit}
+            """)
+    List<AdminUserRankingDto> topRechargeUsers(@Param("limit") long limit);
+
+    @Select("""
+            SELECT u.id,
+                   u.username,
+                   u.email,
+                   SUM(r.total_tokens) AS totalTokens
+            FROM relay_usage_log r
+            INNER JOIN `user` u ON u.id = r.user_id
+            GROUP BY u.id, u.username, u.email
+            HAVING SUM(r.total_tokens) > 0
+            ORDER BY totalTokens DESC, u.id DESC
+            LIMIT #{limit}
+            """)
+    List<AdminUserRankingDto> topTokenUsers(@Param("limit") long limit);
 
     @Select("SELECT COALESCE(AVG(duration_ms), 0) FROM relay_usage_log WHERE user_id = #{userId}")
     Long averageDurationMs(@Param("userId") Long userId);
@@ -182,7 +228,7 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
     @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE token_id = #{tokenId} AND created_at >= #{since}")
     Long tokenTokensSince(@Param("tokenId") Long tokenId, @Param("since") LocalDateTime since);
 
-    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE token_id = #{tokenId} AND DATE(created_at) = CURDATE()")
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE token_id = #{tokenId} AND created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     BigDecimal tokenTodayCost(@Param("tokenId") Long tokenId);
 
     @Select("SELECT COUNT(*) FROM relay_usage_log WHERE channel_id = #{channelId} AND created_at >= #{since}")

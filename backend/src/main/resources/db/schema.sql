@@ -309,6 +309,7 @@ CREATE TABLE IF NOT EXISTS relay_usage_log (
     message VARCHAR(500),
     created_at DATETIME NOT NULL,
     INDEX idx_relay_usage_user_created (user_id, created_at),
+    INDEX idx_relay_usage_created (created_at),
     INDEX idx_relay_usage_token_created (token_id, created_at),
     INDEX idx_relay_usage_model_created (model, created_at),
     INDEX idx_relay_usage_channel_created (channel_id, created_at)
@@ -353,6 +354,12 @@ ALTER TABLE relay_token MODIFY COLUMN used_quota DECIMAL(12, 6) NOT NULL DEFAULT
 ALTER TABLE relay_token MODIFY COLUMN quota DECIMAL(12, 6) NOT NULL DEFAULT 0.000000;
 ALTER TABLE `user` MODIFY COLUMN balance DECIMAL(12, 6) NOT NULL DEFAULT 0.000000;
 ALTER TABLE payment_record MODIFY COLUMN amount DECIMAL(12, 6) NOT NULL;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND COLUMN_NAME = 'remark') = 0, 'ALTER TABLE payment_record ADD COLUMN remark VARCHAR(500) NOT NULL DEFAULT '''' AFTER status', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND INDEX_NAME = 'idx_payment_record_user_status_type') = 0, 'CREATE INDEX idx_payment_record_user_status_type ON payment_record (user_id, status, type)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND INDEX_NAME = 'idx_payment_record_status_type_user') = 0, 'CREATE INDEX idx_payment_record_status_type_user ON payment_record (status, type, user_id)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'banned') = 0, 'ALTER TABLE `user` ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0 AFTER role', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

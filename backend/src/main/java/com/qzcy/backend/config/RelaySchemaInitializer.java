@@ -160,6 +160,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         }
         if (tableExists("payment_record")) {
             jdbcTemplate.execute("ALTER TABLE payment_record MODIFY COLUMN amount DECIMAL(12, 6) NOT NULL");
+            addColumnIfMissing("payment_record", "remark", "VARCHAR(500) NOT NULL DEFAULT ''");
         }
     }
 
@@ -171,6 +172,11 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         if (tableExists("relay_usage_log")) {
             addIndexIfMissing("relay_usage_log", "idx_relay_usage_token_created", "CREATE INDEX idx_relay_usage_token_created ON relay_usage_log (token_id, created_at)");
             addIndexIfMissing("relay_usage_log", "idx_relay_usage_model_created", "CREATE INDEX idx_relay_usage_model_created ON relay_usage_log (model, created_at)");
+            addIndexIfMissing("relay_usage_log", "idx_relay_usage_created", "CREATE INDEX idx_relay_usage_created ON relay_usage_log (created_at)");
+        }
+        if (tableExists("payment_record")) {
+            addIndexIfMissing("payment_record", "idx_payment_record_user_status_type", "CREATE INDEX idx_payment_record_user_status_type ON payment_record (user_id, status, type)");
+            addIndexIfMissing("payment_record", "idx_payment_record_status_type_user", "CREATE INDEX idx_payment_record_status_type_user ON payment_record (status, type, user_id)");
         }
     }
 

@@ -5,9 +5,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminImageRecordDto;
 import com.qzcy.backend.dto.AdminRelayUsageLogDto;
 import com.qzcy.backend.dto.AdminUserUsageDto;
+import com.qzcy.backend.dto.AdminUserRankingsDto;
+import com.qzcy.backend.dto.AdminUserGiftDto;
 import com.qzcy.backend.dto.AdminUserUpdateDto;
 import com.qzcy.backend.dto.DashboardStats;
 import com.qzcy.backend.entity.ImageRecord;
+import com.qzcy.backend.entity.PaymentRecord;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.AdminStatsMapper;
@@ -16,12 +19,15 @@ import com.qzcy.backend.mapper.PaymentRecordMapper;
 import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.AdminService;
+import com.qzcy.backend.service.AdminUserRankingCache;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +37,7 @@ public class AdminServiceImpl implements AdminService {
     private final PaymentRecordMapper paymentRecordMapper;
     private final RelayUsageLogMapper relayUsageLogMapper;
     private final AdminStatsMapper adminStatsMapper;
+    private final AdminUserRankingCache adminUserRankingCache;
     private final PasswordEncoder passwordEncoder;
 
     @Override
@@ -93,6 +100,44 @@ public class AdminServiceImpl implements AdminService {
     @Override
     public Page<AdminUserUsageDto> userUsage(long page, long size, String keyword) {
         return relayUsageLogMapper.adminUserUsage(Page.of(page, size), keyword);
+    }
+
+    @Override
+    public AdminUserRankingsDto userRankings() {
+        AdminUserRankingsDto cached = adminUserRankingCache.get();
+        if (cached != null) {
+            return cached;
+        }
+        AdminUserRankingsDto rankings = new AdminUserRankingsDto(
+                relayUsageLogMapper.topRechargeUsers(10),
+                relayUsageLogMapper.topTokenUsers(10)
+        );
+        adminUserRankingCache.put(rankings);
+        return rankings;
+    }
+
+    @Override
+    @Transactional
+    public void giftBalance(Long userId, AdminUserGiftDto dto) {
+        BigDecimal amount = dto == null ? null : dto.getAmount();
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0 || amount.scale() > 6) {
+            throw new BusinessException(400, "赠送金额必须大于 0，且最多保留 6 位小数");
+        }
+        String remark = dto.getRemark() == null ? "" : dto.getRemark().trim();
+        if (remark.length() > 450) {
+            throw new BusinessException(400, "备注不能超过 450 个字符");
+        }
+        if (userMapper.addBalance(userId, amount) == 0) {
+            throw new BusinessException(404, "用户不存在");
+        }
+        PaymentRecord record = new PaymentRecord();
+        record.setUserId(userId);
+        record.setAmount(amount);
+        record.setType("admin_gift");
+        record.setStatus("completed");
+        record.setRemark(remark.isBlank() ? "管理员赠送" : remark);
+        record.setCreatedAt(LocalDateTime.now());
+        paymentRecordMapper.insert(record);
     }
 
     @Override

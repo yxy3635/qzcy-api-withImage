@@ -1,5 +1,5 @@
 import http from './http'
-import type { AdminImageRecord, AdminRelayUsageLog, AdminStats, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
+import type { AdminImageRecord, AdminRelayUsageLog, AdminStats, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
 export const adminApi = {
   dashboard() {
@@ -22,6 +22,12 @@ export const adminApi = {
   },
   userUsage(page = 1, size = 20, keyword = '') {
     return http.get<ApiResponse<PageResult<AdminUserUsage>>>('/admin/user-usage', { params: { page, size, keyword } })
+  },
+  userRankings() {
+    return http.get<ApiResponse<AdminUserRankings>>('/admin/user-rankings')
+  },
+  giftBalance(id: number, amount: number, remark = '') {
+    return http.post<ApiResponse<void>>(`/admin/users/${id}/gift-balance`, { amount, remark })
   },
   userRelayOverview(id: number) {
     return http.get<ApiResponse<RelayUserOverview>>(`/admin/users/${id}/relay-overview`)

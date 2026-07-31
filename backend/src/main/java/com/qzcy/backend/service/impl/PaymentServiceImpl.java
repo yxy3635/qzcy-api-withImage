@@ -12,6 +12,7 @@ import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.PaymentService;
 import com.qzcy.backend.service.ReferralService;
+import com.qzcy.backend.service.AdminUserRankingCache;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRecordMapper paymentRecordMapper;
     private final PaymentConfigService paymentConfigService;
     private final ReferralService referralService;
+    private final AdminUserRankingCache adminUserRankingCache;
     private final ApplicationEventPublisher eventPublisher;
 
     @Override
@@ -51,6 +53,7 @@ public class PaymentServiceImpl implements PaymentService {
         record.setAmount(amount);
         record.setType("balance");
         record.setStatus("completed");
+        record.setRemark("余额扣费");
         record.setCreatedAt(LocalDateTime.now());
         paymentRecordMapper.insert(record);
     }
@@ -79,6 +82,7 @@ public class PaymentServiceImpl implements PaymentService {
         record.setAmount(amount);
         record.setType("image_refund");
         record.setStatus("completed");
+        record.setRemark("图像生成退款");
         record.setCreatedAt(LocalDateTime.now());
         paymentRecordMapper.insert(record);
     }
@@ -107,6 +111,7 @@ public class PaymentServiceImpl implements PaymentService {
         record.setType(payType);
         record.setCreatedAt(LocalDateTime.now());
         record.setStatus("pending");
+        record.setRemark("第三方充值订单");
         paymentRecordMapper.insert(record);
         String paymentUrl = buildPaymentUrl(config, record, payType, backendBaseUrl, frontendBaseUrl);
         return Map.of(
@@ -157,6 +162,7 @@ public class PaymentServiceImpl implements PaymentService {
         record.setStatus("completed");
         userMapper.addBalance(record.getUserId(), record.getAmount());
         referralService.rewardForRecharge(record);
+        adminUserRankingCache.evict();
         eventPublisher.publishEvent(new RechargeSucceededEvent(record.getUserId(), record.getId()));
         return "success";
     }

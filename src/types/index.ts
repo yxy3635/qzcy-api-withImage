@@ -95,6 +95,7 @@ export interface PaymentRecord {
   amount: number
   type: string
   status: string
+  remark?: string
   createdAt: string
 }
 
@@ -228,12 +229,26 @@ export interface AdminUserUsage {
   balance: number
   createdAt?: string
   todayRequests: number
+  todayTokens: number
   yesterdayRequests: number
   todayCost: number
   yesterdayCost: number
   totalTokens: number
   totalCost: number
   totalRecharge: number
+}
+
+export interface AdminUserRanking {
+  id: number
+  username: string
+  email?: string
+  totalTokens?: number
+  totalRecharge?: number
+}
+
+export interface AdminUserRankings {
+  recharge: AdminUserRanking[]
+  tokens: AdminUserRanking[]
 }
 
 export interface RelayChannel {

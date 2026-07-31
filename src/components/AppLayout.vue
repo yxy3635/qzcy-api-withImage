@@ -82,7 +82,7 @@ watch(() => route.fullPath, restoreSidebarScroll)
     <div class="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_12%_10%,rgba(14,165,233,0.12),transparent_28%),radial-gradient(circle_at_88%_18%,rgba(45,212,191,0.11),transparent_30%),linear-gradient(180deg,#ffffff,#f6f9fd)]" />
     <aside
       class="fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-white/80 bg-white/76 py-6 shadow-[20px_0_70px_rgba(21,32,51,0.06)] backdrop-blur-2xl transition-[width,padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)] md:flex"
-      :class="sidebarCollapsed ? 'w-[72px] px-2' : 'w-72 px-5'"
+      :class="sidebarCollapsed ? 'w-[72px] px-2' : 'w-60 px-5'"
     >
       <RouterLink to="/" class="flex h-8 shrink-0 items-center gap-2 overflow-hidden text-xl font-black tracking-tight text-ink" :class="sidebarCollapsed ? 'justify-center' : ''" :title="sidebarCollapsed ? title : undefined">
         <img class="h-8 w-8 shrink-0 rounded-lg" src="/favicon.ico" alt="imageCreater" />
@@ -129,7 +129,7 @@ watch(() => route.fullPath, restoreSidebarScroll)
       </nav>
     </aside>
 
-    <div class="transition-[padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" :class="sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-72'">
+    <div class="transition-[padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" :class="sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-60'">
       <header class="sticky top-0 z-20 border-b border-white/80 bg-white/76 backdrop-blur-2xl">
         <div class="flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 py-3 md:h-16 md:flex-nowrap md:px-8 md:py-0">
           <div class="min-w-0"><p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">{{ admin ? '管理员后台' : '用户后台' }}</p><p class="text-sm font-semibold text-slate-600">{{ route.meta.admin ? '运营与权限管理' : '创作资产与余额管理' }}</p></div>

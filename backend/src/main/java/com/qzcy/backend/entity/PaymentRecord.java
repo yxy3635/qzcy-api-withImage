@@ -14,5 +14,6 @@ public class PaymentRecord {
     private BigDecimal amount;
     private String type;
     private String status;
+    private String remark;
     private LocalDateTime createdAt;
 }

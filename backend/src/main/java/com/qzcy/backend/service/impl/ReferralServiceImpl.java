@@ -182,6 +182,7 @@ public class ReferralServiceImpl implements ReferralService {
         paymentRecord.setAmount(record.getRebateAmount());
         paymentRecord.setType("referral_rebate");
         paymentRecord.setStatus("completed");
+        paymentRecord.setRemark("邀请返利转入余额");
         paymentRecord.setCreatedAt(LocalDateTime.now());
         paymentRecordMapper.insert(paymentRecord);
     }

@@ -31,6 +31,10 @@ const selectedUser = ref<UserInfo | null>(null)
 const selectedOverview = ref<RelayUserOverview | null>(null)
 const userActionDialog = ref<{ kind: 'delete' | 'ban'; user: UserInfo } | null>(null)
 const userActionLoading = ref(false)
+const giftingUser = ref<UserInfo | null>(null)
+const giftAmount = ref<number | null>(null)
+const giftRemark = ref('')
+const giftLoading = ref(false)
 
 const activeUsers = computed(() => users.value.filter((user) => user.role === 'USER').length)
 const adminUsers = computed(() => users.value.filter((user) => user.role === 'ADMIN').length)
@@ -71,6 +75,38 @@ function openEditUser(user: UserInfo) {
 
 function closeEditUser() {
   editingUser.value = null
+}
+
+function openGiftBalance(user: UserInfo) {
+  giftingUser.value = user
+  giftAmount.value = null
+  giftRemark.value = ''
+}
+
+function closeGiftBalance() {
+  if (giftLoading.value) return
+  giftingUser.value = null
+}
+
+async function submitGiftBalance() {
+  const user = giftingUser.value
+  const amount = Number(giftAmount.value)
+  if (!user || !Number.isFinite(amount) || amount <= 0) {
+    toast.warning('赠送金额必须大于 0')
+    return
+  }
+  giftLoading.value = true
+  try {
+    await adminApi.giftBalance(user.id, amount, giftRemark.value.trim())
+    toast.success(`已向 ${user.username} 赠送余额`)
+    giftingUser.value = null
+    await load(current.value)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '赠送失败'
+    toast.error(message)
+  } finally {
+    giftLoading.value = false
+  }
 }
 
 async function load(page = 1) {
@@ -235,7 +271,7 @@ onMounted(load)
 </script>
 
 <template>
-  <AppLayout admin>
+  <AppLayout admin wide>
     <div class="page-enter">
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div>
@@ -345,6 +381,7 @@ onMounted(load)
                     >
                       {{ apiLoadingUserId === user.id ? '查询中' : '查询 API 使用' }}
                     </button>
+                    <button class="h-10 rounded-lg border border-emerald-100 bg-emerald-50 px-3 text-xs font-black text-emerald-700 transition hover:border-emerald-200 hover:bg-emerald-100" @click="openGiftBalance(user)">赠送</button>
                     <button
                       class="h-10 rounded-lg border px-3 text-xs font-black transition disabled:opacity-60"
                       :class="user.banned ? 'border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-red-100 bg-red-50 text-red-700 hover:bg-red-100'"
@@ -374,6 +411,22 @@ onMounted(load)
           <Pagination :current="current" :pages="pages" @change="load" />
         </div>
       </section>
+
+      <Teleport to="body">
+        <div v-if="giftingUser" class="fixed inset-0 z-[9998] grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm" @click.self="closeGiftBalance">
+          <section class="w-full max-w-md rounded-lg bg-white shadow-2xl">
+            <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+              <div class="min-w-0"><p class="text-xs font-black uppercase tracking-[0.18em] text-emerald-600">Gift Balance</p><h2 class="mt-1 truncate text-2xl font-black text-slate-950">赠送余额</h2><p class="mt-1 text-sm font-semibold text-slate-500">{{ giftingUser.username }} · ID {{ giftingUser.id }}</p></div>
+              <button class="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-xl font-black text-slate-400 transition hover:border-red-100 hover:bg-red-50 hover:text-red-600" :disabled="giftLoading" @click="closeGiftBalance">×</button>
+            </div>
+            <form class="space-y-5 px-6 py-5" @submit.prevent="submitGiftBalance">
+              <label class="block"><span class="text-xs font-black text-slate-500">赠送金额</span><input v-model.number="giftAmount" class="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-black text-slate-800 outline-none transition focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100" min="0.000001" step="0.000001" type="number" required /></label>
+              <label class="block"><span class="text-xs font-black text-slate-500">备注</span><textarea v-model="giftRemark" class="mt-2 min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100" maxlength="450" placeholder="例如：活动补偿"></textarea></label>
+              <div class="flex items-center justify-end gap-3 border-t border-slate-100 pt-5"><button class="h-11 rounded-lg border border-slate-200 bg-white px-5 text-sm font-black text-slate-600 transition hover:bg-slate-50" type="button" :disabled="giftLoading" @click="closeGiftBalance">取消</button><button class="h-11 rounded-lg bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-700 disabled:opacity-60" type="submit" :disabled="giftLoading">{{ giftLoading ? '赠送中' : '确认赠送' }}</button></div>
+            </form>
+          </section>
+        </div>
+      </Teleport>
 
       <Teleport to="body">
         <div v-if="editingUser" class="fixed inset-0 z-[9998] grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm" @click.self="closeEditUser">
