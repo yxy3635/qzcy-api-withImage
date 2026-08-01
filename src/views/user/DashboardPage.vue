@@ -36,7 +36,7 @@ onMounted(async () => {
         <RequestLoader label="正在加载资产概览" :cell-size="16" />
       </div>
     </Transition>
-    <section class="relative overflow-hidden rounded-[1.5rem] border border-white/80 bg-white/82 p-4 shadow-[0_30px_100px_rgba(14,165,233,0.12)] backdrop-blur-2xl sm:rounded-[2rem] sm:p-6 md:p-8">
+    <section class="dash-enter relative overflow-hidden rounded-[1.5rem] border border-white/80 bg-white/82 p-4 shadow-[0_30px_100px_rgba(14,165,233,0.12)] backdrop-blur-2xl sm:rounded-[2rem] sm:p-6 md:p-8" style="--d: 0ms">
       <div class="absolute right-8 top-8 h-36 w-36 rounded-full bg-sky-200/40 blur-3xl" />
       <div class="absolute bottom-0 right-1/4 h-28 w-28 rounded-full bg-teal-200/40 blur-3xl" />
       <div class="relative grid gap-8 lg:grid-cols-[1fr_320px]">
@@ -61,18 +61,18 @@ onMounted(async () => {
     </section>
 
     <div class="mt-6 grid gap-4 md:grid-cols-3">
-      <div class="soft-card p-5">
+      <div class="dash-enter soft-card p-5" style="--d: 80ms">
         <p class="text-sm font-semibold text-slate-500">最近生成数</p>
           <p class="mt-2 text-3xl font-black sm:text-4xl">{{ records.length }}</p>
       </div>
-      <BalanceCard :balance="balance" />
-      <div class="soft-card p-5">
+      <BalanceCard class="dash-enter" :style="{ '--d': '120ms' }" :balance="balance" />
+      <div class="dash-enter soft-card p-5" style="--d: 160ms">
         <p class="text-sm font-semibold text-slate-500">成功记录</p>
         <p class="mt-2 text-3xl font-black sm:text-4xl">{{ records.filter((item) => item.status === 'success').length }}</p>
       </div>
     </div>
 
-    <section class="mt-6 rounded-[1.5rem] border border-white/80 bg-white/82 p-5 shadow-[0_24px_80px_rgba(14,165,233,0.10)] backdrop-blur-2xl">
+    <section class="dash-enter mt-6 rounded-[1.5rem] border border-white/80 bg-white/82 p-5 shadow-[0_24px_80px_rgba(14,165,233,0.10)] backdrop-blur-2xl" style="--d: 210ms">
       <div class="flex items-center justify-between gap-3">
         <div>
           <p class="text-sm font-bold uppercase tracking-[0.22em] text-sky-600">公告</p>
@@ -82,9 +82,10 @@ onMounted(async () => {
       </div>
       <div class="mt-5 grid gap-3">
         <button
-          v-for="item in announcements"
+          v-for="(item, index) in announcements"
           :key="item.id"
-          class="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/70"
+          class="dash-list-item rounded-2xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/70"
+          :style="{ '--i': index }"
           @click="selectedAnnouncement = item"
         >
           <div class="flex items-center justify-between gap-3">
@@ -97,7 +98,7 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="mt-9">
+    <section class="dash-enter mt-9" style="--d: 280ms">
       <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 class="text-2xl font-black">最近资产</h2>
@@ -106,7 +107,7 @@ onMounted(async () => {
         <RouterLink class="btn-secondary w-full rounded-full sm:w-auto" to="/user/history">查看全部</RouterLink>
       </div>
       <div class="grid gap-5 md:grid-cols-3">
-        <article v-for="record in records" :key="record.id" class="soft-card group overflow-hidden">
+        <article v-for="(record, index) in records" :key="record.id" class="dash-list-item soft-card group overflow-hidden" :style="{ '--i': index }">
           <div class="relative h-52 overflow-hidden bg-slate-100">
             <img v-if="record.generatedImageUrl" :src="record.generatedImageUrl" class="h-full w-full object-cover transition duration-500 group-hover:scale-105" alt="生成图像" />
             <div v-else class="grid h-full place-items-center text-sm text-slate-500">暂无图像</div>
@@ -132,7 +133,7 @@ onMounted(async () => {
         class="fixed inset-0 z-[70] flex min-h-dvh items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"
         @click.self="selectedAnnouncement = null"
       >
-        <section class="max-h-[calc(100dvh-32px)] w-full max-w-2xl overflow-y-auto rounded-[24px] bg-white p-5 shadow-[0_28px_90px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-6">
+        <section class="dash-modal-enter max-h-[calc(100dvh-32px)] w-full max-w-2xl overflow-y-auto rounded-[24px] bg-white p-5 shadow-[0_28px_90px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-6">
           <div class="flex items-start justify-between gap-4">
             <div>
               <h2 class="text-xl font-black text-slate-950 sm:text-2xl">{{ selectedAnnouncement.title }}</h2>
@@ -146,3 +147,42 @@ onMounted(async () => {
     </Teleport>
   </AppLayout>
 </template>
+
+<style scoped>
+.dash-enter {
+  animation: dashboardEnter 520ms cubic-bezier(.16, 1, .3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.dash-list-item {
+  animation: dashboardListEnter 420ms cubic-bezier(.16, 1, .3, 1) both;
+  animation-delay: calc(var(--i, 0) * 45ms + 240ms);
+}
+
+.dash-modal-enter {
+  animation: dashboardModalEnter 260ms cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes dashboardEnter {
+  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes dashboardListEnter {
+  from { opacity: 0; transform: translate3d(0, 9px, 0) scale(.99); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes dashboardModalEnter {
+  from { opacity: 0; transform: translate3d(0, 10px, 0) scale(.985); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-enter,
+  .dash-list-item,
+  .dash-modal-enter {
+    animation: none !important;
+  }
+}
+</style>

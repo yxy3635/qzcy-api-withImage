@@ -87,7 +87,7 @@ const title = 'imageCreater'
 </script>
 
 <template>
-  <div class="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-[#F8FAFC] px-3 py-8 font-sans selection:bg-blue-500 selection:text-white sm:px-0">
+  <div class="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-[#F8FAFC] px-3 py-10 font-sans selection:bg-blue-500 selection:text-white sm:px-6 sm:py-12">
     <!-- Abstract Background Elements -->
     <div class="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
       <div class="absolute -bottom-[20%] -left-[10%] w-[60%] h-[60%] rounded-full bg-cyan-400/10 blur-[120px]"></div>
@@ -97,11 +97,11 @@ const title = 'imageCreater'
 
     <!-- Main Container -->
     <div 
-      class="relative z-10 w-full max-w-md px-0 transition-all duration-1000 sm:px-6"
+      class="relative z-10 w-full max-w-2xl px-0 transition-all duration-1000"
       :class="isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'"
     >
       <!-- Logo & Header -->
-      <div class="mb-6 text-center sm:mb-10">
+      <div class="mb-6 text-center sm:mb-8">
         <h1 class="text-3xl font-black tracking-tight text-slate-900 mb-2 cursor-pointer hover:opacity-80 transition-opacity" @click="router.push('/')">
 			<span style="color: aqua;">{{ title.slice(0 , 5) }}</span>
 			<span>{{ title.slice(5) }}</span>
@@ -111,17 +111,17 @@ const title = 'imageCreater'
 
       <!-- Glassmorphism Form Panel -->
       <form 
-        class="rounded-3xl border border-white/60 bg-white/80 p-5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] backdrop-blur-xl sm:p-8"
+        class="auth-form rounded-[26px] border border-white/70 bg-white/80 p-4 shadow-[0_24px_72px_-18px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:p-6 md:p-7"
         @submit.prevent="submit"
       >
-        <div class="space-y-5">
+        <div class="grid gap-x-5 gap-y-4 sm:grid-cols-2">
           <!-- Username Input -->
           <div class="space-y-2">
             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">用户名 (英文/数字)</label>
             <div class="relative">
               <input 
                 v-model="username" 
-                class="w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
+                class="h-12 w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-0 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
                 placeholder="长度3-20位" 
                 required 
               />
@@ -134,7 +134,7 @@ const title = 'imageCreater'
             <div class="relative">
               <input 
                 v-model="email" 
-                class="w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
+                class="h-12 w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-0 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
                 type="email"
                 placeholder="用于验证与找回密码" 
                 required 
@@ -148,7 +148,7 @@ const title = 'imageCreater'
             <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_132px]">
               <input 
                 v-model="code" 
-                class="min-w-0 flex-1 bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
+                class="h-12 min-w-0 flex-1 bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-0 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
                 placeholder="输入验证码" 
                 required 
               />
@@ -167,7 +167,7 @@ const title = 'imageCreater'
             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">邀请码</label>
             <input
               v-model.trim="inviteCode"
-              class="w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3.5 uppercase focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
+              class="h-12 w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-0 uppercase focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
               maxlength="6"
               placeholder="选填，6位英文或数字"
             />
@@ -179,7 +179,7 @@ const title = 'imageCreater'
             <div class="relative">
               <input 
                 v-model="password" 
-                class="w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
+                class="h-12 w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-0 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
                 type="password" 
                 placeholder="至少6位" 
                 required 
@@ -193,7 +193,7 @@ const title = 'imageCreater'
             <div class="relative">
               <input 
                 v-model="confirmPassword" 
-                class="w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
+                class="h-12 w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-0 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
                 type="password" 
                 placeholder="再次输入密码" 
                 required 
@@ -203,7 +203,7 @@ const title = 'imageCreater'
         </div>
 
         <!-- Error Message -->
-        <div v-if="error" class="mt-5 p-3 rounded-lg bg-red-50 border border-red-100 flex items-center gap-2 text-sm text-red-600 font-medium animate-pulse">
+        <div v-if="error" class="mt-5 flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-600 animate-pulse">
           <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
@@ -212,7 +212,7 @@ const title = 'imageCreater'
 
         <!-- Submit Button -->
         <button 
-          class="group relative w-full flex items-center justify-center gap-2 bg-slate-900 text-white text-sm font-semibold px-6 py-4 rounded-xl mt-8 overflow-hidden transition-transform hover:scale-[1.02] shadow-md hover:shadow-xl disabled:opacity-70 disabled:hover:scale-100 disabled:cursor-not-allowed"
+          class="group relative mt-6 flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-6 text-sm font-semibold text-white shadow-md transition-transform hover:scale-[1.01] hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
           :disabled="loading"
         >
           <div class="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
@@ -224,7 +224,7 @@ const title = 'imageCreater'
         </button>
 
         <!-- Footer Link -->
-        <div class="mt-8 text-center text-sm font-medium text-slate-500">
+        <div class="mt-5 text-center text-sm font-medium text-slate-500">
           已有账号？
           <RouterLink class="text-blue-600 hover:text-blue-700 transition-colors font-bold ml-1" to="/login">
             返回登录
@@ -234,3 +234,14 @@ const title = 'imageCreater'
     </div>
   </div>
 </template>
+
+<style scoped>
+.auth-form {
+  background: rgba(255, 255, 255, 0.78) !important;
+  border-color: rgba(255, 255, 255, 0.84) !important;
+}
+
+.auth-form input {
+  background: rgba(255, 255, 255, 0.86) !important;
+}
+</style>

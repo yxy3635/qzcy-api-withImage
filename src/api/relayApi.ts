@@ -2,8 +2,15 @@ import http from './http'
 import type { ApiResponse, RelayToken, RelayUserOverview } from '@/types'
 
 export const relayApi = {
-  overview() {
-    return http.get<ApiResponse<RelayUserOverview>>('/relay/overview')
+  overview(params: {
+    section?: string
+    page?: number
+    size?: number
+    keyword?: string
+    status?: string
+    sort?: string
+  } = {}) {
+    return http.get<ApiResponse<RelayUserOverview>>('/relay/overview', { params })
   },
   createToken(payload: { name: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; expiresAt?: string; enabled?: boolean }) {
     return http.post<ApiResponse<RelayToken>>('/relay/tokens', payload)

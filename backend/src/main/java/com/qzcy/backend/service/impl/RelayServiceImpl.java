@@ -419,6 +419,7 @@ public class RelayServiceImpl implements RelayService {
 
         return new RelayUserOverviewDto(
                 user.getBalance(), models, tokens, channels, logs, errorLogs, modelUsage, modelRecentCalls, usageLogMapper.userTrend(userId), groups,
+                (long) logs.size(), 1L, 1L, 20L,
                 totalRequests, totalTokens, totalCost, usageLogMapper.averageDurationMs(userId),
                 usageLogMapper.userPromptTokens(userId),
                 usageLogMapper.userCompletionTokens(userId),
@@ -432,6 +433,206 @@ public class RelayServiceImpl implements RelayService {
                 usageLogMapper.userRequestsSince(userId, minuteStart),
                 usageLogMapper.userTokensSince(userId, minuteStart)
         );
+    }
+
+    @Override
+    public RelayUserOverviewDto userOverviewSection(Long userId, String section, long page, long size,
+                                                     String keyword, String status, String sort) {
+        User user = userMapper.selectById(userId);
+        if (user == null) throw new BusinessException(404, "User not found");
+
+        RelayUserOverviewDto result = new RelayUserOverviewDto();
+        result.setBalance(user.getBalance());
+
+        switch (normalizeOverviewSection(section)) {
+            case "dashboard" -> fillDashboardSection(result, userId);
+            case "keys" -> fillKeysSection(result, userId);
+            case "logs" -> fillLogsSection(result, userId, page, size, keyword, status, sort);
+            case "channels" -> fillChannelsSection(result);
+            case "models" -> fillModelsSection(result, userId);
+            default -> {
+                // Billing, profile, and the pending pages only need the shared balance.
+            }
+        }
+        return result;
+    }
+
+    private void fillDashboardSection(RelayUserOverviewDto result, Long userId) {
+        List<RelayModel> systemModels = loadSystemModels();
+        Map<String, String> publicModelNames = publicModelNames(systemModels);
+        List<RelayTokenDto> tokens = loadUserTokens(userId);
+        result.setModels(systemModels.stream().filter(distinctByModelName()).map(this::toPublicModelDto).toList());
+        result.setTokens(tokens);
+        result.setChannels(loadPublicChannels());
+        Page<RelayUsageLog> page = selectUserLogs(userId, 1, 20, null, "all", "latest");
+        setUsageLogs(result, page, publicModelNames);
+        result.setModelUsage(loadModelUsage(userId, publicModelNames));
+        result.setModelRecentCalls(loadRecentModelCalls(systemModels, publicModelNames));
+        result.setTrend(usageLogMapper.userTrend(userId));
+        fillUsageStats(result, userId, tokens);
+    }
+
+    private void fillKeysSection(RelayUserOverviewDto result, Long userId) {
+        result.setTokens(loadUserTokens(userId));
+        result.setGroups(loadGroups());
+    }
+
+    private void fillLogsSection(RelayUserOverviewDto result, Long userId, long page, long size,
+                                 String keyword, String status, String sort) {
+        List<RelayModel> systemModels = loadSystemModels();
+        Map<String, String> publicModelNames = publicModelNames(systemModels);
+        setUsageLogs(result, selectUserLogs(userId, page, size, keyword, status, sort), publicModelNames);
+
+        Page<RelayUsageLog> errorPage = usageLogMapper.selectPage(
+                Page.of(1, 50),
+                new QueryWrapper<RelayUsageLog>()
+                        .eq("user_id", userId)
+                        .and(wrapper -> wrapper.eq("status", "failed").or().ge("status_code", 400))
+                        .orderByDesc("created_at"));
+        result.setErrorLogs(errorPage.getRecords().stream()
+                .map(item -> toErrorRequestLogDto(item, publicModelNames.getOrDefault(item.getModel(), item.getModel())))
+                .toList());
+    }
+
+    private void fillChannelsSection(RelayUserOverviewDto result) {
+        result.setChannels(loadPublicChannels());
+        result.setGroups(loadGroups());
+    }
+
+    private void fillModelsSection(RelayUserOverviewDto result, Long userId) {
+        List<RelayModel> systemModels = loadSystemModels();
+        Map<String, String> publicModelNames = publicModelNames(systemModels);
+        result.setModels(systemModels.stream().filter(distinctByModelName()).map(this::toPublicModelDto).toList());
+        result.setModelUsage(loadModelUsage(userId, publicModelNames));
+        result.setModelRecentCalls(loadRecentModelCalls(systemModels, publicModelNames));
+    }
+
+    private List<RelayModel> loadSystemModels() {
+        return modelMapper.selectList(new QueryWrapper<RelayModel>()
+                .orderByAsc("sort_order")
+                .orderByAsc("id"));
+    }
+
+    private List<RelayTokenDto> loadUserTokens(Long userId) {
+        return tokenMapper.selectList(new QueryWrapper<RelayToken>()
+                        .eq("user_id", userId)
+                        .orderByDesc("created_at"))
+                .stream().map(item -> toTokenDto(item, true)).toList();
+    }
+
+    private List<RelayPublicChannelDto> loadPublicChannels() {
+        List<RelayChannel> enabledChannels = channelMapper.selectList(new QueryWrapper<RelayChannel>()
+                .eq("enabled", true)
+                .orderByAsc("priority")
+                .orderByDesc("weight"));
+        return IntStream.range(0, enabledChannels.size())
+                .mapToObj(index -> toPublicChannelDto(enabledChannels.get(index), index + 1))
+                .toList();
+    }
+
+    private List<RelayGroupDto> loadGroups() {
+        return groupMapper.selectList(new QueryWrapper<RelayGroup>()
+                        .eq("enabled", true)
+                        .orderByAsc("id"))
+                .stream().map(this::toGroupDto).toList();
+    }
+
+    private Map<String, String> publicModelNames(List<RelayModel> systemModels) {
+        Map<String, String> names = new HashMap<>();
+        systemModels.forEach(model -> names.putIfAbsent(model.getModel(), publicModelName(model)));
+        return names;
+    }
+
+    private List<RelayModelUsageDto> loadModelUsage(Long userId, Map<String, String> publicModelNames) {
+        return usageLogMapper.modelUsage(userId).stream()
+                .map(item -> new RelayModelUsageDto(
+                        publicModelNames.getOrDefault(item.getModel(), item.getModel()),
+                        item.getRequests(), item.getTotalTokens(), item.getCost()))
+                .toList();
+    }
+
+    private List<RelayModelRecentCallDto> loadRecentModelCalls(List<RelayModel> systemModels,
+                                                                Map<String, String> publicModelNames) {
+        List<RelayModelRecentCallDto> cached = relayModelStatusCache.getRecentCalls();
+        if (cached != null) return cached;
+        List<RelayModelRecentCallDto> loaded = loadModelRecentCalls(systemModels, publicModelNames);
+        relayModelStatusCache.putRecentCalls(loaded);
+        return loaded;
+    }
+
+    private void fillUsageStats(RelayUserOverviewDto result, Long userId, List<RelayTokenDto> tokens) {
+        long totalRequests = tokens.stream().mapToLong(item -> item.getRequestCount() == null ? 0L : item.getRequestCount()).sum();
+        long totalTokens = tokens.stream().mapToLong(item -> item.getTokenCount() == null ? 0L : item.getTokenCount()).sum();
+        BigDecimal totalCost = tokens.stream()
+                .map(item -> item.getUsedQuota() == null ? BigDecimal.ZERO : item.getUsedQuota())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        LocalDateTime minuteStart = LocalDateTime.now().minusMinutes(1);
+        result.setTotalRequests(totalRequests);
+        result.setTotalTokens(totalTokens);
+        result.setTotalCost(totalCost);
+        result.setAverageDurationMs(usageLogMapper.averageDurationMs(userId));
+        result.setTotalPromptTokens(usageLogMapper.userPromptTokens(userId));
+        result.setTotalCompletionTokens(usageLogMapper.userCompletionTokens(userId));
+        result.setTotalCachedTokens(usageLogMapper.userCachedTokens(userId));
+        result.setTotalCacheCreationTokens(usageLogMapper.userCacheCreationTokens(userId));
+        result.setTodayRequests(usageLogMapper.userTodayRequests(userId));
+        result.setTodayPromptTokens(usageLogMapper.userTodayPromptTokens(userId));
+        result.setTodayCompletionTokens(usageLogMapper.userTodayCompletionTokens(userId));
+        result.setTodayTotalTokens(usageLogMapper.userTodayTokens(userId));
+        result.setTodayCost(usageLogMapper.userTodayCost(userId));
+        result.setCurrentRpm(usageLogMapper.userRequestsSince(userId, minuteStart));
+        result.setCurrentTpm(usageLogMapper.userTokensSince(userId, minuteStart));
+    }
+
+    private void setUsageLogs(RelayUserOverviewDto result, Page<RelayUsageLog> page,
+                              Map<String, String> publicModelNames) {
+        result.setLogs(page.getRecords().stream()
+                .map(item -> toUsageDto(item, publicModelNames.getOrDefault(item.getModel(), item.getModel())))
+                .toList());
+        result.setLogsTotal(page.getTotal());
+        result.setLogsCurrent(page.getCurrent());
+        result.setLogsPages(page.getPages());
+        result.setLogsSize(page.getSize());
+    }
+
+    private Page<RelayUsageLog> selectUserLogs(Long userId, long page, long size,
+                                               String keyword, String status, String sort) {
+        long safePage = Math.max(1, page);
+        long safeSize = Math.min(100, Math.max(1, size));
+        QueryWrapper<RelayUsageLog> query = new QueryWrapper<RelayUsageLog>().eq("user_id", userId);
+        String term = keyword == null ? "" : keyword.trim();
+        if (!term.isBlank()) {
+            query.and(wrapper -> wrapper
+                    .like("token_name", term)
+                    .or().like("channel_name", term)
+                    .or().like("group_names", term)
+                    .or().like("model", term)
+                    .or().like("endpoint", term)
+                    .or().like("user_agent", term)
+                    .or().like("message", term));
+        }
+        if ("failed".equalsIgnoreCase(status)) {
+            query.and(wrapper -> wrapper.eq("status", "failed").or().ge("status_code", 400));
+        } else if ("success".equalsIgnoreCase(status)) {
+            query.and(wrapper -> wrapper.ne("status", "failed")
+                    .and(inner -> inner.lt("status_code", 400).or().isNull("status_code")));
+        }
+        if ("slowest".equalsIgnoreCase(sort)) {
+            query.orderByDesc("duration_ms").orderByDesc("created_at").orderByDesc("id");
+        } else if ("cost".equalsIgnoreCase(sort)) {
+            query.orderByDesc("cost").orderByDesc("created_at").orderByDesc("id");
+        } else {
+            query.orderByDesc("created_at").orderByDesc("id");
+        }
+        return usageLogMapper.selectPage(Page.of(safePage, safeSize), query);
+    }
+
+    private String normalizeOverviewSection(String section) {
+        String value = section == null ? "dashboard" : section.trim().toLowerCase();
+        return switch (value) {
+            case "dashboard", "keys", "logs", "channels", "models", "billing", "profile", "subscription", "orders" -> value;
+            default -> "dashboard";
+        };
     }
 
     private List<RelayModelRecentCallDto> loadModelRecentCalls(List<RelayModel> systemModels, Map<String, String> publicModelNames) {

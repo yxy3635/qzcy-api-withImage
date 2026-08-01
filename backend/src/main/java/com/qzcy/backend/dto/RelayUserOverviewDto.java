@@ -21,6 +21,10 @@ public class RelayUserOverviewDto {
     private List<RelayModelRecentCallDto> modelRecentCalls;
     private List<RelayTrendDto> trend;
     private List<RelayGroupDto> groups;
+    private Long logsTotal;
+    private Long logsCurrent;
+    private Long logsPages;
+    private Long logsSize;
     private Long totalRequests;
     private Long totalTokens;
     private BigDecimal totalCost;

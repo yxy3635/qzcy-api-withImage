@@ -367,6 +367,10 @@ export interface RelayUserOverview {
   modelRecentCalls: RelayModelRecentCall[]
   trend: RelayTrend[]
   groups: RelayGroup[]
+  logsTotal?: number
+  logsCurrent?: number
+  logsPages?: number
+  logsSize?: number
   totalRequests: number
   totalTokens: number
   totalCost: number

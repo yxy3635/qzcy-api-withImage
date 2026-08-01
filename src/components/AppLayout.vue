@@ -56,7 +56,6 @@ function logout() {
 }
 
 const title = 'imageCreater'
-const userInitial = computed(() => auth.userInfo?.username?.slice(0, 1).toUpperCase() || 'U')
 
 function saveSidebarScroll() {
   if (sidebarNav.value) {
@@ -89,9 +88,8 @@ watch(() => route.fullPath, restoreSidebarScroll)
         <span class="whitespace-nowrap transition-[width,opacity] duration-200" :class="sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'"><span class="text-emerald-700">{{ title.slice(0, 5) }}</span>{{ title.slice(5) }}</span>
       </RouterLink>
 
-      <section v-if="!admin || !sidebarCollapsed" class="mt-7 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-sky-50 shadow-sm transition-[padding,height] duration-300" :class="sidebarCollapsed ? 'h-14 p-0' : 'p-4'">
-        <div class="flex" :class="[sidebarCollapsed ? 'h-full justify-center' : '', admin ? '' : 'items-center gap-3']">
-          <span v-if="!admin" class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-slate-950 text-xs font-black text-white">{{ userInitial }}</span>
+      <section v-if="!sidebarCollapsed" class="mt-7 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-sky-50 p-4 shadow-sm">
+        <div class="flex" :class="admin ? '' : 'items-center gap-3'">
           <div class="min-w-0 overflow-hidden transition-[width,opacity] duration-200" :class="sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'">
             <p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">{{ admin ? '管理员空间' : '创作者空间' }}</p>
             <p class="mt-2 truncate text-lg font-black">{{ auth.userInfo?.username }}</p>

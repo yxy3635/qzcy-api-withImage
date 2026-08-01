@@ -77,8 +77,15 @@ public class RelayController {
     private final ObjectMapper objectMapper;
 
     @GetMapping("/relay/overview")
-    public ApiResponse<RelayUserOverviewDto> overview() {
-        return ApiResponse.success(relayService.userOverview(SecurityUtil.current().userId()));
+    public ApiResponse<RelayUserOverviewDto> overview(
+            @RequestParam(defaultValue = "dashboard") String section,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "all") String status,
+            @RequestParam(defaultValue = "latest") String sort) {
+        return ApiResponse.success(relayService.userOverviewSection(
+                SecurityUtil.current().userId(), section, page, size, keyword, status, sort));
     }
 
     @PostMapping("/relay/tokens")

@@ -31,4 +31,6 @@ public interface RelayService {
     String revealToken(Long userId, Long tokenId);
     void deleteToken(Long userId, Long tokenId);
     RelayUserOverviewDto userOverview(Long userId);
+    RelayUserOverviewDto userOverviewSection(Long userId, String section, long page, long size,
+                                             String keyword, String status, String sort);
 }

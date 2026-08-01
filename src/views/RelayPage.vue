@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
 import { noticeApi } from '@/api/noticeApi'
@@ -10,6 +10,7 @@ import { useToast } from '@/composables/useToast'
 import { useSidebarPreference } from '@/composables/useSidebarPreference'
 import RequestLoader from '@/components/RequestLoader.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
+import Pagination from '@/components/Pagination.vue'
 import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
 import RelayTrendChart from '@/components/relay/RelayTrendChart.vue'
 import RelayModelDistribution from '@/components/relay/RelayModelDistribution.vue'
@@ -23,7 +24,13 @@ const { sidebarCollapsed, toggleSidebar } = useSidebarPreference()
 
 const overview = ref<RelayUserOverview | null>(null)
 const activeMenu = ref('dashboard')
-const loading = ref(false)
+const loadedSections = ref<Set<string>>(new Set())
+const loadingSections = ref<Set<string>>(new Set())
+const loading = computed(() => loadingSections.value.size > 0)
+const activeMenuLoading = computed(() => loadingSections.value.has(activeMenu.value))
+const announcementsLoading = ref(false)
+const billingExtrasLoaded = ref(false)
+let logFilterTimer: number | undefined
 const copied = ref('')
 const creatingKey = ref(false)
 const showKeyDialog = ref(false)
@@ -45,6 +52,8 @@ const channelSearch = ref('')
 const logSearch = ref('')
 const logStatusFilter = ref('all')
 const logSort = ref<'latest' | 'slowest' | 'cost'>('latest')
+const logPage = ref(1)
+const logPageSize = ref(20)
 const expandedLogIds = ref<Set<number>>(new Set())
 const keyActionDialog = ref<{ action: 'toggle' | 'delete'; token: RelayToken } | null>(null)
 const keyActionLoading = ref(false)
@@ -119,31 +128,10 @@ const tokens = computed(() => overview.value?.tokens || [])
 const channels = computed(() => overview.value?.channels || [])
 const availableChannels = computed(() => channels.value.filter((item) => item.status === 'available').length)
 const logs = computed(() => overview.value?.logs || [])
-const filteredLogs = computed(() => {
-  const keyword = logSearch.value.trim().toLowerCase()
-  const rows = logs.value.filter((log) => {
-    const failed = log.status === 'failed' || Number(log.statusCode || 0) >= 400
-    const matchesStatus = logStatusFilter.value === 'all'
-      || (logStatusFilter.value === 'failed' ? failed : !failed)
-    const haystack = [
-      log.tokenName,
-      log.channelName,
-      log.groupNames,
-      log.model,
-      log.endpoint,
-      log.modelType,
-      log.userAgent,
-      log.statusCode
-    ].join(' ').toLowerCase()
-    return matchesStatus && (!keyword || haystack.includes(keyword))
-  })
-
-  return [...rows].sort((a, b) => {
-    if (logSort.value === 'slowest') return Number(b.durationMs || 0) - Number(a.durationMs || 0)
-    if (logSort.value === 'cost') return Number(b.cost || 0) - Number(a.cost || 0)
-    return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-  })
-})
+// Search, status, and ordering are applied by the paged API query.
+const filteredLogs = computed(() => logs.value)
+const logTotal = computed(() => Number(overview.value?.logsTotal || 0))
+const logPages = computed(() => Math.max(1, Number(overview.value?.logsPages || (logTotal.value ? Math.ceil(logTotal.value / logPageSize.value) : 1))))
 const successfulLogCount = computed(() => logs.value.filter((log) => log.status !== 'failed' && Number(log.statusCode || 0) < 400).length)
 const logSuccessRate = computed(() => logs.value.length ? (successfulLogCount.value / logs.value.length) * 100 : 0)
 const logTotalCost = computed(() => logs.value.reduce((sum, log) => sum + Number(log.cost || 0), 0))
@@ -375,49 +363,110 @@ const displayTodayTotalTokens = computed(() => todayTotalTokens.value || Number(
 const displayTodayCost = computed(() => todayCost.value || Number(todayTrend.value?.cost || 0))
 
 
-async function load() {
-  if (!auth.isAuthenticated) return
-  loading.value = true
+function updateLoadedSections(section: string) {
+  const next = new Set(loadedSections.value)
+  next.add(section)
+  loadedSections.value = next
+}
+
+function updateLoadingSection(section: string, active: boolean) {
+  const next = new Set(loadingSections.value)
+  if (active) next.add(section)
+  else next.delete(section)
+  loadingSections.value = next
+}
+
+function mergeOverview(partial: RelayUserOverview) {
+  const next = { ...(overview.value || {}) } as Record<string, unknown>
+  Object.entries(partial as unknown as Record<string, unknown>).forEach(([key, value]) => {
+    if (value !== null && value !== undefined) next[key] = value
+  })
+  overview.value = next as unknown as RelayUserOverview
+  if (!keyForm.group && groups.value.length) keyForm.group = groups.value[0]?.code || 'default'
+}
+
+async function loadSection(section: string, force = false) {
+  if (!auth.isAuthenticated || section === 'referral') return
+  if (!force && loadedSections.value.has(section)) {
+    if (section === 'billing') await loadBillingExtras(false)
+    if (section === 'dashboard') await loadAnnouncements(false)
+    return
+  }
+  if (loadingSections.value.has(section)) return
+
+  updateLoadingSection(section, true)
   try {
-    await auth.refreshUser()
-    profileEmail.value = auth.userInfo?.email || ''
-    const { data } = await relayApi.overview()
-    overview.value = data.data
-    if (!keyForm.group) keyForm.group = groups.value[0]?.code || 'default'
+    const { data } = await relayApi.overview({
+      section,
+      page: section === 'logs' ? logPage.value : 1,
+      size: section === 'logs' ? logPageSize.value : 20,
+      keyword: section === 'logs' ? logSearch.value.trim() || undefined : undefined,
+      status: section === 'logs' ? logStatusFilter.value : undefined,
+      sort: section === 'logs' ? logSort.value : undefined
+    })
+    mergeOverview(data.data)
+    if (section === 'dashboard') await loadAnnouncements(force)
+    if (section === 'billing') await loadBillingExtras(force)
+    updateLoadedSections(section)
+    return true
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '加载中转数据失败')
+    return false
   } finally {
-    loading.value = false
+    updateLoadingSection(section, false)
   }
 }
 
-async function loadPaymentConfig() {
-  const { data } = await paymentApi.config()
+async function load() {
+  if (!auth.isAuthenticated) return
+  try {
+    await auth.refreshUser()
+    profileEmail.value = auth.userInfo?.email || ''
+    await loadSection(activeMenu.value, true)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '刷新账户信息失败')
+  }
+}
+
+async function loadBillingExtras(force = false) {
+  if (!force && billingExtrasLoaded.value) return
+  const [config, history] = await Promise.all([paymentApi.config(), paymentApi.history(1, 8)])
+  const configData = config.data.data
   paymentOptions.value = paymentOptions.value.map((item) => ({
     ...item,
     enabled:
       item.value === 'alipay'
-        ? Boolean(data.data.alipayEnabled)
+        ? Boolean(configData.alipayEnabled)
         : item.value === 'wxpay'
-          ? Boolean(data.data.wxpayEnabled)
-          : Boolean(data.data.qqpayEnabled)
+          ? Boolean(configData.wxpayEnabled)
+          : Boolean(configData.qqpayEnabled)
   }))
   if (!enabledPaymentOptions.value.some((item) => item.value === rechargeType.value)) {
     rechargeType.value = enabledPaymentOptions.value[0]?.value || 'alipay'
   }
+  paymentRecords.value = history.data.data.records
+  billingExtrasLoaded.value = true
 }
 
-async function loadPaymentHistory() {
-  const { data } = await paymentApi.history(1, 8)
-  paymentRecords.value = data.data.records
-}
-
-async function loadAnnouncements() {
-  const { data } = await noticeApi.list()
-  announcements.value = data.data
+async function loadAnnouncements(force = false) {
+  if (!force && loadedSections.value.has('announcements')) return
+  if (announcementsLoading.value) return
+  announcementsLoading.value = true
+  try {
+    const { data } = await noticeApi.list()
+    announcements.value = data.data
+    updateLoadedSections('announcements')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '加载公告失败')
+  } finally {
+    announcementsLoading.value = false
+  }
 }
 
 function openAnnouncements() {
   selectedAnnouncement.value = null
   showAnnouncementsDialog.value = true
+  void loadAnnouncements()
 }
 
 function openAnnouncement(item: Announcement) {
@@ -684,7 +733,7 @@ async function createRechargeOrder() {
       return
     }
     toast.success(String(data.data.message || '支付订单已创建'))
-    await Promise.all([auth.refreshUser(), loadPaymentHistory(), load()])
+    await load()
   } catch (err) {
     rechargeError.value = err instanceof Error ? err.message : '创建支付订单失败'
     toast.error(rechargeError.value)
@@ -1117,21 +1166,38 @@ function selectMenu(item: { id: string; route?: string }) {
     menuSwitchTimer = undefined
   }, 460)
   activeMenu.value = item.id
+  void loadSection(item.id)
 
   if (window.scrollY > 0) {
     window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
   }
 }
 
+async function changeLogPage(page: number) {
+  const nextPage = Math.max(1, Math.min(page, logPages.value))
+  if (nextPage === logPage.value && loadedSections.value.has('logs')) return
+  logPage.value = nextPage
+  expandedLogIds.value = new Set()
+  await loadSection('logs', true)
+}
+
+watch([logSearch, logStatusFilter, logSort], () => {
+  if (activeMenu.value !== 'logs') return
+  logPage.value = 1
+  if (logFilterTimer !== undefined) window.clearTimeout(logFilterTimer)
+  logFilterTimer = window.setTimeout(() => {
+    logFilterTimer = undefined
+    void loadSection('logs', true)
+  }, 260)
+})
+
 onBeforeUnmount(() => {
   if (menuSwitchTimer !== undefined) window.clearTimeout(menuSwitchTimer)
+  if (logFilterTimer !== undefined) window.clearTimeout(logFilterTimer)
 })
 
 onMounted(async () => {
   await load()
-  if (auth.isAuthenticated) {
-    await Promise.all([loadPaymentConfig(), loadPaymentHistory(), loadAnnouncements()])
-  }
 })
 </script>
 
@@ -1278,10 +1344,15 @@ onMounted(async () => {
               <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{{ announcements.length }} 条</span>
             </div>
             <div class="mt-5 grid gap-3">
+              <div v-if="announcementsLoading" class="grid min-h-24 place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70">
+                <RequestLoader label="正在读取公告" :cell-size="10" />
+              </div>
               <button
-                v-for="item in announcements"
+                v-for="(item, index) in announcements"
                 :key="item.id"
-                class="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-emerald-200 hover:bg-emerald-50/60"
+                v-else
+                class="relay-list-item rounded-2xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-emerald-200 hover:bg-emerald-50/60"
+                :style="{ '--i': index }"
                 @click="openAnnouncement(item)"
               >
                 <div class="flex items-center justify-between gap-3">
@@ -1290,13 +1361,13 @@ onMounted(async () => {
                 </div>
                 <p class="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-slate-600">{{ item.content }}</p>
               </button>
-              <div v-if="!announcements.length" class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-black text-slate-500">暂无公告</div>
+              <div v-if="!announcementsLoading && !announcements.length" class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-black text-slate-500">暂无公告</div>
             </div>
           </section>
 
           <section v-if="activeMenu === 'dashboard'" class="dash-section mt-6 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]" style="--d: 140ms">
             <RelayModelDistribution :rows="distributionRows" />
-            <RelayTrendChart :rows="chartRows" :loading="loading" @refresh="load" />
+            <RelayTrendChart :rows="chartRows" :loading="activeMenuLoading" @refresh="load" />
           </section>
 
           <section v-if="activeMenu === 'dashboard'" class="dash-section mt-6 grid gap-6 xl:grid-cols-[1.08fr_0.92fr]" style="--d: 220ms">
@@ -1338,14 +1409,24 @@ onMounted(async () => {
                     <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h14v16H5V4zm3 4h8m-8 4h8m-8 4h5" /></svg>
                     接入指南
                   </button>
-                  <button type="button" class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:opacity-50" :disabled="loading" aria-label="刷新密钥" title="刷新密钥" @click="load">
-                    <svg viewBox="0 0 24 24" class="h-4 w-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6 6.5L4 11m16 2-2 4.5A7 7 0 0 1 5.5 15" /></svg>
+                  <button type="button" class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:opacity-50" :disabled="activeMenuLoading" aria-label="刷新密钥" title="刷新密钥" @click="load">
+                    <svg viewBox="0 0 24 24" class="h-4 w-4" :class="activeMenuLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6 6.5L4 11m16 2-2 4.5A7 7 0 0 1 5.5 15" /></svg>
                   </button>
                   <button type="button" class="inline-flex h-9 items-center gap-2 rounded-xl bg-emerald-600 px-3.5 text-xs font-black text-white shadow-lg shadow-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-700" @click="openKeyDialog">
                     <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                     创建密钥
                   </button>
                 </div>
+              </div>
+
+              <div role="note" class="mt-2 flex items-center gap-2 rounded-lg border border-amber-200/80 bg-amber-50/85 px-2.5 py-2 text-[11px] text-amber-950 shadow-sm shadow-amber-100/60 sm:px-3">
+                <span class="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-amber-500 text-white shadow-sm shadow-amber-200" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 17H3L12 3Z" /><path d="M12 9v4m0 3h.01" /></svg>
+                </span>
+                <p class="min-w-0 leading-4">
+                  <strong class="font-black text-amber-900">余额扣款保护</strong>
+                  <span class="ml-2 font-semibold text-amber-800/80">余额不足以扣款时会自动禁用当前密钥；补充余额后请手动启用。</span>
+                </p>
               </div>
 
               <div class="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -1377,10 +1458,11 @@ onMounted(async () => {
 
             <div class="hidden shrink-0 grid-cols-[minmax(220px,1.45fr)_minmax(170px,.95fr)_minmax(155px,.8fr)_minmax(155px,.85fr)_auto] items-center gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:grid"><span>密钥 / 分组</span><span>用量</span><span>限制 / 有效期</span><span>状态 / 活动</span><span class="text-right">操作</span></div>
 
-            <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0">
-              <div v-if="loading && !overview" class="grid h-full min-h-52 place-items-center"><RequestLoader label="正在读取 API 密钥" :cell-size="13" /></div>
+            <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0">
+              <div v-if="activeMenuLoading" class="relay-list-refresh-bar" aria-hidden="true"><span></span></div>
+              <div v-if="activeMenuLoading && !tokens.length" class="grid h-full min-h-52 place-items-center"><RequestLoader label="正在读取 API 密钥" :cell-size="13" /></div>
               <div v-else-if="filteredTokens.length" class="divide-y divide-slate-100">
-                <article v-for="item in filteredTokens" :key="item.id" class="grid gap-4 px-4 py-4 transition hover:bg-slate-50/80 sm:px-5 xl:grid-cols-[minmax(220px,1.45fr)_minmax(170px,.95fr)_minmax(155px,.8fr)_minmax(155px,.85fr)_auto] xl:items-center">
+                <article v-for="(item, index) in filteredTokens" :key="item.id" class="relay-list-item grid gap-4 px-4 py-4 transition hover:bg-slate-50/80 sm:px-5 xl:grid-cols-[minmax(220px,1.45fr)_minmax(170px,.95fr)_minmax(155px,.8fr)_minmax(155px,.85fr)_auto] xl:items-center" :style="{ '--i': index }">
                   <div class="min-w-0">
                     <div class="flex min-w-0 items-center gap-2"><span class="h-2 w-2 shrink-0 rounded-full" :class="item.enabled ? 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]' : 'bg-slate-300'"></span><p class="truncate text-sm font-black text-slate-950" :title="item.name">{{ item.name }}</p></div>
                     <div class="mt-2 flex min-w-0 flex-wrap items-center gap-2 pl-4"><code class="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-teal-700">{{ item.tokenPreview }}</code><span class="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">{{ groupOf(item.groups)?.name || item.groups }} · {{ Number(groupOf(item.groups)?.ratio || 1).toFixed(3) }}x</span></div>
@@ -1422,7 +1504,7 @@ onMounted(async () => {
                 <div>
                   <div class="flex items-center gap-2">
                     <h2 class="text-lg font-black tracking-tight text-slate-950">调用明细</h2>
-                    <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black text-slate-500">{{ filteredLogs.length }} / {{ logs.length }}</span>
+                    <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black text-slate-500">{{ logTotal }} 条记录</span>
                   </div>
                   <p class="mt-1 text-xs font-semibold text-slate-500">聚合关键信息，点击任意记录查看完整请求详情</p>
                 </div>
@@ -1436,8 +1518,8 @@ onMounted(async () => {
                     <span class="hidden sm:inline">错误日志</span>
                     <span class="rounded-full bg-white px-1.5 py-0.5 text-[10px]">{{ errorLogs.length }}</span>
                   </button>
-                  <button type="button" class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" :disabled="loading" aria-label="刷新使用记录" title="刷新使用记录" @click="load">
-                    <svg viewBox="0 0 24 24" class="h-4 w-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6 6.5L4 11m16 2-2 4.5A7 7 0 0 1 5.5 15" /></svg>
+                  <button type="button" class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" :disabled="activeMenuLoading" aria-label="刷新使用记录" title="刷新使用记录" @click="load">
+                    <svg viewBox="0 0 24 24" class="h-4 w-4" :class="activeMenuLoading ? 'animate-spin' : ''" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6 6.5L4 11m16 2-2 4.5A7 7 0 0 1 5.5 15" /></svg>
                   </button>
                   <button type="button" class="inline-flex h-9 items-center gap-2 rounded-xl bg-slate-950 px-3 text-xs font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!logs.length" @click="exportUsageCsv">
                     <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" /></svg>
@@ -1489,12 +1571,13 @@ onMounted(async () => {
               <span>请求</span><span>状态</span><span>Token / 缓存</span><span>费用</span><span>耗时 / 时间</span><span></span>
             </div>
 
-            <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0">
-              <div v-if="loading && !overview" class="grid h-full min-h-52 place-items-center">
+            <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0">
+              <div v-if="activeMenuLoading" class="relay-list-refresh-bar" aria-hidden="true"><span></span></div>
+              <div v-if="activeMenuLoading && !logs.length" class="grid h-full min-h-52 place-items-center">
                 <RequestLoader label="正在读取使用记录" :cell-size="13" />
               </div>
               <div v-else-if="filteredLogs.length" class="divide-y divide-slate-100">
-                <article v-for="log in filteredLogs" :key="log.id" class="group bg-white transition hover:bg-slate-50/80">
+                <article v-for="(log, index) in filteredLogs" :key="log.id" class="relay-list-item group bg-white transition hover:bg-slate-50/80" :style="{ '--i': index }">
                   <button type="button" class="relative grid w-full gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500 sm:grid-cols-2 sm:px-5 xl:grid-cols-[minmax(220px,1.55fr)_92px_minmax(190px,1.15fr)_115px_135px_32px] xl:items-center xl:gap-4" :aria-expanded="expandedLogIds.has(log.id)" @click="toggleLogDetails(log.id)">
                     <div class="min-w-0 sm:col-span-2 xl:col-span-1">
                       <div class="flex min-w-0 items-center gap-2">
@@ -1565,6 +1648,10 @@ onMounted(async () => {
                 </div>
               </div>
             </div>
+            <footer class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
+              <span class="text-xs font-semibold text-slate-500">第 {{ logPage }} 页，共 {{ logPages }} 页，{{ logTotal }} 条记录</span>
+              <Pagination :current="logPage" :pages="logPages" @change="changeLogPage" />
+            </footer>
           </section>
 
           <section v-if="activeMenu === 'channels'" class="flex h-full min-h-0 flex-col gap-3">
@@ -1604,12 +1691,14 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5">
+            <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5">
+              <div v-if="activeMenuLoading" class="relay-list-refresh-bar" aria-hidden="true"><span></span></div>
               <div v-if="channelRows.length" class="grid gap-3 pb-1 xl:grid-cols-2 2xl:grid-cols-3">
                 <article
-                  v-for="channel in channelRows"
+                  v-for="(channel, index) in channelRows"
                   :key="channel.id"
-                  class="channel-card group relative isolate overflow-hidden rounded-[20px] border bg-white p-4 shadow-[0_10px_35px_rgba(15,23,42,0.045)] transition duration-300"
+                  class="relay-list-item channel-card group relative isolate overflow-hidden rounded-[20px] border bg-white p-4 shadow-[0_10px_35px_rgba(15,23,42,0.045)] transition duration-300"
+                  :style="{ '--i': index }"
                   :class="[
                     channel.status === 'available' ? 'border-emerald-100 hover:border-emerald-200' : channel.status === 'failed' ? 'border-rose-100 hover:border-rose-200' : 'border-slate-200 hover:border-slate-300',
                     { 'is-checking': checkingChannelId === channel.id, 'channel-check-complete': checkedChannelIds.has(channel.id) && checkingChannelId !== channel.id }
@@ -1675,7 +1764,7 @@ onMounted(async () => {
           <section v-if="activeMenu === 'models'" class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <div class="flex flex-wrap items-end justify-between gap-3"><div><h2 class="text-xl font-black">模型状态</h2><p class="mt-1 text-xs font-semibold text-slate-500">默认展示系统全部模型；状态条来自所有用户的最近调用。</p></div><span class="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700"><span class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>全站实时</span></div>
             <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <article v-for="model in modelRows" :key="model.id" class="rounded-xl border border-slate-100 bg-slate-50 p-4">
+              <article v-for="(model, index) in modelRows" :key="model.id" class="relay-list-item rounded-xl border border-slate-100 bg-slate-50 p-4" :style="{ '--i': index }">
                 <div class="flex items-start justify-between gap-3">
                   <div>
                     <p class="font-black">{{ model.displayName || model.model }}</p>
@@ -1765,7 +1854,7 @@ onMounted(async () => {
                 <p class="mt-1 text-sm font-semibold text-slate-500">沿用当前账户支付记录，支付回调完成后余额自动入账。</p>
               </div>
               <div class="divide-y divide-slate-100">
-                <div v-for="record in paymentRecords" :key="record.id" class="grid gap-3 p-5 text-sm font-semibold text-slate-600 md:grid-cols-[120px_1fr_120px_180px] md:items-center">
+                <div v-for="(record, index) in paymentRecords" :key="record.id" class="relay-list-item grid gap-3 p-5 text-sm font-semibold text-slate-600 md:grid-cols-[120px_1fr_120px_180px] md:items-center" :style="{ '--i': index }">
                   <span class="font-black text-slate-950">{{ yuan(record.amount) }}</span>
                   <span>{{ paymentTypeText(record.type) }}</span>
                   <span class="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{{ paymentStatusText(record.status) }}</span>
@@ -2240,12 +2329,16 @@ onMounted(async () => {
             </header>
 
             <div class="min-h-0 overflow-y-auto p-3 sm:p-5">
-              <div v-if="announcements.length" class="grid gap-3">
+              <div v-if="announcementsLoading" class="grid min-h-64 place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70">
+                <RequestLoader label="正在读取公告" :cell-size="11" />
+              </div>
+              <div v-else-if="announcements.length" class="grid gap-3">
                 <button
-                  v-for="item in announcements"
+                  v-for="(item, index) in announcements"
                   :key="item.id"
                   type="button"
-                  class="group w-full rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/50 hover:shadow-md hover:shadow-emerald-100/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 sm:p-5"
+                  class="relay-list-item group w-full rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/50 hover:shadow-md hover:shadow-emerald-100/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 sm:p-5"
+                  :style="{ '--i': index }"
                   @click="openAnnouncement(item)"
                 >
                   <div class="flex items-start gap-3 sm:gap-4">
@@ -2351,6 +2444,43 @@ onMounted(async () => {
 
 .dash-card:hover .dash-card-glow {
   opacity: .18;
+}
+
+.relay-list-item {
+  animation: relayListIn 420ms cubic-bezier(.16, 1, .3, 1) both;
+  animation-delay: calc(var(--i, 0) * 38ms);
+}
+
+.relay-list-refresh-bar {
+  position: absolute;
+  z-index: 12;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgba(16, 185, 129, .12);
+}
+
+.relay-list-refresh-bar > span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, #10b981 35%, #06b6d4 65%, transparent);
+  box-shadow: 0 0 12px rgba(16, 185, 129, .55);
+  animation: relayListRefresh 1.05s ease-in-out infinite;
+}
+
+@keyframes relayListIn {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes relayListRefresh {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(340%); }
 }
 
 @keyframes dashSectionIn {
@@ -2771,6 +2901,10 @@ onMounted(async () => {
     animation: none !important;
   }
 
+  .relay-list-item {
+    animation: none !important;
+  }
+
   .dash-card-glow {
     transition: none !important;
   }
@@ -2780,6 +2914,10 @@ onMounted(async () => {
   }
 
   .relay-menu-progress > span {
+    animation: none !important;
+  }
+
+  .relay-list-refresh-bar > span {
     animation: none !important;
   }
 

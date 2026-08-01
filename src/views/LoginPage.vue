@@ -135,10 +135,10 @@ const title = 'imageCreater'
 
       <!-- Glassmorphism Form Panel -->
       <form 
-        class="rounded-3xl border border-white/60 bg-white/80 p-5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] backdrop-blur-xl sm:p-8"
+        class="auth-form rounded-[26px] border border-white/70 bg-white/80 p-4 shadow-[0_24px_72px_-18px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:p-6"
         @submit.prevent="submit"
       >
-        <div class="space-y-5">
+        <div class="space-y-4">
           <!-- Username Input -->
           <div class="space-y-2">
             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">用户名</label>
@@ -171,15 +171,35 @@ const title = 'imageCreater'
             </div>
           </div>
 
-          <div v-if="resetOpen" class="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
-            <div class="space-y-3">
+          <Transition name="reset-panel">
+            <div v-if="resetOpen" class="reset-panel overflow-hidden">
+              <section class="rounded-2xl border border-blue-100/80 bg-blue-50/70 p-4 shadow-[0_12px_32px_rgba(37,99,235,0.08)] sm:p-5">
+                <div class="mb-4 flex items-start justify-between gap-3">
+                  <div>
+                    <p class="text-sm font-black text-slate-800">找回密码</p>
+                    <p class="mt-1 text-xs font-medium leading-5 text-slate-500">通过绑定邮箱设置一个新的登录密码</p>
+                  </div>
+                  <button
+                    class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-white/80 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+                    type="button"
+                    aria-label="关闭找回密码"
+                    title="关闭找回密码"
+                    @click="resetOpen = false"
+                  >
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div class="grid gap-3 sm:grid-cols-2">
               <input
                 v-model="resetEmail"
-                class="w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                class="w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 sm:col-span-2"
                 type="email"
                 placeholder="输入绑定邮箱"
               />
-              <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_132px]">
+              <div class="grid gap-3 sm:col-span-2 sm:grid-cols-[minmax(0,1fr)_132px]">
                 <input
                   v-model="resetCode"
                   class="min-w-0 flex-1 rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -207,15 +227,17 @@ const title = 'imageCreater'
                 placeholder="确认新密码"
               />
               <button
-                class="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                class="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-2"
                 type="button"
                 :disabled="resetting"
                 @click="resetPwd"
               >
                 {{ resetting ? '正在重置' : '重置密码' }}
               </button>
+                </div>
+              </section>
             </div>
-          </div>
+          </Transition>
         </div>
 
         <!-- Error Message -->
@@ -250,3 +272,34 @@ const title = 'imageCreater'
     </div>
   </div>
 </template>
+
+<style scoped>
+.auth-form {
+  background: rgba(255, 255, 255, 0.78) !important;
+  border-color: rgba(255, 255, 255, 0.84) !important;
+}
+
+.auth-form input {
+  background: rgba(255, 255, 255, 0.86) !important;
+}
+
+.reset-panel {
+  max-height: 34rem;
+}
+
+.reset-panel-enter-active,
+.reset-panel-leave-active {
+  overflow: hidden;
+  transition:
+    max-height 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.22s ease,
+    transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.reset-panel-enter-from,
+.reset-panel-leave-to {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-8px);
+}
+</style>
