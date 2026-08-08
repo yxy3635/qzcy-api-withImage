@@ -40,7 +40,8 @@ const elapsedSeconds = ref(0)
 const estimatedSeconds = ref(45)
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploadedImages = ref<UploadedImage[]>([])
-const sizeMode = ref<'auto' | 'ratio' | 'custom'>('auto')
+const sizeMode = ref<'preset' | 'auto' | 'ratio' | 'custom'>('preset')
+const selectedPreset = ref('1k-landscape')
 const selectedRatio = ref('1:1')
 const customRatioActive = ref(false)
 const customRatio = ref('16:9')
@@ -73,9 +74,17 @@ const filterOptions = [
 
 const formatOptions = ['PNG']
 const sizeScales = [
-  { value: '1k', label: '1K', longSide: 1280, square: 1024 },
+  { value: '1k', label: '1K', longSide: 1024, square: 1024 },
   { value: '2k', label: '2K', longSide: 2560, square: 2048 },
   { value: '4k', label: '4K', longSide: 3840, square: 4096 }
+] as const
+const qualityPresets = [
+  { value: '1k-landscape', qualityCode: '1k', label: '1K 横屏', size: '1024x768', hint: '1024 × 768' },
+  { value: '1k-portrait', qualityCode: '1k', label: '1K 竖屏', size: '768x1024', hint: '768 × 1024' },
+  { value: '2k-landscape', qualityCode: '2k', label: '2K 横屏', size: '2560x1440', hint: '2560 × 1440' },
+  { value: '2k-portrait', qualityCode: '2k', label: '2K 竖屏', size: '1440x2560', hint: '1440 × 2560' },
+  { value: '4k-landscape', qualityCode: '4k', label: '4K 横屏', size: '3840x2160', hint: '3840 × 2160' },
+  { value: '4k-portrait', qualityCode: '4k', label: '4K 竖屏', size: '2160x3840', hint: '2160 × 3840' }
 ] as const
 const ratioOptions = ['1:1', '3:2', '2:3', '16:9', '9:16', '4:3', '3:4', '21:9']
 
@@ -89,11 +98,12 @@ const selectedSizeScale = computed(() => {
   return sizeScales[0]
 })
 const selectedImageSize = computed(() => {
+  if (sizeMode.value === 'preset') return qualityPresets.find((item) => item.value === selectedPreset.value)?.size || '1024x768'
   if (sizeMode.value === 'auto') return 'auto'
   if (sizeMode.value === 'custom') return `${customWidth.value}x${customHeight.value}`
   return sizeFromRatio(customRatioActive.value ? customRatio.value : selectedRatio.value)
 })
-const sizeButtonLabel = computed(() => (sizeMode.value === 'auto' ? '自动' : selectedImageSize.value))
+const sizeButtonLabel = computed(() => sizeMode.value === 'preset' ? qualityPresets.find((item) => item.value === selectedPreset.value)?.label || '1K 横屏' : sizeMode.value === 'auto' ? '自动' : selectedImageSize.value)
 const galleryRecords = computed(() => {
   const list = result.value ? [result.value, ...recent.value.filter((item) => item.id !== result.value?.id)] : recent.value
   const filtered = galleryFilter.value === 'all' ? list : list.filter((item) => item.status === galleryFilter.value)
@@ -379,6 +389,12 @@ function selectFormat(value: string) {
 
 function openSizeModal() {
   sizeModalOpen.value = true
+}
+
+function selectQualityPreset(preset: typeof qualityPresets[number]) {
+  selectedPreset.value = preset.value
+  selectedQuality.value = preset.qualityCode
+  sizeMode.value = 'preset'
 }
 
 function selectRatio(value: string) {
@@ -770,7 +786,27 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="min-h-0 flex-1 overflow-y-auto px-5 pb-4 sm:px-7">
-          <div class="grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm font-black text-slate-500">
+          <div class="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-sm font-black text-slate-700">预设质量</span>
+              <span class="text-xs font-bold text-slate-400">选择输出清晰度与方向</span>
+            </div>
+            <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <button
+                v-for="preset in qualityPresets"
+                :key="preset.value"
+                class="min-h-[72px] rounded-xl border bg-white px-3 py-2 text-left transition"
+                :class="selectedPreset === preset.value ? 'border-sky-500 bg-sky-50 text-sky-700 shadow-sm' : 'border-slate-200 text-slate-700 hover:border-sky-200 hover:bg-sky-50/50'"
+                type="button"
+                @click="selectQualityPreset(preset)"
+              >
+                <span class="block text-sm font-black">{{ preset.label }}</span>
+                <span class="mt-1 block text-xs font-semibold text-slate-400">{{ preset.hint }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="mt-5 grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm font-black text-slate-500">
             <button class="h-11 rounded-xl transition" :class="sizeMode === 'auto' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-800'" type="button" @click="sizeMode = 'auto'">自动</button>
             <button class="h-11 rounded-xl transition" :class="sizeMode === 'ratio' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-800'" type="button" @click="sizeMode = 'ratio'">按比例</button>
             <button class="h-11 rounded-xl transition" :class="sizeMode === 'custom' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-800'" type="button" @click="sizeMode = 'custom'">自定义宽高</button>

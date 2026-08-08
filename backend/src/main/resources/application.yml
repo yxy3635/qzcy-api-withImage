@@ -61,6 +61,8 @@ app:
     image-path: userImage/
   image:
     cost: 0.10
+    retention-cleanup:
+      interval-ms: ${IMAGE_RETENTION_CLEANUP_INTERVAL_MS:21600000}
   mail:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}
     dev-return-code: true

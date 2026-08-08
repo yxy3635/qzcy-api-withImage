@@ -113,6 +113,7 @@ function handleZoomWheel(event: WheelEvent) {
             <button v-if="record" class="flex-1 rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600 transition hover:bg-red-100 sm:flex-none" @click="emit('delete', record)">删除任务</button>
             <button class="hidden rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50 sm:ml-auto md:block" @click="emit('close')">关闭</button>
           </div>
+          <p v-if="record?.status === 'success'" class="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-700">生成图片成功免费保留一周，一周以后自动删除，请需要保留及时下载。</p>
         </aside>
       </div>
 

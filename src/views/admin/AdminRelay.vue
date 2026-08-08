@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import AppLayout from '@/components/AppLayout.vue'
+import { useRouter } from 'vue-router'
 import RelayModal from '@/components/RelayModal.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/store/authStore'
 import type { RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel } from '@/types'
 
 const toast = useToast()
+const auth = useAuthStore()
+const router = useRouter()
 type Tab = 'overview' | 'channels' | 'tokens' | 'models' | 'usage' | 'policy'
 
 interface ChannelDraft {
@@ -125,13 +128,13 @@ const newGroup = reactive<GroupDraft>({
   modelIds: []
 })
 
-const tabs: Array<{ id: Tab; label: string }> = [
-  { id: 'overview', label: '总览' },
-  { id: 'channels', label: '渠道' },
-  { id: 'tokens', label: '令牌' },
-  { id: 'models', label: '模型' },
-  { id: 'usage', label: '用量' },
-  { id: 'policy', label: '策略' }
+const tabs: Array<{ id: Tab; label: string; description: string; icon: string }> = [
+  { id: 'overview', label: '总览', description: '运行概况', icon: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z' },
+  { id: 'channels', label: '渠道', description: '上游连接', icon: 'M6 3v4m0 10v4m12-18v4m0 10v4M6 7h12v10H6zM10 12h4' },
+  { id: 'tokens', label: '令牌', description: '访问密钥', icon: 'M12 2 4 6v5c0 5 3.4 9.5 8 11 4.6-1.5 8-6 8-11V6l-8-4Zm-3 10 2 2 4-4' },
+  { id: 'models', label: '模型', description: '模型与定价', icon: 'M5 4h14v16H5zM8 8h8M8 12h8M8 16h5' },
+  { id: 'usage', label: '用量', description: '调用统计', icon: 'M4 19V5m0 14h16M8 16v-4m4 4V8m4 8v-6m4 6V6' },
+  { id: 'policy', label: '策略', description: '路由分组', icon: 'M12 3 4 7v5c0 4.8 3.3 8.8 8 10 4.7-1.2 8-5.2 8-10V7l-8-4Zm-3 9 2 2 4-4' }
 ]
 
 const stats = computed(() => overview.value?.stats)
@@ -404,6 +407,11 @@ function inferChannelRule(channel: RelayChannel) {
   const baseUrl = (channel.apiBaseUrl || '').toLowerCase()
   if (provider.includes('anthropic') || provider.includes('claude') || baseUrl.includes('api.anthropic.com')) return 'anthropic'
   return 'openai'
+}
+
+function logout() {
+  auth.logout()
+  router.push('/login')
 }
 
 async function load() {
@@ -719,9 +727,51 @@ onMounted(load)
 </script>
 
 <template>
-  <AppLayout admin>
-    <div class="page-enter">
-      <div class="flex flex-wrap items-end justify-between gap-5">
+  <div class="relay-console">
+    <header class="relay-console-header">
+      <RouterLink to="/admin/dashboard" class="relay-console-brand" title="返回管理后台">
+        <span class="relay-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 3v4m0 10v4m12-18v4m0 10v4M6 7h12v10H6zM10 12h4" /></svg>
+        </span>
+        <span><strong>imageCreater</strong><small>API Relay Console</small></span>
+      </RouterLink>
+      <div class="relay-console-header-actions">
+        <RouterLink to="/admin/dashboard" class="relay-back-link">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+          返回管理后台
+        </RouterLink>
+        <button class="relay-logout" type="button" @click="logout">退出</button>
+      </div>
+    </header>
+
+    <div class="relay-console-body">
+      <aside class="relay-console-nav" aria-label="中转站功能导航">
+        <div class="relay-nav-intro">
+          <p>中转站设置</p>
+          <span>API 分发配置</span>
+        </div>
+        <nav class="relay-nav-list">
+          <button
+            v-for="tab in tabs"
+            :key="tab.id"
+            class="relay-nav-item"
+            :class="{ 'is-active': activeTab === tab.id }"
+            type="button"
+            @click="activeTab = tab.id"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="tab.icon" /></svg>
+            <span><strong>{{ tab.label }}</strong><small>{{ tab.description }}</small></span>
+          </button>
+        </nav>
+        <div class="relay-nav-footer">
+          <span class="relay-live-dot" aria-hidden="true" />
+          <span>控制台已连接</span>
+        </div>
+      </aside>
+
+      <main class="relay-console-main">
+        <div class="relay-workspace">
+      <div class="relay-command-bar">
         <div>
           <p class="text-sm font-black tracking-[0.22em] text-sky-600">中转站设置</p>
           <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">通用 API 中转后台</h1>
@@ -735,28 +785,17 @@ onMounted(load)
         </button>
       </div>
 
-      <div class="mt-6 flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1">
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          class="shrink-0 rounded-xl px-4 py-2 text-sm font-black transition"
-          :class="activeTab === tab.id ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-sky-50 hover:text-sky-700'"
-          @click="activeTab = tab.id"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
-
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
-      <section v-if="activeTab === 'overview'" class="mt-6 grid gap-4 xl:grid-cols-4">
-        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">启用渠道</p><p class="mt-2 text-3xl font-black">{{ stats?.activeChannels || 0 }}/{{ stats?.totalChannels || 0 }}</p></div>
-        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">启用令牌</p><p class="mt-2 text-3xl font-black">{{ stats?.activeTokens || 0 }}/{{ stats?.totalTokens || 0 }}</p></div>
-        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">总请求数</p><p class="mt-2 text-3xl font-black">{{ stats?.totalRequests || 0 }}</p></div>
-        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">总 Token</p><p class="mt-2 text-3xl font-black text-sky-600">{{ compactToken(stats?.totalTokensUsed) }}</p></div>
+      <Transition name="relay-view" mode="out-in">
+      <section v-if="activeTab === 'overview'" key="overview" class="relay-metrics">
+        <div class="panel relay-metric"><p class="text-sm font-bold text-slate-500">启用渠道</p><p class="mt-2 text-3xl font-black">{{ stats?.activeChannels || 0 }}/{{ stats?.totalChannels || 0 }}</p><span>可用上游服务</span></div>
+        <div class="panel relay-metric"><p class="text-sm font-bold text-slate-500">启用令牌</p><p class="mt-2 text-3xl font-black">{{ stats?.activeTokens || 0 }}/{{ stats?.totalTokens || 0 }}</p><span>已授权访问密钥</span></div>
+        <div class="panel relay-metric"><p class="text-sm font-bold text-slate-500">总请求数</p><p class="mt-2 text-3xl font-black">{{ stats?.totalRequests || 0 }}</p><span>累计 API 调用</span></div>
+        <div class="panel relay-metric relay-metric-accent"><p class="text-sm font-bold text-slate-500">总 Token</p><p class="mt-2 text-3xl font-black text-sky-600">{{ compactToken(stats?.totalTokensUsed) }}</p><span>累计用量</span></div>
       </section>
 
-      <section v-if="activeTab === 'channels'" class="mt-6 space-y-3">
+      <section v-else-if="activeTab === 'channels'" key="channels" class="mt-6 space-y-3">
         <button class="panel flex w-full items-center justify-between gap-4 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/40" type="button" @click="newChannelEditor">
           <div class="min-w-0">
             <p class="text-xs font-black uppercase tracking-[0.16em] text-sky-600">新增渠道</p>
@@ -1027,7 +1066,7 @@ onMounted(load)
         </div>
       </section>
 
-      <section v-if="activeTab === 'models'" class="mt-6 space-y-5">
+      <section v-else-if="activeTab === 'models'" key="models" class="mt-6 space-y-5">
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div class="panel p-4">
             <p class="text-xs font-black text-slate-500">模型总数</p>
@@ -1329,7 +1368,7 @@ onMounted(load)
         </div>
       </section>
 
-      <section v-if="activeTab === 'tokens'" class="mt-6 rounded-[28px] border border-white/80 bg-white/86 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <section v-else-if="activeTab === 'tokens'" key="tokens" class="mt-6 rounded-[28px] border border-white/80 bg-white/86 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         <h2 class="text-2xl font-black">用户令牌</h2>
         <div class="mt-5 grid gap-3">
           <article v-for="token in tokens" :key="token.id" class="grid gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 lg:grid-cols-[1fr_1fr_120px_120px_90px] lg:items-center">
@@ -1343,13 +1382,13 @@ onMounted(load)
         </div>
       </section>
 
-      <section v-if="activeTab === 'usage'" class="mt-6 grid gap-4 sm:grid-cols-3">
+      <section v-else-if="activeTab === 'usage'" key="usage" class="mt-6 grid gap-4 sm:grid-cols-3">
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">请求数</p><p class="mt-2 text-3xl font-black">{{ stats?.totalRequests || 0 }}</p></div>
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">Token 用量</p><p class="mt-2 text-3xl font-black">{{ compactToken(stats?.totalTokensUsed) }}</p></div>
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">成本</p><p class="mt-2 text-3xl font-black text-sky-600">￥{{ Number(stats?.totalCost || 0).toFixed(4) }}</p></div>
       </section>
 
-      <section v-if="activeTab === 'policy'" class="mt-6 space-y-3">
+      <section v-else-if="activeTab === 'policy'" key="policy" class="mt-6 space-y-3">
         <button class="panel flex w-full items-center justify-between gap-4 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/40" type="button" @click="newGroupEditor">
           <div class="min-w-0">
             <p class="text-xs font-black uppercase tracking-[0.16em] text-sky-600">Group policy</p>
@@ -1490,6 +1529,9 @@ onMounted(load)
             </div>
           </div>
       </section>
+      </Transition>
+        </div>
+      </main>
     </div>
     <AppConfirmDialog
       :open="Boolean(relayDeleteDialog)"
@@ -1506,5 +1548,276 @@ onMounted(load)
       @cancel="closeRelayDeleteDialog"
       @confirm="confirmRelayDelete"
     />
-  </AppLayout>
+  </div>
 </template>
+
+<style scoped>
+.relay-console {
+  min-height: 100vh;
+  padding: 1rem;
+  color: #172033;
+}
+
+.relay-console-header,
+.relay-console-nav {
+  border: 1px solid rgba(255, 255, 255, .72);
+  background: rgba(255, 255, 255, .5);
+  box-shadow: 0 18px 52px rgba(15, 23, 42, .12), inset 0 1px 0 rgba(255, 255, 255, .78);
+  backdrop-filter: blur(24px) saturate(1.18);
+  -webkit-backdrop-filter: blur(24px) saturate(1.18);
+}
+
+.relay-console-header {
+  display: flex;
+  min-height: 4.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 1.1rem;
+  padding: .7rem 1rem;
+}
+
+.relay-console-brand,
+.relay-console-header-actions,
+.relay-back-link {
+  display: flex;
+  align-items: center;
+}
+
+.relay-console-brand {
+  min-width: 0;
+  gap: .7rem;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.relay-brand-mark {
+  display: grid;
+  width: 2.45rem;
+  height: 2.45rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .78);
+  border-radius: .8rem;
+  background: rgba(14, 165, 233, .15);
+  color: #0369a1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+
+.relay-brand-mark svg,
+.relay-back-link svg,
+.relay-nav-item svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.relay-brand-mark svg { width: 1.25rem; height: 1.25rem; stroke-width: 1.9; }
+.relay-console-brand strong,
+.relay-console-brand small { display: block; }
+.relay-console-brand strong { font-size: 1rem; font-weight: 850; letter-spacing: 0; }
+.relay-console-brand small { margin-top: .05rem; color: #64748b; font-size: .63rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+
+.relay-console-header-actions { flex: 0 0 auto; gap: .45rem; }
+.relay-back-link,
+.relay-logout {
+  min-height: 2.4rem;
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: .68rem;
+  background: rgba(255, 255, 255, .48);
+  padding: 0 .75rem;
+  color: #475569;
+  font-size: .76rem;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform .18s ease, background-color .18s ease, color .18s ease;
+}
+
+.relay-back-link { gap: .35rem; }
+.relay-back-link svg { width: .9rem; height: .9rem; stroke-width: 2.2; }
+.relay-back-link:hover,
+.relay-logout:hover { background: rgba(255, 255, 255, .76); color: #0369a1; transform: translateY(-1px); }
+
+.relay-console-body {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 1rem;
+  width: min(100%, 1800px);
+  margin: 1rem auto 0;
+}
+
+.relay-console-nav {
+  position: sticky;
+  top: 1rem;
+  display: flex;
+  height: calc(100vh - 6.5rem);
+  min-height: 36rem;
+  flex-direction: column;
+  border-radius: 1.1rem;
+  padding: .8rem;
+}
+
+.relay-nav-intro { padding: .75rem .8rem 1rem; }
+.relay-nav-intro p { margin: 0; color: #0f172a; font-size: .85rem; font-weight: 850; }
+.relay-nav-intro span { display: block; margin-top: .25rem; color: #64748b; font-size: .7rem; font-weight: 650; }
+
+.relay-nav-list { display: grid; gap: .3rem; }
+.relay-nav-item {
+  display: flex;
+  min-height: 3.45rem;
+  align-items: center;
+  gap: .7rem;
+  border: 1px solid transparent;
+  border-radius: .75rem;
+  background: transparent;
+  padding: .55rem .65rem;
+  color: #52657a;
+  text-align: left;
+  transition: transform .18s ease, border-color .18s ease, background-color .18s ease, box-shadow .18s ease, color .18s ease;
+}
+
+.relay-nav-item svg { width: 1.1rem; height: 1.1rem; flex: 0 0 auto; stroke-width: 1.9; }
+.relay-nav-item span { min-width: 0; }
+.relay-nav-item strong,
+.relay-nav-item small { display: block; }
+.relay-nav-item strong { color: inherit; font-size: .82rem; font-weight: 820; }
+.relay-nav-item small { margin-top: .1rem; color: #718096; font-size: .66rem; font-weight: 650; }
+.relay-nav-item:hover { border-color: rgba(186, 230, 253, .72); background: rgba(240, 249, 255, .5); color: #0369a1; transform: translateX(2px); }
+.relay-nav-item.is-active { border-color: rgba(255, 255, 255, .74); background: rgba(255, 255, 255, .72); color: #0369a1; box-shadow: 0 8px 22px rgba(14, 116, 144, .12), inset 0 1px 0 rgba(255, 255, 255, .85); }
+.relay-nav-item.is-active small { color: #0e7490; }
+
+.relay-nav-footer {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin-top: auto;
+  border-top: 1px solid rgba(255, 255, 255, .62);
+  padding: .85rem .8rem .2rem;
+  color: #64748b;
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+.relay-live-dot { width: .45rem; height: .45rem; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 .22rem rgba(16, 185, 129, .12); animation: relayPulse 2s ease-in-out infinite; }
+.relay-console-main { min-width: 0; }
+
+.relay-workspace {
+  --relay-line: rgba(255, 255, 255, 0.82);
+  --relay-surface: rgba(255, 255, 255, 0.74);
+  color: #172033;
+}
+
+.relay-command-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: .75rem;
+  padding: .35rem 0 1.35rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.72);
+}
+
+.relay-command-bar > div {
+  min-width: 0;
+}
+
+.relay-command-bar > button {
+  min-width: 6.5rem;
+  box-shadow: 0 10px 24px rgba(21, 32, 51, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.relay-command-bar > button:last-child {
+  min-width: 7.5rem;
+}
+
+.relay-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .85rem;
+  margin-top: 1.25rem;
+}
+
+.relay-metric {
+  position: relative;
+  min-height: 8.75rem;
+  overflow: hidden;
+  padding: 1.15rem 1.25rem;
+  border-color: var(--relay-line) !important;
+  background: var(--relay-surface) !important;
+  box-shadow: 0 14px 34px rgba(21, 32, 51, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.86) !important;
+  backdrop-filter: blur(20px) saturate(1.1) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.1) !important;
+}
+
+.relay-metric > p:first-child {
+  letter-spacing: .02em;
+}
+
+.relay-metric > p:nth-child(2) {
+  color: #152033;
+  letter-spacing: 0;
+}
+
+.relay-metric > span {
+  display: block;
+  margin-top: .35rem;
+  color: #64748b;
+  font-size: .72rem;
+  font-weight: 650;
+}
+
+.relay-workspace :deep(.panel) {
+  border-color: var(--relay-line);
+  background: var(--relay-surface);
+}
+
+.relay-workspace :deep(.panel:hover) {
+  box-shadow: 0 16px 38px rgba(21, 32, 51, 0.12);
+}
+
+.relay-view-enter-active,
+.relay-view-leave-active { transition: opacity .24s ease, transform .24s ease, filter .24s ease; }
+.relay-view-enter-from { opacity: 0; transform: translateY(10px); filter: blur(5px); }
+.relay-view-leave-to { opacity: 0; transform: translateY(-6px); filter: blur(3px); }
+
+@keyframes relayPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .58; transform: scale(.82); }
+}
+
+@media (max-width: 1100px) {
+  .relay-console-body { grid-template-columns: 12.5rem minmax(0, 1fr); }
+  .relay-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 800px) {
+  .relay-console { padding: .65rem; }
+  .relay-console-body { display: block; margin-top: .65rem; }
+  .relay-console-nav { position: static; width: 100%; height: auto; min-height: 0; margin-bottom: .65rem; padding: .55rem; }
+  .relay-nav-intro, .relay-nav-footer { display: none; }
+  .relay-nav-list { display: flex; overflow-x: auto; gap: .35rem; padding-bottom: .1rem; }
+  .relay-nav-item { min-width: 7.2rem; flex: 1 0 auto; min-height: 3rem; }
+}
+
+@media (max-width: 640px) {
+  .relay-console-header { min-height: 4rem; padding: .55rem .65rem; }
+  .relay-console-brand small, .relay-back-link { display: none; }
+  .relay-console-header-actions { gap: .35rem; }
+  .relay-logout { min-width: 3.8rem; padding-inline: .55rem; }
+  .relay-command-bar {
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+  }
+
+  .relay-command-bar > div { grid-column: 1 / -1; }
+  .relay-command-bar > button,
+  .relay-command-bar > button:last-child { min-width: 0; }
+  .relay-metrics { grid-template-columns: 1fr; }
+  .relay-metric { min-height: 7.75rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .relay-nav-item, .relay-back-link, .relay-logout, .relay-view-enter-active, .relay-view-leave-active { transition: none; }
+  .relay-live-dot { animation: none; }
+}
+</style>

@@ -21,6 +21,8 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
@@ -67,6 +69,7 @@ public class ImageServiceImpl implements ImageService {
     private static final int MAX_LOG_BODY_CHARS = 4000;
     private static final int MAX_REFERENCE_IMAGES = 4;
     private static final int MAX_REFERENCE_IMAGE_CHARS = 12 * 1024 * 1024;
+    private static final Duration IMAGE_RETENTION = Duration.ofDays(7);
 
     public ImageServiceImpl(ImageRecordMapper imageRecordMapper,
                             ImageGenerationMetricMapper metricMapper,
@@ -165,6 +168,22 @@ public class ImageServiceImpl implements ImageService {
         }
         deleteLocalFile(record.getGeneratedImageUrl());
         imageRecordMapper.deleteById(imageRecordId);
+    }
+
+    @Scheduled(fixedDelayString = "${app.image.retention-cleanup.interval-ms:21600000}", initialDelay = 120_000)
+    @Transactional
+    public void deleteExpiredImages() {
+        LocalDateTime cutoff = LocalDateTime.now().minus(IMAGE_RETENTION);
+        List<ImageRecord> expired = imageRecordMapper.selectList(
+                new LambdaQueryWrapper<ImageRecord>().lt(ImageRecord::getCreatedAt, cutoff)
+        );
+        for (ImageRecord record : expired) {
+            deleteLocalFile(record.getGeneratedImageUrl());
+            imageRecordMapper.deleteById(record.getId());
+        }
+        if (!expired.isEmpty()) {
+            log.info("Deleted expired image records and local files: count={}, cutoff={}", expired.size(), cutoff);
+        }
     }
 
     private void runGeneration(Long recordId, String username, String prompt, ImageGenerationConfig config, String size, List<String> referenceImages) {

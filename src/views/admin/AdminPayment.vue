@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import AppLayout from '@/components/AppLayout.vue'
+import Pagination from '@/components/Pagination.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
-import type { PaymentConfig } from '@/types'
+import type { AdminPaymentRecord, PaymentConfig } from '@/types'
 
 const toast = useToast()
 interface PaymentDraft {
@@ -34,6 +35,21 @@ const draft = reactive<PaymentDraft>({
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
+const recordsOpen = ref(false)
+const paymentRecords = ref<AdminPaymentRecord[]>([])
+const paymentKeyword = ref('')
+const paymentStatus = ref('')
+const paymentCurrent = ref(1)
+const paymentPages = ref(1)
+const paymentTotal = ref(0)
+const paymentLoading = ref(false)
+const paymentPageSize = ref(20)
+
+const paymentStatusOptions = [
+  { value: '', label: '全部状态' },
+  { value: 'completed', label: '已完成' },
+  { value: 'pending', label: '待支付' }
+]
 
 function setDraft(next: PaymentConfig) {
   draft.apiUrl = next.apiUrl || ''
@@ -97,6 +113,49 @@ async function save() {
   }
 }
 
+async function loadPaymentRecords(page = 1) {
+  paymentLoading.value = true
+  try {
+    const { data } = await adminApi.paymentRecords(page, paymentPageSize.value, paymentKeyword.value.trim(), paymentStatus.value)
+    paymentRecords.value = data.data.records
+    paymentCurrent.value = data.data.current
+    paymentPages.value = data.data.pages
+    paymentTotal.value = data.data.total
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '加载充值账单失败'
+  } finally {
+    paymentLoading.value = false
+  }
+}
+
+function openPaymentRecords() {
+  recordsOpen.value = true
+  loadPaymentRecords(1)
+}
+
+function paymentTypeText(type: string) {
+  if (type === 'alipay') return '支付宝'
+  if (type === 'wxpay' || type === 'wechat') return '微信支付'
+  if (type === 'qqpay') return 'QQ钱包'
+  return type || '-'
+}
+
+function paymentStatusText(status: string) {
+  if (status === 'completed') return '已完成'
+  if (status === 'pending') return '待支付'
+  return status || '-'
+}
+
+function paymentStatusClass(status: string) {
+  return status === 'completed'
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    : 'border-amber-200 bg-amber-50 text-amber-700'
+}
+
+function formatDate(value?: string) {
+  return value ? value.replace('T', ' ').slice(0, 19) : '-'
+}
+
 onMounted(load)
 </script>
 
@@ -109,9 +168,14 @@ onMounted(load)
           <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">第三方支付与注册赠送</h1>
           <p class="mt-3 text-sm font-medium text-slate-500">配置支付接口地址、商户信息，以及新用户注册后的赠送余额。</p>
         </div>
-        <button class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:border-sky-200 hover:bg-sky-50 sm:w-auto" @click="load">
-          刷新配置
-        </button>
+        <div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+          <button class="h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)] transition hover:bg-sky-600" @click="openPaymentRecords">
+            查询充值账单
+          </button>
+          <button class="h-12 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:border-sky-200 hover:bg-sky-50" @click="load">
+            刷新配置
+          </button>
+        </div>
       </div>
 
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
@@ -207,5 +271,78 @@ onMounted(load)
         </div>
       </section>
     </div>
+
+    <Teleport to="body">
+      <Transition name="zoom-fade">
+        <div v-if="recordsOpen" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/30 p-3 backdrop-blur-[2px] sm:p-5" @click.self="recordsOpen = false">
+          <section class="flex max-h-[calc(100vh-24px)] min-h-[420px] w-full max-w-[1320px] flex-col overflow-hidden rounded-[30px] border border-white/90 bg-white/90 shadow-[0_28px_90px_rgba(15,23,42,0.2)] backdrop-blur-2xl" role="dialog" aria-modal="true" aria-labelledby="payment-records-title">
+            <header class="flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-slate-100 bg-white/75 px-5 py-5 text-slate-950 sm:px-7">
+              <div class="min-w-0">
+                <div class="flex items-center gap-3">
+                  <span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-sky-50 text-sky-600">
+                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-9Z" /><path stroke-linecap="round" d="M4 9h16M8 14h3" /></svg>
+                  </span>
+                  <div class="min-w-0">
+                    <p class="text-xs font-black tracking-[0.18em] text-sky-600">支付账单</p>
+                    <h2 id="payment-records-title" class="mt-1 truncate text-xl font-black tracking-tight text-slate-950 sm:text-2xl">用户充值记录</h2>
+                  </div>
+                </div>
+                <p class="mt-3 pl-[52px] text-sm font-semibold text-slate-500">仅显示第三方支付创建的充值订单，当前共 {{ paymentTotal }} 条。</p>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="hidden rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-black text-sky-700 sm:inline-flex">充值流水</span>
+                <button class="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white/70 text-slate-400 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700" type="button" aria-label="关闭充值账单" @click="recordsOpen = false">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
+                </button>
+              </div>
+            </header>
+
+            <div class="shrink-0 border-b border-slate-100 bg-slate-50/65 px-5 py-4 sm:px-7">
+              <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_150px_125px_88px]">
+                <input v-model="paymentKeyword" class="h-11 rounded-2xl border border-slate-200 bg-white/85 px-4 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="搜索用户、邮箱、用户 ID 或订单号" @keyup.enter="loadPaymentRecords(1)" />
+                <select v-model="paymentStatus" class="h-11 rounded-2xl border border-slate-200 bg-white/85 px-3 text-sm font-black text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100" @change="loadPaymentRecords(1)">
+                  <option v-for="option in paymentStatusOptions" :key="option.value || 'all'" :value="option.value">{{ option.label }}</option>
+                </select>
+                <select v-model.number="paymentPageSize" class="h-11 rounded-2xl border border-slate-200 bg-white/85 px-3 text-sm font-black text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100" aria-label="每页条数" @change="loadPaymentRecords(1)">
+                  <option :value="20">每页 20 条</option>
+                  <option :value="50">每页 50 条</option>
+                </select>
+                <button class="h-11 rounded-2xl bg-sky-500 px-5 text-sm font-black text-white shadow-[0_10px_24px_rgba(14,165,233,0.2)] transition hover:bg-sky-600" type="button" @click="loadPaymentRecords(1)">查询</button>
+              </div>
+            </div>
+
+            <div class="relative min-h-0 max-h-[calc(100vh-310px)] overflow-auto">
+              <table class="w-full min-w-[940px] table-fixed text-left text-sm">
+              <colgroup>
+                <col class="w-[190px]" /><col class="w-[105px]" /><col class="w-[120px]" /><col class="w-[125px]" /><col class="w-[125px]" /><col class="w-[160px]" /><col />
+              </colgroup>
+              <thead class="sticky top-0 z-10 bg-slate-100 text-xs font-black uppercase tracking-[0.1em] text-slate-500">
+                <tr>
+                  <th class="px-5 py-3.5">用户</th><th>订单号</th><th>金额</th><th>支付方式</th><th>状态</th><th>创建时间</th><th class="pr-5">备注</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 bg-white/80 font-semibold">
+                <tr v-if="!paymentLoading && paymentRecords.length === 0"><td colspan="7" class="p-10 text-center text-sm text-slate-500">暂无符合条件的充值账单</td></tr>
+                <tr v-for="record in paymentRecords" :key="record.id" class="h-[66px] transition hover:bg-sky-50/70">
+                  <td class="px-5 py-3"><p class="truncate font-black text-slate-900">{{ record.username || '未知用户' }}</p><p class="mt-0.5 truncate text-xs text-slate-500">{{ record.email || `用户 ID: ${record.userId}` }}</p></td>
+                  <td class="py-3 font-mono text-xs text-slate-600">#{{ record.id }}</td>
+                  <td class="py-3 font-black text-emerald-600">￥{{ Number(record.amount || 0).toFixed(6) }}</td>
+                  <td class="py-3 text-slate-700">{{ paymentTypeText(record.type) }}</td>
+                  <td class="py-3"><span class="inline-flex rounded-full border px-3 py-1 text-xs font-black" :class="paymentStatusClass(record.status)">{{ paymentStatusText(record.status) }}</span></td>
+                  <td class="py-3 text-slate-500">{{ formatDate(record.createdAt) }}</td>
+                  <td class="py-3 pr-5"><p class="truncate text-slate-500" :title="record.remark || ''">{{ record.remark || '-' }}</p></td>
+                </tr>
+              </tbody>
+              </table>
+              <div v-if="paymentLoading" class="absolute inset-0 grid place-items-center bg-white/80">
+                <div class="rounded-2xl border border-slate-200 bg-white px-8 py-6 shadow-lg"><RequestLoader label="正在加载充值账单" :cell-size="16" /></div>
+              </div>
+            </div>
+
+            <footer class="flex shrink-0 items-center justify-between gap-4 border-t border-slate-100 bg-white/75 px-5 py-3.5 sm:px-7"><span class="hidden text-xs font-semibold text-slate-400 sm:block">共 {{ paymentTotal }} 条记录</span><Pagination :current="paymentCurrent" :pages="paymentPages" @change="loadPaymentRecords" /></footer>
+          </section>
+        </div>
+      </Transition>
+    </Teleport>
   </AppLayout>
 </template>

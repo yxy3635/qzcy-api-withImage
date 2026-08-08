@@ -99,6 +99,11 @@ export interface PaymentRecord {
   createdAt: string
 }
 
+export interface AdminPaymentRecord extends PaymentRecord {
+  username?: string
+  email?: string
+}
+
 export interface ReferralOverview {
   enabled: boolean
   invitationCode: string
