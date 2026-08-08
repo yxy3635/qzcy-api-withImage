@@ -393,8 +393,11 @@ function openSizeModal() {
 
 function selectQualityPreset(preset: typeof qualityPresets[number]) {
   selectedPreset.value = preset.value
-  selectedQuality.value = preset.qualityCode
   sizeMode.value = 'preset'
+}
+
+function setSizeMode(mode: Exclude<typeof sizeMode.value, 'preset'>) {
+  sizeMode.value = mode
 }
 
 function selectRatio(value: string) {
@@ -771,6 +774,7 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
+    <Transition name="size-modal">
     <div v-if="sizeModalOpen" class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-4 backdrop-blur-sm sm:py-6" @click.self="sizeModalOpen = false">
       <section class="flex max-h-[calc(100vh-32px)] w-full max-w-xl flex-col overflow-hidden rounded-[28px] bg-white text-slate-950 shadow-[0_28px_90px_rgba(15,23,42,0.24)] sm:max-h-[calc(100vh-48px)]">
         <div class="flex shrink-0 items-start justify-between gap-4 px-5 pb-4 pt-5 sm:px-7 sm:pt-7">
@@ -786,16 +790,23 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="min-h-0 flex-1 overflow-y-auto px-5 pb-4 sm:px-7">
-          <div class="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
-            <div class="flex items-center justify-between gap-3">
+          <div class="size-preset-panel" :class="{ 'is-collapsed': sizeMode !== 'preset' }">
+            <button class="size-preset-heading" type="button" @click="sizeMode = 'preset'">
+              <span>
               <span class="text-sm font-black text-slate-700">预设质量</span>
               <span class="text-xs font-bold text-slate-400">选择输出清晰度与方向</span>
-            </div>
-            <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              </span>
+              <span class="size-preset-summary">
+                {{ sizeMode === 'preset' ? '已展开' : (qualityPresets.find((item) => item.value === selectedPreset)?.label || '1K 横屏') }}
+                <svg viewBox="0 0 24 24" :class="sizeMode === 'preset' ? 'rotate-180' : ''" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+              </span>
+            </button>
+            <Transition name="size-preset">
+            <div v-if="sizeMode === 'preset'" class="size-preset-grid">
               <button
                 v-for="preset in qualityPresets"
                 :key="preset.value"
-                class="min-h-[72px] rounded-xl border bg-white px-3 py-2 text-left transition"
+                class="size-preset-option"
                 :class="selectedPreset === preset.value ? 'border-sky-500 bg-sky-50 text-sky-700 shadow-sm' : 'border-slate-200 text-slate-700 hover:border-sky-200 hover:bg-sky-50/50'"
                 type="button"
                 @click="selectQualityPreset(preset)"
@@ -804,26 +815,30 @@ onBeforeUnmount(() => {
                 <span class="mt-1 block text-xs font-semibold text-slate-400">{{ preset.hint }}</span>
               </button>
             </div>
+            </Transition>
           </div>
 
-          <div class="mt-5 grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm font-black text-slate-500">
-            <button class="h-11 rounded-xl transition" :class="sizeMode === 'auto' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-800'" type="button" @click="sizeMode = 'auto'">自动</button>
-            <button class="h-11 rounded-xl transition" :class="sizeMode === 'ratio' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-800'" type="button" @click="sizeMode = 'ratio'">按比例</button>
-            <button class="h-11 rounded-xl transition" :class="sizeMode === 'custom' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-800'" type="button" @click="sizeMode = 'custom'">自定义宽高</button>
+          <div class="size-mode-separator"><span>或选择尺寸方式</span></div>
+
+          <div class="size-mode-switcher">
+            <button class="size-mode-tab" :class="sizeMode === 'auto' ? 'is-active' : ''" type="button" @click="setSizeMode('auto')">自动</button>
+            <button class="size-mode-tab" :class="sizeMode === 'ratio' ? 'is-active' : ''" type="button" @click="setSizeMode('ratio')">按比例</button>
+            <button class="size-mode-tab" :class="sizeMode === 'custom' ? 'is-active' : ''" type="button" @click="setSizeMode('custom')">自定义宽高</button>
           </div>
 
-          <div v-if="sizeMode === 'auto'" class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <Transition name="size-mode" mode="out-in">
+          <div v-if="sizeMode === 'auto'" key="auto" class="size-mode-panel size-mode-auto">
             <span class="text-sm font-black text-slate-400">自动尺寸</span>
             <p class="mt-2 text-sm font-semibold leading-6 text-slate-500">将由当前模型或服务商根据提示词自动决定输出尺寸。</p>
           </div>
 
-          <div v-if="sizeMode === 'ratio'" class="mt-5">
+          <div v-else-if="sizeMode === 'ratio'" key="ratio" class="size-mode-panel">
             <span class="text-sm font-black text-slate-400">图像比例</span>
             <div class="mt-2 grid grid-cols-4 gap-2">
               <button
                 v-for="ratio in ratioOptions"
                 :key="ratio"
-                class="grid h-20 place-items-center rounded-2xl border text-sm font-black transition"
+                class="size-ratio-option"
                 :class="!customRatioActive && selectedRatio === ratio ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-slate-200 text-slate-600 hover:border-sky-200 hover:bg-sky-50'"
                 type="button"
                 @click="selectRatio(ratio)"
@@ -848,7 +863,7 @@ onBeforeUnmount(() => {
                 <span class="text-sm font-black text-slate-400">输入自定义比例</span>
                 <input
                   v-model="customRatio"
-                  class="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                  class="size-dimension-input"
                   placeholder="16:9"
                   @blur="applyCustomRatio"
                 />
@@ -856,12 +871,12 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="sizeMode === 'custom'" class="mt-5 grid gap-3 sm:grid-cols-2">
+          <div v-else-if="sizeMode === 'custom'" key="custom" class="size-mode-panel grid gap-3 sm:grid-cols-2">
             <label>
               <span class="text-sm font-black text-slate-400">宽度</span>
               <input
                 v-model.number="customWidth"
-                class="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                class="size-dimension-input"
                 min="256"
                 max="8192"
                 step="8"
@@ -873,7 +888,7 @@ onBeforeUnmount(() => {
               <span class="text-sm font-black text-slate-400">高度</span>
               <input
                 v-model.number="customHeight"
-                class="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                class="size-dimension-input"
                 min="256"
                 max="8192"
                 step="8"
@@ -882,10 +897,13 @@ onBeforeUnmount(() => {
               />
             </label>
           </div>
+          </Transition>
 
-          <div class="mt-5 rounded-2xl bg-slate-50 p-5">
+          <div class="size-result-preview">
             <span class="text-sm font-black text-slate-400">将使用</span>
-            <p class="mt-2 text-2xl font-black tracking-tight">{{ selectedImageSize }}</p>
+            <Transition name="size-value" mode="out-in">
+              <p :key="selectedImageSize" class="mt-2 text-2xl font-black tracking-tight">{{ selectedImageSize }}</p>
+            </Transition>
           </div>
         </div>
 
@@ -895,6 +913,7 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </div>
+    </Transition>
 
     <ImagePreviewModal :record="previewRecord || undefined" :src="previewRecord?.generatedImageUrl" @close="previewRecord = null" @delete="remove" />
     <AppConfirmDialog
@@ -980,10 +999,175 @@ onBeforeUnmount(() => {
   }
 }
 
+.size-preset-panel {
+  overflow: hidden;
+  border: 1px solid rgba(186, 230, 253, .88);
+  border-radius: 1rem;
+  background: rgba(240, 249, 255, .68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .88);
+  transition: border-color .22s ease, background-color .22s ease, box-shadow .22s ease;
+}
+
+.size-preset-panel.is-collapsed {
+  border-color: rgba(226, 232, 240, .92);
+  background: rgba(248, 250, 252, .72);
+}
+
+.size-preset-heading {
+  display: flex;
+  width: 100%;
+  min-height: 3.7rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 0;
+  background: transparent;
+  padding: .85rem 1rem;
+  text-align: left;
+}
+
+.size-preset-heading > span:first-child > span { display: block; }
+.size-preset-heading > span:first-child > span + span { margin-top: .16rem; }
+.size-preset-summary { display: inline-flex; align-items: center; gap: .35rem; color: #64748b; font-size: .72rem; font-weight: 750; white-space: nowrap; }
+.size-preset-summary svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; transition: transform .24s ease; }
+.size-preset-heading:hover .size-preset-summary { color: #0369a1; }
+
+.size-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .5rem;
+  padding: 0 1rem 1rem;
+}
+
+.size-preset-option {
+  min-height: 4.5rem;
+  border-radius: .8rem;
+  background: rgba(255, 255, 255, .78);
+  padding: .6rem .7rem;
+  text-align: left;
+  transition: transform .18s ease, border-color .18s ease, background-color .18s ease, box-shadow .18s ease, color .18s ease;
+}
+
+.size-preset-option:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(14, 116, 144, .1); }
+.size-preset-option:active { transform: translateY(0) scale(.98); }
+
+.size-mode-separator {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  margin: 1rem 0 .7rem;
+  color: #94a3b8;
+  font-size: .68rem;
+  font-weight: 750;
+}
+
+.size-mode-separator::before,
+.size-mode-separator::after { height: 1px; flex: 1; background: rgba(203, 213, 225, .78); content: ''; }
+
+.size-mode-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .25rem;
+  border: 1px solid rgba(226, 232, 240, .82);
+  border-radius: 1rem;
+  background: rgba(241, 245, 249, .78);
+  padding: .28rem;
+}
+
+.size-mode-tab {
+  min-height: 2.7rem;
+  border: 0;
+  border-radius: .72rem;
+  background: transparent;
+  color: #64748b;
+  font-size: .84rem;
+  font-weight: 820;
+  transition: transform .18s ease, background-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+.size-mode-tab:hover { color: #0369a1; }
+.size-mode-tab.is-active { background: rgba(255, 255, 255, .94); color: #0f172a; box-shadow: 0 4px 12px rgba(15, 23, 42, .1), inset 0 1px 0 #fff; }
+.size-mode-tab:active { transform: scale(.97); }
+
+.size-mode-panel {
+  margin-top: 1rem;
+  border: 1px solid rgba(226, 232, 240, .88);
+  border-radius: 1rem;
+  background: rgba(248, 250, 252, .72);
+  padding: 1rem;
+}
+
+.size-mode-auto { background: rgba(248, 250, 252, .78); }
+.size-ratio-option {
+  display: grid;
+  height: 5rem;
+  place-items: center;
+  border-radius: .9rem;
+  background: rgba(255, 255, 255, .7);
+  font-size: .82rem;
+  font-weight: 800;
+  transition: transform .18s ease, border-color .18s ease, background-color .18s ease, box-shadow .18s ease, color .18s ease;
+}
+
+.size-ratio-option:hover { transform: translateY(-2px); box-shadow: 0 7px 14px rgba(14, 116, 144, .09); }
+.size-ratio-option:active { transform: translateY(0) scale(.96); }
+
+.size-dimension-input {
+  width: 100%;
+  height: 3rem;
+  margin-top: .5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: .85rem;
+  background: rgba(255, 255, 255, .9);
+  padding: 0 1rem;
+  color: #334155;
+  font-size: .9rem;
+  font-weight: 700;
+  outline: none;
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+
+.size-dimension-input:hover { border-color: #7dd3fc; }
+.size-dimension-input:focus { border-color: #38bdf8; background: #fff; box-shadow: 0 0 0 4px rgba(186, 230, 253, .58); transform: translateY(-1px); }
+
+.size-result-preview { margin-top: 1rem; border: 1px solid rgba(226, 232, 240, .84); border-radius: 1rem; background: rgba(248, 250, 252, .78); padding: 1rem; }
+
+.size-modal-enter-active,
+.size-modal-leave-active { transition: opacity .24s ease; }
+.size-modal-enter-active section,
+.size-modal-leave-active section { transition: transform .28s cubic-bezier(.2, .8, .2, 1), opacity .22s ease; }
+.size-modal-enter-from,
+.size-modal-leave-to { opacity: 0; }
+.size-modal-enter-from section { opacity: 0; transform: translateY(18px) scale(.98); }
+.size-modal-leave-to section { opacity: 0; transform: translateY(10px) scale(.985); }
+
+.size-preset-enter-active,
+.size-preset-leave-active { overflow: hidden; transition: max-height .28s cubic-bezier(.2, .8, .2, 1), opacity .18s ease, transform .22s ease; }
+.size-preset-enter-from,
+.size-preset-leave-to { max-height: 0; opacity: 0; transform: translateY(-8px); }
+.size-preset-enter-to,
+.size-preset-leave-from { max-height: 28rem; opacity: 1; transform: translateY(0); }
+
+.size-mode-enter-active,
+.size-mode-leave-active { transition: opacity .2s ease, transform .24s cubic-bezier(.2, .8, .2, 1), filter .2s ease; }
+.size-mode-enter-from { opacity: 0; transform: translateY(10px); filter: blur(4px); }
+.size-mode-leave-to { opacity: 0; transform: translateY(-6px); filter: blur(3px); }
+.size-value-enter-active,
+.size-value-leave-active { transition: opacity .16s ease, transform .18s ease; }
+.size-value-enter-from { opacity: 0; transform: translateY(5px); }
+.size-value-leave-to { opacity: 0; transform: translateY(-4px); }
+
 @media (prefers-reduced-motion: reduce) {
   .create-liquid-header::after,
-  .mobile-api-promo-progress {
+  .mobile-api-promo-progress,
+  .size-preset-panel *,
+  .size-mode-switcher *,
+  .size-mode-enter-active,
+  .size-mode-leave-active,
+  .size-modal-enter-active,
+  .size-modal-leave-active {
     animation: none;
+    transition: none !important;
   }
 }
 </style>

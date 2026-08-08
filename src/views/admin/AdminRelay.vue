@@ -62,6 +62,7 @@ interface GroupDraft {
 
 const overview = ref<RelayAdminOverview | null>(null)
 const activeTab = ref<Tab>('overview')
+const sidebarCollapsed = ref(false)
 const loading = ref(false)
 const saving = ref<number | string | null>(null)
 const error = ref('')
@@ -728,11 +729,9 @@ onMounted(load)
 
 <template>
   <div class="relay-console">
-    <header class="relay-console-header">
+    <header class="relay-console-header relay-console-enter-header">
       <RouterLink to="/admin/dashboard" class="relay-console-brand" title="返回管理后台">
-        <span class="relay-brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M6 3v4m0 10v4m12-18v4m0 10v4M6 7h12v10H6zM10 12h4" /></svg>
-        </span>
+        <img class="relay-brand-logo" src="/favicon.ico" alt="" />
         <span><strong>imageCreater</strong><small>API Relay Console</small></span>
       </RouterLink>
       <div class="relay-console-header-actions">
@@ -744,11 +743,22 @@ onMounted(load)
       </div>
     </header>
 
-    <div class="relay-console-body">
-      <aside class="relay-console-nav" aria-label="中转站功能导航">
+    <div class="relay-console-body" :class="{ 'is-sidebar-collapsed': sidebarCollapsed }">
+      <aside class="relay-console-nav" :class="{ 'is-collapsed': sidebarCollapsed }" aria-label="中转站功能导航">
         <div class="relay-nav-intro">
-          <p>中转站设置</p>
-          <span>API 分发配置</span>
+          <div class="relay-nav-intro-copy">
+            <p>中转站设置</p>
+            <span>API 分发配置</span>
+          </div>
+          <button
+            class="relay-nav-toggle"
+            type="button"
+            :aria-label="sidebarCollapsed ? '展开中转站导航' : '收起中转站导航'"
+            :title="sidebarCollapsed ? '展开导航' : '收起导航'"
+            @click="sidebarCollapsed = !sidebarCollapsed"
+          >
+            <svg viewBox="0 0 24 24" :class="sidebarCollapsed ? 'rotate-180' : ''" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+          </button>
         </div>
         <nav class="relay-nav-list">
           <button
@@ -757,6 +767,7 @@ onMounted(load)
             class="relay-nav-item"
             :class="{ 'is-active': activeTab === tab.id }"
             type="button"
+            :title="sidebarCollapsed ? tab.label : undefined"
             @click="activeTab = tab.id"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="tab.icon" /></svg>
@@ -772,11 +783,6 @@ onMounted(load)
       <main class="relay-console-main">
         <div class="relay-workspace">
       <div class="relay-command-bar">
-        <div>
-          <p class="text-sm font-black tracking-[0.22em] text-sky-600">中转站设置</p>
-          <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">通用 API 中转后台</h1>
-          <p class="mt-3 text-sm font-medium text-slate-500">独立管理中转站渠道、模型、令牌、用量和策略；只共享用户账号与余额。</p>
-        </div>
         <button class="h-12 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:border-sky-200 hover:bg-sky-50" @click="load">
           {{ loading ? '同步中' : '刷新' }}
         </button>
@@ -1382,7 +1388,7 @@ onMounted(load)
         </div>
       </section>
 
-      <section v-else-if="activeTab === 'usage'" key="usage" class="mt-6 grid gap-4 sm:grid-cols-3">
+      <section v-else-if="activeTab === 'usage'" key="usage" class="relay-usage-metrics mt-6 grid gap-4 sm:grid-cols-3">
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">请求数</p><p class="mt-2 text-3xl font-black">{{ stats?.totalRequests || 0 }}</p></div>
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">Token 用量</p><p class="mt-2 text-3xl font-black">{{ compactToken(stats?.totalTokensUsed) }}</p></div>
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">成本</p><p class="mt-2 text-3xl font-black text-sky-600">￥{{ Number(stats?.totalCost || 0).toFixed(4) }}</p></div>
@@ -1553,21 +1559,39 @@ onMounted(load)
 
 <style scoped>
 .relay-console {
+  position: relative;
+  isolation: isolate;
   min-height: 100vh;
   padding: 1rem;
   color: #172033;
 }
 
+.relay-console::before {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: rgba(236, 248, 245, .5);
+  backdrop-filter: blur(3px) saturate(.88);
+  -webkit-backdrop-filter: blur(3px) saturate(.88);
+  pointer-events: none;
+  content: '';
+}
+
 .relay-console-header,
 .relay-console-nav {
   border: 1px solid rgba(255, 255, 255, .72);
-  background: rgba(255, 255, 255, .5);
+  background: rgba(255, 255, 255, .78);
   box-shadow: 0 18px 52px rgba(15, 23, 42, .12), inset 0 1px 0 rgba(255, 255, 255, .78);
   backdrop-filter: blur(24px) saturate(1.18);
   -webkit-backdrop-filter: blur(24px) saturate(1.18);
 }
 
 .relay-console-header {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  left: 1rem;
+  z-index: 30;
   display: flex;
   min-height: 4.5rem;
   align-items: center;
@@ -1591,20 +1615,6 @@ onMounted(load)
   text-decoration: none;
 }
 
-.relay-brand-mark {
-  display: grid;
-  width: 2.45rem;
-  height: 2.45rem;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, .78);
-  border-radius: .8rem;
-  background: rgba(14, 165, 233, .15);
-  color: #0369a1;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
-}
-
-.relay-brand-mark svg,
 .relay-back-link svg,
 .relay-nav-item svg {
   fill: none;
@@ -1613,7 +1623,7 @@ onMounted(load)
   stroke-linejoin: round;
 }
 
-.relay-brand-mark svg { width: 1.25rem; height: 1.25rem; stroke-width: 1.9; }
+.relay-brand-logo { width: 3rem; height: 3rem; flex: 0 0 auto; object-fit: contain; }
 .relay-console-brand strong,
 .relay-console-brand small { display: block; }
 .relay-console-brand strong { font-size: 1rem; font-weight: 850; letter-spacing: 0; }
@@ -1640,38 +1650,71 @@ onMounted(load)
 .relay-logout:hover { background: rgba(255, 255, 255, .76); color: #0369a1; transform: translateY(-1px); }
 
 .relay-console-body {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: 15rem minmax(0, 1fr);
   gap: 1rem;
   width: min(100%, 1800px);
-  margin: 1rem auto 0;
+  margin: 5.5rem auto 0;
+  transition: grid-template-columns .32s cubic-bezier(.2, .8, .2, 1);
 }
+
+.relay-console-body.is-sidebar-collapsed { grid-template-columns: 4.5rem minmax(0, 1fr); }
 
 .relay-console-nav {
-  position: sticky;
-  top: 1rem;
+  position: fixed;
+  top: 6.5rem;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 20;
   display: flex;
-  height: calc(100vh - 6.5rem);
-  min-height: 36rem;
+  width: 15rem;
   flex-direction: column;
-  border-radius: 1.1rem;
-  padding: .8rem;
+  border-radius: 1rem;
+  padding: 1rem .75rem;
+  box-shadow: 12px 0 42px rgba(15, 23, 42, .08), inset 0 1px 0 rgba(255, 255, 255, .85);
+  transition: width .32s cubic-bezier(.2, .8, .2, 1), padding .32s cubic-bezier(.2, .8, .2, 1), border-radius .32s ease;
+  animation: relayConsoleNavIn .5s .08s cubic-bezier(.2, .8, .2, 1) both;
 }
 
-.relay-nav-intro { padding: .75rem .8rem 1rem; }
+.relay-console-nav.is-collapsed { width: 4.5rem; padding-inline: .55rem; }
+
+.relay-nav-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: .45rem; min-height: 3.55rem; padding: .35rem .4rem 1rem; }
+.relay-nav-intro-copy { min-width: 0; overflow: hidden; transition: opacity .2s ease, transform .25s ease, max-width .3s ease; }
 .relay-nav-intro p { margin: 0; color: #0f172a; font-size: .85rem; font-weight: 850; }
 .relay-nav-intro span { display: block; margin-top: .25rem; color: #64748b; font-size: .7rem; font-weight: 650; }
 
-.relay-nav-list { display: grid; gap: .3rem; }
+.relay-nav-toggle {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: .62rem;
+  background: rgba(255, 255, 255, .5);
+  color: #64748b;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .78);
+  transition: transform .18s ease, background-color .18s ease, color .18s ease;
+}
+
+.relay-nav-toggle:hover { background: rgba(255, 255, 255, .86); color: #0369a1; transform: translateY(-1px); }
+.relay-nav-toggle svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.2; transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
+
+.relay-console-nav.is-collapsed .relay-nav-intro { justify-content: center; padding-inline: 0; }
+.relay-console-nav.is-collapsed .relay-nav-intro-copy { max-width: 0; opacity: 0; transform: translateX(-6px); }
+
+.relay-nav-list { display: grid; gap: .35rem; }
 .relay-nav-item {
   display: flex;
   min-height: 3.45rem;
   align-items: center;
   gap: .7rem;
   border: 1px solid transparent;
-  border-radius: .75rem;
+  border-radius: .9rem;
   background: transparent;
-  padding: .55rem .65rem;
+  padding: .62rem .75rem;
   color: #52657a;
   text-align: left;
   transition: transform .18s ease, border-color .18s ease, background-color .18s ease, box-shadow .18s ease, color .18s ease;
@@ -1683,9 +1726,15 @@ onMounted(load)
 .relay-nav-item small { display: block; }
 .relay-nav-item strong { color: inherit; font-size: .82rem; font-weight: 820; }
 .relay-nav-item small { margin-top: .1rem; color: #718096; font-size: .66rem; font-weight: 650; }
-.relay-nav-item:hover { border-color: rgba(186, 230, 253, .72); background: rgba(240, 249, 255, .5); color: #0369a1; transform: translateX(2px); }
-.relay-nav-item.is-active { border-color: rgba(255, 255, 255, .74); background: rgba(255, 255, 255, .72); color: #0369a1; box-shadow: 0 8px 22px rgba(14, 116, 144, .12), inset 0 1px 0 rgba(255, 255, 255, .85); }
+.relay-nav-item:hover { border-color: rgba(186, 230, 253, .72); background: rgba(240, 249, 255, .8); color: #0369a1; transform: translateX(2px); }
+.relay-nav-item.is-active { border-color: rgba(186, 230, 253, .74); background: rgba(255, 255, 255, .96); color: #0369a1; box-shadow: 0 10px 24px rgba(14, 116, 144, .12), inset 0 1px 0 rgba(255, 255, 255, .94); }
 .relay-nav-item.is-active small { color: #0e7490; }
+
+.relay-console-nav.is-collapsed .relay-nav-item { justify-content: center; gap: 0; padding-inline: 0; }
+.relay-console-nav.is-collapsed .relay-nav-item span { width: 0; overflow: hidden; opacity: 0; transform: translateX(-5px); }
+.relay-console-nav.is-collapsed .relay-nav-item svg { width: 1.2rem; height: 1.2rem; }
+.relay-console-nav.is-collapsed .relay-nav-list { position: absolute; top: 4.25rem; left: 50%; display: flex; flex-direction: column; align-items: center; gap: .55rem; margin: 0; transform: translateX(-50%); }
+.relay-console-nav.is-collapsed .relay-nav-item { width: 3rem; height: 3rem; min-height: 3rem; flex: 0 0 3rem; }
 
 .relay-nav-footer {
   display: flex;
@@ -1700,7 +1749,21 @@ onMounted(load)
 }
 
 .relay-live-dot { width: .45rem; height: .45rem; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 .22rem rgba(16, 185, 129, .12); animation: relayPulse 2s ease-in-out infinite; }
-.relay-console-main { min-width: 0; }
+.relay-console-nav.is-collapsed .relay-nav-footer { justify-content: center; padding-inline: 0; }
+.relay-console-nav.is-collapsed .relay-nav-footer > span:last-child { width: 0; overflow: hidden; opacity: 0; }
+.relay-console-nav.is-collapsed .relay-nav-footer { position: absolute; right: .55rem; bottom: .8rem; left: .55rem; }
+.relay-console-main {
+  min-width: 0;
+  grid-column: 2;
+  border: 1px solid rgba(255, 255, 255, .76);
+  border-radius: 1.1rem;
+  background: rgba(246, 251, 250, .62);
+  padding: 1rem;
+  box-shadow: 0 18px 52px rgba(15, 23, 42, .1), inset 0 1px 0 rgba(255, 255, 255, .82);
+  backdrop-filter: blur(22px) saturate(1.08);
+  -webkit-backdrop-filter: blur(22px) saturate(1.08);
+  animation: relayConsoleMainIn .62s .12s cubic-bezier(.2, .8, .2, 1) both;
+}
 
 .relay-workspace {
   --relay-line: rgba(255, 255, 255, 0.82);
@@ -1709,16 +1772,17 @@ onMounted(load)
 }
 
 .relay-command-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: end;
+  display: flex;
+  width: max-content;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
   gap: .75rem;
-  padding: .35rem 0 1.35rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.72);
-}
-
-.relay-command-bar > div {
-  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, .78);
+  border-radius: .95rem;
+  background: rgba(255, 255, 255, .46);
+  padding: .35rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .82);
 }
 
 .relay-command-bar > button {
@@ -1734,7 +1798,7 @@ onMounted(load)
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: .85rem;
-  margin-top: 1.25rem;
+  margin-top: 1rem;
 }
 
 .relay-metric {
@@ -1743,7 +1807,7 @@ onMounted(load)
   overflow: hidden;
   padding: 1.15rem 1.25rem;
   border-color: var(--relay-line) !important;
-  background: var(--relay-surface) !important;
+  background: rgba(255, 255, 255, .94) !important;
   box-shadow: 0 14px 34px rgba(21, 32, 51, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.86) !important;
   backdrop-filter: blur(20px) saturate(1.1) !important;
   -webkit-backdrop-filter: blur(20px) saturate(1.1) !important;
@@ -1768,7 +1832,13 @@ onMounted(load)
 
 .relay-workspace :deep(.panel) {
   border-color: var(--relay-line);
-  background: var(--relay-surface);
+  background: rgba(255, 255, 255, .8);
+}
+
+.relay-usage-metrics :deep(.panel) {
+  border-color: rgba(255, 255, 255, .86) !important;
+  background: rgba(255, 255, 255, .94) !important;
+  box-shadow: 0 14px 34px rgba(21, 32, 51, .1), inset 0 1px 0 rgba(255, 255, 255, .9) !important;
 }
 
 .relay-workspace :deep(.panel:hover) {
@@ -1779,6 +1849,23 @@ onMounted(load)
 .relay-view-leave-active { transition: opacity .24s ease, transform .24s ease, filter .24s ease; }
 .relay-view-enter-from { opacity: 0; transform: translateY(10px); filter: blur(5px); }
 .relay-view-leave-to { opacity: 0; transform: translateY(-6px); filter: blur(3px); }
+
+.relay-console-enter-header { animation: relayConsoleHeaderIn .56s cubic-bezier(.2, .8, .2, 1) both; }
+
+@keyframes relayConsoleHeaderIn {
+  from { opacity: 0; transform: translateY(-14px); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes relayConsoleNavIn {
+  from { opacity: 0; transform: translateX(-12px); filter: blur(7px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes relayConsoleMainIn {
+  from { opacity: 0; transform: translateY(18px) scale(.992); filter: blur(10px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
 
 @keyframes relayPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -1793,10 +1880,16 @@ onMounted(load)
 @media (max-width: 800px) {
   .relay-console { padding: .65rem; }
   .relay-console-body { display: block; margin-top: .65rem; }
-  .relay-console-nav { position: static; width: 100%; height: auto; min-height: 0; margin-bottom: .65rem; padding: .55rem; }
+  .relay-console-main { grid-column: auto; }
+  .relay-console-nav,
+  .relay-console-nav.is-collapsed { position: static; width: 100%; height: auto; min-height: 0; margin-bottom: .65rem; padding: .55rem; }
   .relay-nav-intro, .relay-nav-footer { display: none; }
+  .relay-nav-toggle { display: none; }
   .relay-nav-list { display: flex; overflow-x: auto; gap: .35rem; padding-bottom: .1rem; }
   .relay-nav-item { min-width: 7.2rem; flex: 1 0 auto; min-height: 3rem; }
+  .relay-console-nav.is-collapsed .relay-nav-item { justify-content: flex-start; gap: .7rem; padding-inline: .65rem; }
+  .relay-console-nav.is-collapsed .relay-nav-item span { width: auto; overflow: visible; opacity: 1; transform: none; }
+  .relay-console-nav.is-collapsed .relay-nav-item svg { width: 1.1rem; height: 1.1rem; }
 }
 
 @media (max-width: 640px) {
@@ -1817,7 +1910,8 @@ onMounted(load)
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .relay-nav-item, .relay-back-link, .relay-logout, .relay-view-enter-active, .relay-view-leave-active { transition: none; }
+  .relay-nav-item, .relay-back-link, .relay-logout, .relay-nav-toggle, .relay-console-nav, .relay-console-body, .relay-view-enter-active, .relay-view-leave-active { transition: none; }
   .relay-live-dot { animation: none; }
+  .relay-console-enter-header, .relay-console-nav, .relay-console-main { animation: none; }
 }
 </style>

@@ -305,7 +305,7 @@ const dashboardCards = computed(() => [
   { label: '今日总 Token', raw: displayTodayTotalTokens.value, kind: 'compact', sub: `累计 ${compact(totalTokens.value)}`, tone: 'violet', icon: 'M5 7h14M5 12h14M5 17h14' },
   { label: 'RPM', raw: currentRpm.value, kind: 'compact', sub: '最近 1 分钟请求数', tone: 'rose', icon: 'M4 13a8 8 0 1 1 16 0M12 13l4-4' },
   { label: 'TPM', raw: currentTpm.value, kind: 'compact', sub: '最近 1 分钟 Token', tone: 'cyan', icon: 'M13 2L4 14h7l-1 8 9-12h-7l1-8z' },
-  { label: '缓存 Token', raw: cachedTotal.value + cacheCreateTotal.value, kind: 'compact', sub: `读 ${compact(cachedTotal.value)} / 写 ${compact(cacheCreateTotal.value)}`, tone: 'indigo', icon: 'M4 7c0-2 4-4 8-4s8 2 8 4-4 4-8 4-8-2-8-4zm0 0v10c0 2 4 4 8 4s8-2 8-4V7' },
+  { label: '累计总 Token', raw: totalTokens.value, kind: 'compact', sub: `输入 ${compact(promptTotal.value)} / 输出 ${compact(completionTotal.value)}`, tone: 'indigo', icon: 'M4 7c0-2 4-4 8-4s8 2 8 4-4 4-8 4-8-2-8-4zm0 0v10c0 2 4 4 8 4s8-2 8-4V7' },
   { label: '平均响应', raw: avgDuration.value, kind: 'seconds', sub: '按历史调用平均', tone: 'slate', icon: 'M12 8v4l3 3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' }
 ])
 

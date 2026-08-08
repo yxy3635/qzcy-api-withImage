@@ -64,9 +64,8 @@ onBeforeUnmount(() => {
 const useLegacyUi = ref(window.localStorage.getItem(legacyUiKey) === 'true')
 const isPortalPage = computed(() => route.path === '/')
 const isGeneratePage = computed(() => route.path === '/create' || route.path === '/user/generate')
-const isRelayConsolePage = computed(() => route.path === '/admin/relay')
 const canSwitchUi = computed(() => !isPortalPage.value)
-const showLegacyUiToggle = computed(() => canSwitchUi.value && !isGeneratePage.value && !isRelayConsolePage.value)
+const showLegacyUiToggle = computed(() => canSwitchUi.value && !isGeneratePage.value)
 
 const appStyle = computed(() =>
   canSwitchUi.value && !useLegacyUi.value ? { '--app-background-image': `url("${backgroundImage}")` } : undefined
