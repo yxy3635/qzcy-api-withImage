@@ -22,6 +22,8 @@ import com.qzcy.backend.dto.PaymentConfigUpdateDto;
 import com.qzcy.backend.dto.ReferralActionDto;
 import com.qzcy.backend.dto.ReferralRebateDto;
 import com.qzcy.backend.dto.ReferralWithdrawRequestDto;
+import com.qzcy.backend.dto.RechargeCouponAdminDto;
+import com.qzcy.backend.dto.RechargeCouponUpdateDto;
 import com.qzcy.backend.dto.RelayAdminOverviewDto;
 import com.qzcy.backend.dto.RelayChannelDto;
 import com.qzcy.backend.dto.RelayChannelUpdateDto;
@@ -40,6 +42,7 @@ import com.qzcy.backend.service.MailConfigService;
 import com.qzcy.backend.service.MailDeliveryService;
 import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.ReferralService;
+import com.qzcy.backend.service.RechargeCouponService;
 import com.qzcy.backend.service.RelayChannelStatusService;
 import com.qzcy.backend.service.RelayService;
 import com.qzcy.backend.util.SecurityUtil;
@@ -65,6 +68,7 @@ public class AdminController {
     private final MailDeliveryService mailDeliveryService;
     private final PaymentConfigService paymentConfigService;
     private final ReferralService referralService;
+    private final RechargeCouponService rechargeCouponService;
     private final RelayService relayService;
     private final RelayChannelStatusService relayChannelStatusService;
 
@@ -250,6 +254,35 @@ public class AdminController {
     @PutMapping("/payment-config")
     public ApiResponse<PaymentConfigDto> updatePaymentConfig(@RequestBody PaymentConfigUpdateDto dto) {
         return ApiResponse.success(paymentConfigService.update(dto));
+    }
+
+    @GetMapping("/payment-coupons")
+    public ApiResponse<Page<RechargeCouponAdminDto>> paymentCoupons(@RequestParam(defaultValue = "1") long page,
+                                                                     @RequestParam(defaultValue = "20") long size,
+                                                                     @RequestParam(required = false) String keyword) {
+        return ApiResponse.success(rechargeCouponService.adminPage(page, size, keyword));
+    }
+
+    @PostMapping("/payment-coupons/random-code")
+    public ApiResponse<String> randomPaymentCouponCode() {
+        return ApiResponse.success(rechargeCouponService.randomCode());
+    }
+
+    @PostMapping("/payment-coupons")
+    public ApiResponse<RechargeCouponAdminDto> createPaymentCoupon(@RequestBody RechargeCouponUpdateDto dto) {
+        return ApiResponse.success(rechargeCouponService.create(dto));
+    }
+
+    @PutMapping("/payment-coupons/{id}")
+    public ApiResponse<RechargeCouponAdminDto> updatePaymentCoupon(@PathVariable Long id,
+                                                                   @RequestBody RechargeCouponUpdateDto dto) {
+        return ApiResponse.success(rechargeCouponService.update(id, dto));
+    }
+
+    @DeleteMapping("/payment-coupons/{id}")
+    public ApiResponse<Void> deletePaymentCoupon(@PathVariable Long id) {
+        rechargeCouponService.delete(id);
+        return ApiResponse.success(null);
     }
 
     @GetMapping("/referral/rebates")

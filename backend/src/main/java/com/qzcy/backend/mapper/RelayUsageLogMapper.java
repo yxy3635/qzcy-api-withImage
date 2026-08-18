@@ -11,7 +11,6 @@ import com.qzcy.backend.dto.RelayModelRecentCallDto;
 import com.qzcy.backend.dto.RelayTrendDto;
 import com.qzcy.backend.entity.RelayUsageLog;
 import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -21,22 +20,6 @@ import java.util.List;
 
 @Mapper
 public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
-    @Delete("""
-            DELETE FROM relay_usage_log
-            WHERE user_id = #{userId}
-              AND id NOT IN (
-                  SELECT id
-                  FROM (
-                      SELECT id
-                      FROM relay_usage_log
-                      WHERE user_id = #{userId}
-                      ORDER BY created_at DESC, id DESC
-                      LIMIT #{keepCount}
-                  ) recent_logs
-              )
-            """)
-    int deleteOlderThanRecentLimit(@Param("userId") Long userId, @Param("keepCount") long keepCount);
-
     @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log")
     Long totalTokens();
 

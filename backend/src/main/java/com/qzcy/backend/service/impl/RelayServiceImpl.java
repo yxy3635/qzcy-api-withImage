@@ -70,8 +70,6 @@ import java.util.stream.IntStream;
 @Service
 @RequiredArgsConstructor
 public class RelayServiceImpl implements RelayService {
-    private static final long MAX_RECENT_USAGE_LOGS_PER_USER = 100L;
-
     private final RelayChannelMapper channelMapper;
     private final RelayChannelModelMapper channelModelMapper;
     private final RelayGroupMapper groupMapper;
@@ -601,9 +599,7 @@ public class RelayServiceImpl implements RelayService {
                                                String keyword, String status, String sort) {
         long safePage = Math.max(1, page);
         long safeSize = Math.min(100, Math.max(1, size));
-        QueryWrapper<RelayUsageLog> query = new QueryWrapper<RelayUsageLog>()
-                .eq("user_id", userId)
-                .apply("id IN (SELECT id FROM (SELECT id FROM relay_usage_log WHERE user_id = {0} ORDER BY created_at DESC, id DESC LIMIT " + MAX_RECENT_USAGE_LOGS_PER_USER + ") recent_user_logs)", userId);
+        QueryWrapper<RelayUsageLog> query = new QueryWrapper<RelayUsageLog>().eq("user_id", userId);
         String term = keyword == null ? "" : keyword.trim();
         if (!term.isBlank()) {
             query.and(wrapper -> wrapper

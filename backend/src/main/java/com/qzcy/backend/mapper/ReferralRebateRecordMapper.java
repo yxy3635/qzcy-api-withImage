@@ -18,7 +18,7 @@ public interface ReferralRebateRecordMapper extends BaseMapper<ReferralRebateRec
                    u.username AS username,
                    COALESCE(SUM(CASE
                        WHEN p.status = 'completed' AND p.type IN ('third_party','alipay','wxpay','qqpay','wechat')
-                       THEN p.amount ELSE 0 END), 0) AS totalRecharge,
+                       THEN COALESCE(p.recharge_amount, p.amount) ELSE 0 END), 0) AS totalRecharge,
                    u.created_at AS registeredAt
             FROM `user` u
             LEFT JOIN payment_record p ON p.user_id = u.id
@@ -32,7 +32,7 @@ public interface ReferralRebateRecordMapper extends BaseMapper<ReferralRebateRec
     Long invitedUsers(@Param("inviterId") Long inviterId);
 
     @Select("""
-            SELECT COALESCE(SUM(p.amount), 0)
+            SELECT COALESCE(SUM(COALESCE(p.recharge_amount, p.amount)), 0)
             FROM payment_record p
             JOIN `user` u ON u.id = p.user_id
             WHERE u.inviter_id = #{inviterId}

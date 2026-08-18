@@ -1,9 +1,12 @@
 import http from './http'
-import type { ApiResponse, PageResult, PaymentConfig, PaymentRecord } from '@/types'
+import type { ApiResponse, PageResult, PaymentConfig, PaymentRecord, RechargeCouponPreview } from '@/types'
 
 export const paymentApi = {
-  recharge(amount: number, type: string) {
-    return http.post<ApiResponse<Record<string, unknown>>>('/payment/recharge', { amount, type })
+  recharge(amount: number, type: string, couponCode = '') {
+    return http.post<ApiResponse<Record<string, unknown>>>('/payment/recharge', { amount, type, couponCode })
+  },
+  previewCoupon(amount: number, code: string) {
+    return http.post<ApiResponse<RechargeCouponPreview>>('/payment/coupon-preview', { amount, code })
   },
   notify(params: Record<string, string>) {
     return http.post<string>('/payment/notify', params)

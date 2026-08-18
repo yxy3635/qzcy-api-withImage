@@ -3,6 +3,7 @@ package com.qzcy.backend.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.RechargeDto;
+import com.qzcy.backend.dto.RechargeCouponPreviewDto;
 import com.qzcy.backend.event.RechargeSucceededEvent;
 import com.qzcy.backend.entity.PaymentConfig;
 import com.qzcy.backend.entity.PaymentRecord;
@@ -11,6 +12,7 @@ import com.qzcy.backend.mapper.PaymentRecordMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.PaymentService;
+import com.qzcy.backend.service.RechargeCouponService;
 import com.qzcy.backend.service.ReferralService;
 import com.qzcy.backend.service.AdminUserRankingCache;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRecordMapper paymentRecordMapper;
     private final PaymentConfigService paymentConfigService;
     private final ReferralService referralService;
+    private final RechargeCouponService rechargeCouponService;
     private final AdminUserRankingCache adminUserRankingCache;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -108,18 +111,35 @@ public class PaymentServiceImpl implements PaymentService {
         PaymentRecord record = new PaymentRecord();
         record.setUserId(userId);
         record.setAmount(amount);
+        record.setRechargeAmount(amount);
+        record.setDiscountAmount(BigDecimal.ZERO.setScale(6));
         record.setType(payType);
         record.setCreatedAt(LocalDateTime.now());
         record.setStatus("pending");
         record.setRemark("第三方充值订单");
         paymentRecordMapper.insert(record);
+        RechargeCouponPreviewDto coupon = rechargeCouponService.reserve(userId, amount, dto.getCouponCode(), record.getId());
+        record.setAmount(coupon.getPayableAmount());
+        record.setDiscountAmount(coupon.getDiscountAmount());
+        if (coupon.isValid() && coupon.getCode() != null && !coupon.getCode().isBlank()) {
+            record.setCouponId(coupon.getCouponId());
+            record.setCouponCode(coupon.getCode());
+            record.setCouponDiscountPercent(coupon.getDiscountPercent());
+            record.setRemark("使用优惠券" + coupon.getCode()
+                    + "充值了" + currencyAmount(record.getRechargeAmount()) + "元，优惠了"
+                    + currencyAmount(record.getDiscountAmount()) + "元");
+        }
+        paymentRecordMapper.updateById(record);
         String paymentUrl = buildPaymentUrl(config, record, payType, backendBaseUrl, frontendBaseUrl);
         return Map.of(
                 "message", "支付订单已创建",
                 "paymentUrl", paymentUrl,
                 "merchantId", config.getMerchantId(),
                 "orderId", record.getId(),
-                "amount", amount
+                "amount", record.getAmount(),
+                "rechargeAmount", record.getRechargeAmount(),
+                "discountAmount", record.getDiscountAmount(),
+                "couponCode", record.getCouponCode() == null ? "" : record.getCouponCode()
         );
     }
 
@@ -160,7 +180,9 @@ public class PaymentServiceImpl implements PaymentService {
             return "success";
         }
         record.setStatus("completed");
-        userMapper.addBalance(record.getUserId(), record.getAmount());
+        rechargeCouponService.completeReservation(record.getId());
+        BigDecimal rechargeAmount = record.getRechargeAmount() == null ? record.getAmount() : record.getRechargeAmount();
+        userMapper.addBalance(record.getUserId(), rechargeAmount);
         referralService.rewardForRecharge(record);
         adminUserRankingCache.evict();
         eventPublisher.publishEvent(new RechargeSucceededEvent(record.getUserId(), record.getId()));
@@ -179,6 +201,12 @@ public class PaymentServiceImpl implements PaymentService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String currencyAmount(BigDecimal value) {
+        return (value == null ? BigDecimal.ZERO : value)
+                .setScale(2, RoundingMode.HALF_UP)
+                .toPlainString();
     }
 
     private String buildPaymentUrl(PaymentConfig config, PaymentRecord record, String payType, String backendBaseUrl, String frontendBaseUrl) {

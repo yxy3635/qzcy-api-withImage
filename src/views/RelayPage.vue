@@ -15,7 +15,7 @@ import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
 import RelayTrendChart from '@/components/relay/RelayTrendChart.vue'
 import RelayModelDistribution from '@/components/relay/RelayModelDistribution.vue'
 import RelayRecentCalls from '@/components/relay/RelayRecentCalls.vue'
-import type { Announcement, ErrorRequestLog, PaymentRecord, RelayModel, RelayModelRecentCall, RelayPublicChannelModel, RelayToken, RelayUsageLog, RelayUserOverview } from '@/types'
+import type { Announcement, ErrorRequestLog, PaymentRecord, RechargeCouponPreview, RelayModel, RelayModelRecentCall, RelayPublicChannelModel, RelayToken, RelayUsageLog, RelayUserOverview } from '@/types'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -78,6 +78,12 @@ const rechargePreset = ref<number | 'custom'>(10)
 const rechargeType = ref('alipay')
 const rechargeLoading = ref(false)
 const rechargeError = ref('')
+const rechargeCouponCode = ref('')
+const rechargeCouponPreview = ref<RechargeCouponPreview | null>(null)
+const rechargeCouponPreviewLoading = ref(false)
+const rechargeCheckoutModalOpen = ref(false)
+let rechargeCouponPreviewTimer: number | undefined
+let rechargeCouponPreviewRequestId = 0
 const paymentRecords = ref<PaymentRecord[]>([])
 const announcements = ref<Announcement[]>([])
 const showAnnouncementsDialog = ref(false)
@@ -111,6 +117,21 @@ const confirmPassword = ref('')
 const profileError = ref('')
 const profileSaving = ref<'profile' | 'password' | ''>('')
 const pwdVisible = reactive({ current: false, next: false, confirm: false })
+
+function localRechargeCouponPreview(): RechargeCouponPreview {
+  const originalAmount = Number(rechargeAmount.value || 0)
+  return {
+    valid: true,
+    code: '',
+    discountPercent: 100,
+    originalAmount,
+    discountAmount: 0,
+    payableAmount: originalAmount,
+    message: ''
+  }
+}
+
+rechargeCouponPreview.value = localRechargeCouponPreview()
 
 const passwordStrength = computed(() => {
   const value = newPassword.value
@@ -713,6 +734,11 @@ function yuan(value: number) {
   return `￥${Number(value || 0).toFixed(6)}`
 }
 
+function formatRechargeMoney(value: number | undefined) {
+  const normalized = Number(value || 0)
+  return Number.isFinite(normalized) ? normalized.toFixed(2) : '0.00'
+}
+
 function selectRechargePreset(value: number | 'custom') {
   rechargePreset.value = value
   if (typeof value === 'number') {
@@ -737,6 +763,84 @@ function paymentStatusText(value: string) {
   return value || '-'
 }
 
+async function loadRechargeCouponPreview(showError = false) {
+  const requestId = ++rechargeCouponPreviewRequestId
+  const originalAmount = Number(rechargeAmount.value || 0)
+  if (!Number.isFinite(originalAmount) || originalAmount <= 0) {
+    rechargeCouponPreview.value = null
+    rechargeCouponPreviewLoading.value = false
+    return null
+  }
+  const code = rechargeCouponCode.value.trim()
+  if (!code) {
+    const preview = localRechargeCouponPreview()
+    rechargeCouponPreview.value = preview
+    rechargeCouponPreviewLoading.value = false
+    return preview
+  }
+
+  rechargeCouponPreviewLoading.value = true
+  try {
+    const { data } = await paymentApi.previewCoupon(originalAmount, code)
+    const preview = data.data
+    if (requestId === rechargeCouponPreviewRequestId) {
+      rechargeCouponPreview.value = preview
+    }
+    return preview
+  } catch (err) {
+    const preview: RechargeCouponPreview = {
+      valid: false,
+      code,
+      originalAmount,
+      discountAmount: 0,
+      payableAmount: originalAmount,
+      message: err instanceof Error ? err.message : '优惠码校验失败'
+    }
+    if (requestId === rechargeCouponPreviewRequestId) {
+      rechargeCouponPreview.value = preview
+      if (showError) rechargeError.value = preview.message || '优惠码校验失败'
+    }
+    return preview
+  } finally {
+    if (requestId === rechargeCouponPreviewRequestId) {
+      rechargeCouponPreviewLoading.value = false
+    }
+  }
+}
+
+function scheduleRechargeCouponPreview() {
+  // Invalidate an in-flight preview immediately so fast edits cannot restore stale pricing.
+  rechargeCouponPreviewRequestId += 1
+  if (rechargeCouponPreviewTimer !== undefined) {
+    window.clearTimeout(rechargeCouponPreviewTimer)
+  }
+  if (!rechargeCouponCode.value.trim()) {
+    rechargeCouponPreview.value = localRechargeCouponPreview()
+    rechargeCouponPreviewLoading.value = false
+    return
+  }
+  rechargeCouponPreviewTimer = window.setTimeout(() => {
+    rechargeCouponPreviewTimer = undefined
+    void loadRechargeCouponPreview()
+  }, 350)
+}
+
+async function openRechargeCheckout() {
+  rechargeError.value = ''
+  const preview = await loadRechargeCouponPreview(true)
+  if (!preview) {
+    rechargeError.value = '请输入有效的充值金额'
+    toast.warning(rechargeError.value)
+    return
+  }
+  if (rechargeCouponCode.value.trim() && !preview.valid) {
+    rechargeError.value = preview.message || '优惠码不可用'
+    toast.warning(rechargeError.value)
+    return
+  }
+  rechargeCheckoutModalOpen.value = true
+}
+
 async function createRechargeOrder() {
   rechargeError.value = ''
   if (!Number.isFinite(Number(rechargeAmount.value)) || Number(rechargeAmount.value) <= 0) {
@@ -746,12 +850,13 @@ async function createRechargeOrder() {
   }
   rechargeLoading.value = true
   try {
-    const { data } = await paymentApi.recharge(Number(rechargeAmount.value), rechargeType.value)
+    const { data } = await paymentApi.recharge(Number(rechargeAmount.value), rechargeType.value, rechargeCouponCode.value.trim())
     const paymentUrl = data.data.paymentUrl ? String(data.data.paymentUrl) : ''
     if (paymentUrl) {
       window.location.href = paymentUrl
       return
     }
+    rechargeCheckoutModalOpen.value = false
     toast.success(String(data.data.message || '支付订单已创建'))
     await load()
   } catch (err) {
@@ -1269,10 +1374,13 @@ watch([logSearch, logStatusFilter, logSort], () => {
   }, 260)
 })
 
+watch([rechargeAmount, rechargeCouponCode], scheduleRechargeCouponPreview)
+
 onBeforeUnmount(() => {
   if (menuSwitchTimer !== undefined) window.clearTimeout(menuSwitchTimer)
   if (logFilterTimer !== undefined) window.clearTimeout(logFilterTimer)
   if (logRefreshTimer !== undefined) window.clearInterval(logRefreshTimer)
+  if (rechargeCouponPreviewTimer !== undefined) window.clearTimeout(rechargeCouponPreviewTimer)
 })
 
 onMounted(async () => {
@@ -1919,6 +2027,31 @@ onMounted(async () => {
                 </div>
 
                 <div class="mt-5">
+                  <div class="flex items-center justify-between gap-3">
+                    <label for="relay-recharge-coupon" class="text-sm font-black text-slate-700">优惠码 <span class="text-xs font-semibold text-slate-400">可选</span></label>
+                    <span v-if="rechargeCouponPreviewLoading" class="text-xs font-black text-emerald-600">正在计算…</span>
+                  </div>
+                  <div class="relative mt-3">
+                    <input
+                      id="relay-recharge-coupon"
+                      v-model="rechargeCouponCode"
+                      class="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-16 font-mono text-sm font-black tracking-[0.06em] outline-none transition placeholder:font-sans placeholder:font-semibold placeholder:tracking-normal focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                      type="text"
+                      autocomplete="off"
+                      placeholder="输入优惠码"
+                      @keyup.enter="loadRechargeCouponPreview(true)"
+                    />
+                    <button v-if="rechargeCouponCode" type="button" class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-xs font-black text-slate-400 transition hover:bg-slate-200 hover:text-slate-700" @click="rechargeCouponCode = ''">清除</button>
+                  </div>
+                  <div v-if="rechargeCouponPreview" class="mt-3 rounded-xl border px-3.5 py-3 text-sm" :class="rechargeCouponPreview.valid ? 'border-emerald-100 bg-emerald-50/70' : 'border-rose-100 bg-rose-50/70'">
+                    <div class="flex items-center justify-between gap-3"><span class="font-semibold text-slate-600">充值到账</span><span class="font-black text-slate-900">￥{{ formatRechargeMoney(rechargeCouponPreview.originalAmount) }}</span></div>
+                    <div class="mt-2 flex items-center justify-between gap-3"><span class="font-semibold text-slate-600">优惠金额</span><span class="font-black" :class="rechargeCouponPreview.valid && rechargeCouponPreview.discountAmount > 0 ? 'text-emerald-600' : 'text-slate-500'">-￥{{ formatRechargeMoney(rechargeCouponPreview.discountAmount) }}</span></div>
+                    <div class="mt-2 flex items-center justify-between gap-3 border-t border-current/10 pt-2"><span class="font-black text-slate-700">实际支付</span><span class="text-lg font-black" :class="rechargeCouponPreview.valid ? 'text-emerald-700' : 'text-slate-900'">￥{{ formatRechargeMoney(rechargeCouponPreview.payableAmount) }}</span></div>
+                    <p v-if="rechargeCouponCode.trim() && rechargeCouponPreview.message" class="mt-2 text-xs font-bold" :class="rechargeCouponPreview.valid ? 'text-emerald-700' : 'text-rose-600'">{{ rechargeCouponPreview.message }}</p>
+                  </div>
+                </div>
+
+                <div class="mt-5">
                   <p class="text-sm font-black text-slate-700">支付方式</p>
                   <div class="mt-3 grid gap-2">
                     <button
@@ -1940,8 +2073,8 @@ onMounted(async () => {
                   </div>
                 </div>
 
-                <button class="mt-5 h-12 w-full rounded-2xl bg-emerald-600 text-sm font-black text-white shadow-sm shadow-emerald-100 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="rechargeLoading || !enabledPaymentOptions.length" @click="createRechargeOrder">
-                  {{ rechargeLoading ? '创建中' : `充值 ${yuan(rechargeAmount)}` }}
+                <button class="mt-5 h-12 w-full rounded-2xl bg-emerald-600 text-sm font-black text-white shadow-sm shadow-emerald-100 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="rechargeLoading || rechargeCouponPreviewLoading || !enabledPaymentOptions.length" @click="openRechargeCheckout">
+                  {{ rechargeCouponPreviewLoading ? '正在计算优惠…' : '确认金额并充值' }}
                 </button>
                 <p v-if="rechargeError" class="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{{ rechargeError }}</p>
               </div>
@@ -1953,9 +2086,10 @@ onMounted(async () => {
                 <p class="mt-1 text-sm font-semibold text-slate-500">沿用当前账户支付记录，支付回调完成后余额自动入账。</p>
               </div>
               <div class="divide-y divide-slate-100">
-                <div v-for="(record, index) in paymentRecords" :key="record.id" class="relay-list-item grid gap-3 p-5 text-sm font-semibold text-slate-600 md:grid-cols-[120px_1fr_120px_180px] md:items-center" :style="{ '--i': index }">
+                <div v-for="(record, index) in paymentRecords" :key="record.id" class="relay-list-item grid gap-3 p-5 text-sm font-semibold text-slate-600 md:grid-cols-[120px_160px_minmax(180px,1fr)_120px_180px] md:items-center" :style="{ '--i': index }">
                   <span class="font-black text-slate-950">{{ yuan(record.amount) }}</span>
                   <span>{{ paymentTypeText(record.type) }}</span>
+                  <span class="min-w-0 truncate text-slate-500" :title="record.remark || ''">{{ record.remark || '-' }}</span>
                   <span class="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{{ paymentStatusText(record.status) }}</span>
                   <span class="text-slate-500">{{ record.createdAt }}</span>
                 </div>
@@ -2358,6 +2492,30 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+
+      <Transition name="zoom-fade">
+        <div v-if="rechargeCheckoutModalOpen" class="fixed inset-0 z-[100] grid place-items-center bg-slate-950/45 px-4 backdrop-blur-sm" @click.self="!rechargeLoading && (rechargeCheckoutModalOpen = false)">
+          <section class="w-full max-w-md overflow-hidden rounded-[26px] border border-white/80 bg-white shadow-[0_32px_100px_rgba(15,23,42,0.28)]" role="dialog" aria-modal="true" aria-labelledby="relay-recharge-checkout-title">
+            <header class="border-b border-slate-100 bg-emerald-50/80 px-5 py-5 sm:px-6">
+              <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-600">支付确认</p>
+              <h2 id="relay-recharge-checkout-title" class="mt-1.5 text-2xl font-black tracking-tight text-slate-950">确认充值金额</h2>
+              <p class="mt-1 text-xs font-semibold text-slate-500">确认后将跳转到第三方支付页面。</p>
+            </header>
+            <div class="space-y-3 px-5 py-5 text-sm font-semibold text-slate-600 sm:px-6">
+              <div class="flex justify-between gap-4"><span>充值到账</span><span class="font-black text-slate-950">￥{{ formatRechargeMoney(rechargeCouponPreview?.originalAmount ?? rechargeAmount) }}</span></div>
+              <div class="flex justify-between gap-4"><span>优惠金额</span><span class="font-black text-emerald-600">-￥{{ formatRechargeMoney(rechargeCouponPreview?.discountAmount) }}</span></div>
+              <div class="flex justify-between gap-4"><span>支付方式</span><span class="font-black text-slate-950">{{ paymentTypeText(rechargeType) }}</span></div>
+              <div class="mt-2 flex items-end justify-between gap-4 border-t border-slate-100 pt-4"><span class="font-black text-slate-800">要支付的价格</span><span class="text-3xl font-black tracking-tight text-emerald-700">￥{{ formatRechargeMoney(rechargeCouponPreview?.payableAmount ?? rechargeAmount) }}</span></div>
+              <p v-if="rechargeCouponCode.trim()" class="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">已使用优惠码：{{ rechargeCouponCode.trim() }}</p>
+              <p v-if="rechargeError" class="rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-600">{{ rechargeError }}</p>
+            </div>
+            <footer class="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button type="button" class="h-11 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50" :disabled="rechargeLoading" @click="rechargeCheckoutModalOpen = false">返回修改</button>
+              <button type="button" class="h-11 rounded-xl bg-emerald-600 px-5 text-sm font-black text-white shadow-sm shadow-emerald-100 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="rechargeLoading" @click="createRechargeOrder">{{ rechargeLoading ? '正在创建订单…' : '确认支付' }}</button>
+            </footer>
+          </section>
+        </div>
+      </Transition>
 
       <Transition name="zoom-fade">
         <div v-if="showIntegrationGuide" class="fixed inset-0 z-[100] grid place-items-center overflow-y-auto bg-slate-950/45 p-3 backdrop-blur-[5px] sm:p-5" @click.self="showIntegrationGuide = false">

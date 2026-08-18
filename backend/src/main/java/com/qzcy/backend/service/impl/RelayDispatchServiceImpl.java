@@ -60,7 +60,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class RelayDispatchServiceImpl implements RelayDispatchService {
     private static final Duration RELAY_TIMEOUT = Duration.ofMinutes(10);
-    private static final long MAX_RECENT_USAGE_LOGS_PER_USER = 100L;
     private static final RelayCostBreakdown ZERO_COST = new RelayCostBreakdown(
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO
     );
@@ -1164,19 +1163,6 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             fallback.setMessage(limitForColumn("usage log insert failed: " + ex.getMessage(), 1000));
             fallback.setCreatedAt(LocalDateTime.now());
             usageLogMapper.insert(fallback);
-        }
-        trimRecentUsageLogs(usageLog.getUserId());
-    }
-
-    private void trimRecentUsageLogs(Long userId) {
-        if (userId == null) {
-            return;
-        }
-        try {
-            usageLogMapper.deleteOlderThanRecentLimit(userId, MAX_RECENT_USAGE_LOGS_PER_USER);
-        } catch (Exception ex) {
-            // Retention must not turn a completed relay request into a failed request.
-            log.warn("Relay usage log retention cleanup failed for userId={}", userId, ex);
         }
     }
 

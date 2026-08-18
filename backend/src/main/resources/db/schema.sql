@@ -361,6 +361,46 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND INDEX_NAME = 'idx_payment_record_status_type_user') = 0, 'CREATE INDEX idx_payment_record_status_type_user ON payment_record (status, type, user_id)', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND COLUMN_NAME = 'recharge_amount') = 0, 'ALTER TABLE payment_record ADD COLUMN recharge_amount DECIMAL(12, 6) NULL AFTER amount', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND COLUMN_NAME = 'discount_amount') = 0, 'ALTER TABLE payment_record ADD COLUMN discount_amount DECIMAL(12, 6) NOT NULL DEFAULT 0.000000 AFTER recharge_amount', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND COLUMN_NAME = 'coupon_id') = 0, 'ALTER TABLE payment_record ADD COLUMN coupon_id BIGINT NULL AFTER discount_amount', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND COLUMN_NAME = 'coupon_code') = 0, 'ALTER TABLE payment_record ADD COLUMN coupon_code VARCHAR(255) NULL AFTER coupon_id', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND COLUMN_NAME = 'coupon_discount_percent') = 0, 'ALTER TABLE payment_record ADD COLUMN coupon_discount_percent DECIMAL(5, 2) NULL AFTER coupon_code', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS recharge_coupon (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    code VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    discount_percent DECIMAL(5, 2) NOT NULL,
+    max_uses_per_user INT NOT NULL DEFAULT 0,
+    max_discount_amount DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_recharge_coupon_code (code),
+    INDEX idx_recharge_coupon_enabled (enabled, created_at)
+);
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'recharge_coupon' AND COLUMN_NAME = 'max_discount_amount') = 0, 'ALTER TABLE recharge_coupon ADD COLUMN max_discount_amount DECIMAL(12, 6) NOT NULL DEFAULT 0.000000 AFTER max_uses_per_user', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS recharge_coupon_usage (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    coupon_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    payment_record_id BIGINT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'reserved',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME NULL,
+    UNIQUE KEY uk_recharge_coupon_payment (payment_record_id),
+    INDEX idx_recharge_coupon_user_status (coupon_id, user_id, status),
+    INDEX idx_recharge_coupon_payment_status (payment_record_id, status)
+);
+
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'banned') = 0, 'ALTER TABLE `user` ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0 AFTER role', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'invitation_code') = 0, 'ALTER TABLE `user` ADD COLUMN invitation_code VARCHAR(6) NULL', 'SELECT 1');

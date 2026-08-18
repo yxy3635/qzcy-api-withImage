@@ -4,9 +4,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.ApiResponse;
 import com.qzcy.backend.dto.PaymentConfigDto;
 import com.qzcy.backend.dto.RechargeDto;
+import com.qzcy.backend.dto.RechargeCouponPreviewDto;
+import com.qzcy.backend.dto.RechargeCouponPreviewRequest;
 import com.qzcy.backend.entity.PaymentRecord;
 import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.PaymentService;
+import com.qzcy.backend.service.RechargeCouponService;
 import com.qzcy.backend.util.SecurityUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -26,10 +29,20 @@ import java.util.Map;
 public class PaymentController {
     private final PaymentService paymentService;
     private final PaymentConfigService paymentConfigService;
+    private final RechargeCouponService rechargeCouponService;
 
     @PostMapping("/recharge")
     public ApiResponse<Map<String, Object>> recharge(@RequestBody RechargeDto dto, HttpServletRequest request) {
         return ApiResponse.success(paymentService.recharge(SecurityUtil.current().userId(), dto, backendBaseUrl(request), frontendBaseUrl(request)));
+    }
+
+    @PostMapping("/coupon-preview")
+    public ApiResponse<RechargeCouponPreviewDto> couponPreview(@RequestBody RechargeCouponPreviewRequest request) {
+        return ApiResponse.success(rechargeCouponService.preview(
+                SecurityUtil.current().userId(),
+                request == null ? null : request.getAmount(),
+                request == null ? null : request.getCode()
+        ));
     }
 
     @GetMapping("/config")

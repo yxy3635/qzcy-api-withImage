@@ -5,8 +5,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 
 @Data
-public class RechargeDto {
+public class RechargeCouponPreviewRequest {
     private BigDecimal amount;
-    private String type;
-    private String couponCode;
+    private String code;
 }

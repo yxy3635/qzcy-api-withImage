@@ -50,7 +50,7 @@ public class MailDeliveryServiceImpl implements MailDeliveryService {
                 + "你好，" + escape(username) + "。你的充值已到账，账户余额可以立即用于 API 调用。"
                 + "</p>"
                 + detailTable(new String[][]{
-                    {"到账金额", "¥ " + money(record.getAmount())},
+                    {"到账金额", "¥ " + money(record.getRechargeAmount() == null ? record.getAmount() : record.getRechargeAmount())},
                     {"支付方式", paymentType(record.getType())},
                     {"订单编号", "#" + record.getId()}
                 })

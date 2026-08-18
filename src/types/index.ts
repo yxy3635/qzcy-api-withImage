@@ -93,6 +93,9 @@ export interface PaymentRecord {
   id: number
   userId: number
   amount: number
+  rechargeAmount?: number
+  discountAmount?: number
+  couponCode?: string
   type: string
   status: string
   remark?: string
@@ -102,6 +105,30 @@ export interface PaymentRecord {
 export interface AdminPaymentRecord extends PaymentRecord {
   username?: string
   email?: string
+}
+
+export interface RechargeCouponPreview {
+  valid: boolean
+  couponId?: number
+  code: string
+  discountPercent?: number
+  originalAmount: number
+  discountAmount: number
+  payableAmount: number
+  remainingUses?: number
+  message?: string
+}
+
+export interface AdminRechargeCoupon {
+  id: number
+  code: string
+  discountPercent: number
+  maxUsesPerUser: number
+  maxDiscountAmount: number
+  usedCount: number
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface ReferralOverview {

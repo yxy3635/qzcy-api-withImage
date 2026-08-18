@@ -12,6 +12,9 @@ public class AdminPaymentRecordDto {
     private String username;
     private String email;
     private BigDecimal amount;
+    private BigDecimal rechargeAmount;
+    private BigDecimal discountAmount;
+    private String couponCode;
     private String type;
     private String status;
     private String remark;

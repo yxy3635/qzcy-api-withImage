@@ -273,7 +273,10 @@ public class ReferralServiceImpl implements ReferralService {
     @Override
     @Transactional
     public void rewardForRecharge(PaymentRecord paymentRecord) {
-        if (paymentRecord == null || paymentRecord.getId() == null || paymentRecord.getAmount() == null) {
+        // Referral rebate is based on the credited amount, before any coupon discount.
+        BigDecimal rechargeAmount = paymentRecord == null ? null
+                : paymentRecord.getRechargeAmount() == null ? paymentRecord.getAmount() : paymentRecord.getRechargeAmount();
+        if (paymentRecord == null || paymentRecord.getId() == null || rechargeAmount == null) {
             return;
         }
         User invitee = userMapper.selectById(paymentRecord.getUserId());
@@ -290,7 +293,7 @@ public class ReferralServiceImpl implements ReferralService {
         if (exists > 0) {
             return;
         }
-        BigDecimal rebateAmount = paymentRecord.getAmount()
+        BigDecimal rebateAmount = rechargeAmount
                 .multiply(rate)
                 .divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
         if (rebateAmount.compareTo(BigDecimal.ZERO) <= 0) {
@@ -300,7 +303,7 @@ public class ReferralServiceImpl implements ReferralService {
         record.setInviterId(invitee.getInviterId());
         record.setInviteeId(invitee.getId());
         record.setPaymentRecordId(paymentRecord.getId());
-        record.setRechargeAmount(paymentRecord.getAmount());
+        record.setRechargeAmount(rechargeAmount);
         record.setRebateRate(rate);
         record.setRebateAmount(rebateAmount);
         record.setStatus("pending_review");

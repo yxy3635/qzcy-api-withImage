@@ -18,6 +18,7 @@ import AdminUserUsage from '@/views/admin/AdminUserUsage.vue'
 import AdminPricing from '@/views/admin/AdminPricing.vue'
 import AdminMail from '@/views/admin/AdminMail.vue'
 import AdminPayment from '@/views/admin/AdminPayment.vue'
+import AdminPaymentCoupons from '@/views/admin/AdminPaymentCoupons.vue'
 import AdminReferral from '@/views/admin/AdminReferral.vue'
 import AdminLogs from '@/views/admin/AdminLogs.vue'
 import AdminRelay from '@/views/admin/AdminRelay.vue'
@@ -44,6 +45,7 @@ const router = createRouter({
     { path: '/admin/pricing', component: AdminPricing, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/relay', component: AdminRelay, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/payment', component: AdminPayment, meta: { requiresAuth: true, admin: true } },
+    { path: '/admin/payment/coupons', component: AdminPaymentCoupons, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/referral', component: AdminReferral, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/mail', component: AdminMail, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/logs', component: AdminLogs, meta: { requiresAuth: true, admin: true } }

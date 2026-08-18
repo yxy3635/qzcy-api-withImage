@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
 import Pagination from '@/components/Pagination.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
@@ -169,6 +170,9 @@ onMounted(load)
           <p class="mt-3 text-sm font-medium text-slate-500">配置支付接口地址、商户信息，以及新用户注册后的赠送余额。</p>
         </div>
         <div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+          <RouterLink class="inline-flex h-12 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 px-5 text-sm font-black text-sky-700 shadow-sm transition hover:border-sky-300 hover:bg-sky-100" to="/admin/payment/coupons">
+            优惠码管理
+          </RouterLink>
           <button class="h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)] transition hover:bg-sky-600" @click="openPaymentRecords">
             查询充值账单
           </button>

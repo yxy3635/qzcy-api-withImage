@@ -1,5 +1,5 @@
 import http from './http'
-import type { AdminImageRecord, AdminPaymentRecord, AdminRelayUsageLog, AdminStats, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
+import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
 export const adminApi = {
   dashboard() {
@@ -103,6 +103,21 @@ export const adminApi = {
   },
   updatePaymentConfig(payload: Partial<Omit<PaymentConfig, 'id' | 'merchantSecretConfigured'>> & { merchantSecret?: string }) {
     return http.put<ApiResponse<PaymentConfig>>('/admin/payment-config', payload)
+  },
+  paymentCoupons(page = 1, size = 20, keyword = '') {
+    return http.get<ApiResponse<PageResult<AdminRechargeCoupon>>>('/admin/payment-coupons', { params: { page, size, keyword } })
+  },
+  randomPaymentCouponCode() {
+    return http.post<ApiResponse<string>>('/admin/payment-coupons/random-code')
+  },
+  createPaymentCoupon(payload: { code: string; discountPercent: number; maxUsesPerUser: number; maxDiscountAmount: number; enabled: boolean }) {
+    return http.post<ApiResponse<AdminRechargeCoupon>>('/admin/payment-coupons', payload)
+  },
+  updatePaymentCoupon(id: number, payload: { code: string; discountPercent: number; maxUsesPerUser: number; maxDiscountAmount: number; enabled: boolean }) {
+    return http.put<ApiResponse<AdminRechargeCoupon>>(`/admin/payment-coupons/${id}`, payload)
+  },
+  deletePaymentCoupon(id: number) {
+    return http.delete<ApiResponse<void>>(`/admin/payment-coupons/${id}`)
   },
   referralRebates(page = 1, size = 10, status = '') {
     return http.get<ApiResponse<PageResult<ReferralRebate>>>('/admin/referral/rebates', { params: { page, size, status } })
