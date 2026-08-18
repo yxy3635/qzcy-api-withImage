@@ -28,9 +28,15 @@ const loadedSections = ref<Set<string>>(new Set())
 const loadingSections = ref<Set<string>>(new Set())
 const loading = computed(() => loadingSections.value.size > 0)
 const activeMenuLoading = computed(() => loadingSections.value.has(activeMenu.value))
+const panelHeaderCollapsed = ref(false)
+const compactPanelActive = computed(() => panelHeaderCollapsed.value && (activeMenu.value === 'logs' || activeMenu.value === 'keys'))
 const announcementsLoading = ref(false)
 const billingExtrasLoaded = ref(false)
 let logFilterTimer: number | undefined
+let logRefreshTimer: number | undefined
+let logRefreshInFlight = false
+let logRequestSequence = 0
+let panelTouchStartY: number | null = null
 const copied = ref('')
 const creatingKey = ref(false)
 const showKeyDialog = ref(false)
@@ -54,6 +60,7 @@ const logStatusFilter = ref('all')
 const logSort = ref<'latest' | 'slowest' | 'cost'>('latest')
 const logPage = ref(1)
 const logPageSize = ref(20)
+const logPageSizeOptions = [10, 20, 50, 100]
 const expandedLogIds = ref<Set<number>>(new Set())
 const keyActionDialog = ref<{ action: 'toggle' | 'delete'; token: RelayToken } | null>(null)
 const keyActionLoading = ref(false)
@@ -201,6 +208,7 @@ const totalCost = computed(() => Number(overview.value?.totalCost || 0))
 const avgDuration = computed(() => Number(overview.value?.averageDurationMs || 0))
 const promptTotal = computed(() => Number(overview.value?.totalPromptTokens || 0))
 const completionTotal = computed(() => Number(overview.value?.totalCompletionTokens || 0))
+const accumulatedInputOutputTokens = computed(() => promptTotal.value + completionTotal.value)
 const cachedTotal = computed(() => Number(overview.value?.totalCachedTokens || 0))
 const cacheCreateTotal = computed(() => Number(overview.value?.totalCacheCreationTokens || 0))
 const todayRequests = computed(() => Number(overview.value?.todayRequests || 0))
@@ -267,7 +275,7 @@ const menuIconPaths: Record<string, string> = {
 
 const metricCards = computed(() => [
   { label: '总请求数', value: compact(totalRequests.value), sub: '当前账号累计', tone: 'blue' },
-  { label: '总 Token', value: compact(totalTokens.value), sub: `输入 ${compact(promptTotal.value)} / 输出 ${compact(completionTotal.value)}`, tone: 'amber' },
+  { label: '总 Token', value: compact(accumulatedInputOutputTokens.value), sub: `输入 ${compact(promptTotal.value)} / 输出 ${compact(completionTotal.value)}`, tone: 'amber' },
   { label: '总消费', value: `$${totalCost.value.toFixed(4)}`, sub: `余额 $${balance.value.toFixed(6)}`, tone: 'emerald' },
   { label: '平均耗时', value: `${(avgDuration.value / 1000).toFixed(2)}s`, sub: '每次请求平均', tone: 'violet' }
 ])
@@ -302,10 +310,10 @@ const dashboardCards = computed(() => [
   { label: '今日消费', raw: displayTodayCost.value, kind: 'money', sub: `累计消费 ${money(totalCost.value)}`, tone: 'emerald', icon: 'M12 6v12m6-6H6' },
   { label: '今日请求', raw: displayTodayRequests.value, kind: 'compact', sub: `总请求 ${compact(totalRequests.value)}`, tone: 'blue', icon: 'M4 7h16M4 12h16M4 17h10' },
   { label: '今日输入 Token', raw: displayTodayPromptTokens.value, kind: 'compact', sub: `输出 ${compact(displayTodayCompletionTokens.value)}`, tone: 'amber', icon: 'M7 8l-4 4 4 4M17 8l4 4-4 4M14 4l-4 16' },
-  { label: '今日总 Token', raw: displayTodayTotalTokens.value, kind: 'compact', sub: `累计 ${compact(totalTokens.value)}`, tone: 'violet', icon: 'M5 7h14M5 12h14M5 17h14' },
+  { label: '今日总 Token', raw: displayTodayTotalTokens.value, kind: 'compact', sub: `累计 ${compact(accumulatedInputOutputTokens.value)}`, tone: 'violet', icon: 'M5 7h14M5 12h14M5 17h14' },
   { label: 'RPM', raw: currentRpm.value, kind: 'compact', sub: '最近 1 分钟请求数', tone: 'rose', icon: 'M4 13a8 8 0 1 1 16 0M12 13l4-4' },
   { label: 'TPM', raw: currentTpm.value, kind: 'compact', sub: '最近 1 分钟 Token', tone: 'cyan', icon: 'M13 2L4 14h7l-1 8 9-12h-7l1-8z' },
-  { label: '累计总 Token', raw: totalTokens.value, kind: 'compact', sub: `输入 ${compact(promptTotal.value)} / 输出 ${compact(completionTotal.value)}`, tone: 'indigo', icon: 'M4 7c0-2 4-4 8-4s8 2 8 4-4 4-8 4-8-2-8-4zm0 0v10c0 2 4 4 8 4s8-2 8-4V7' },
+  { label: '累计总 Token', raw: accumulatedInputOutputTokens.value, kind: 'compact', sub: `输入 ${compact(promptTotal.value)} / 输出 ${compact(completionTotal.value)}`, tone: 'indigo', icon: 'M4 7c0-2 4-4 8-4s8 2 8 4-4 4-8 4-8-2-8-4zm0 0v10c0 2 4 4 8 4s8-2 8-4V7' },
   { label: '平均响应', raw: avgDuration.value, kind: 'seconds', sub: '按历史调用平均', tone: 'slate', icon: 'M12 8v4l3 3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' }
 ])
 
@@ -385,7 +393,7 @@ function mergeOverview(partial: RelayUserOverview) {
   if (!keyForm.group && groups.value.length) keyForm.group = groups.value[0]?.code || 'default'
 }
 
-async function loadSection(section: string, force = false) {
+async function loadSection(section: string, force = false, silent = false) {
   if (!auth.isAuthenticated || section === 'referral') return
   if (!force && loadedSections.value.has(section)) {
     if (section === 'billing') await loadBillingExtras(false)
@@ -394,7 +402,8 @@ async function loadSection(section: string, force = false) {
   }
   if (loadingSections.value.has(section)) return
 
-  updateLoadingSection(section, true)
+  const requestSequence = section === 'logs' ? ++logRequestSequence : 0
+  if (!silent) updateLoadingSection(section, true)
   try {
     const { data } = await relayApi.overview({
       section,
@@ -404,16 +413,17 @@ async function loadSection(section: string, force = false) {
       status: section === 'logs' ? logStatusFilter.value : undefined,
       sort: section === 'logs' ? logSort.value : undefined
     })
+    if (section === 'logs' && requestSequence !== logRequestSequence) return false
     mergeOverview(data.data)
     if (section === 'dashboard') await loadAnnouncements(force)
     if (section === 'billing') await loadBillingExtras(force)
     updateLoadedSections(section)
     return true
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : '加载中转数据失败')
+    if (!silent) toast.error(err instanceof Error ? err.message : '加载中转数据失败')
     return false
   } finally {
-    updateLoadingSection(section, false)
+    if (!silent) updateLoadingSection(section, false)
   }
 }
 
@@ -425,6 +435,16 @@ async function load() {
     await loadSection(activeMenu.value, true)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : '刷新账户信息失败')
+  }
+}
+
+async function refreshLogsSilently() {
+  if (!auth.isAuthenticated || activeMenu.value !== 'logs' || logRefreshInFlight) return
+  logRefreshInFlight = true
+  try {
+    await loadSection('logs', true, true)
+  } finally {
+    logRefreshInFlight = false
   }
 }
 
@@ -1155,6 +1175,9 @@ function selectMenu(item: { id: string; route?: string }) {
 
   if (item.id === activeMenu.value) return
 
+  panelHeaderCollapsed.value = false
+  panelTouchStartY = null
+
   const currentIndex = menus.findIndex((menu) => menu.id === activeMenu.value)
   const nextIndex = menus.findIndex((menu) => menu.id === item.id)
   menuDirection.value = nextIndex < currentIndex ? 'backward' : 'forward'
@@ -1181,6 +1204,61 @@ async function changeLogPage(page: number) {
   await loadSection('logs', true)
 }
 
+async function changeLogPageSize(size: number | string) {
+  const nextSize = Math.min(100, Math.max(10, Number(size) || 20))
+  if (nextSize === logPageSize.value && logPage.value === 1) return
+  logPageSize.value = nextSize
+  logPage.value = 1
+  expandedLogIds.value = new Set()
+  await loadSection('logs', true)
+}
+
+function handleLogPageSizeChange(event: Event) {
+  const target = event.target as HTMLSelectElement | null
+  if (target) void changeLogPageSize(target.value)
+}
+
+function handlePanelScroll(event: Event) {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) return
+  if (target.scrollTop > 18) {
+    panelHeaderCollapsed.value = true
+  }
+}
+
+function handlePanelWheel(event: WheelEvent) {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target || !panelHeaderCollapsed.value || event.deltaY >= 0 || target.scrollTop > 18) return
+  panelHeaderCollapsed.value = false
+}
+
+function handlePanelKeydown(event: KeyboardEvent) {
+  if (!panelHeaderCollapsed.value) return
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) return
+  if (event.key === 'Home' || (event.key === 'PageUp' && target.scrollTop <= 18)) {
+    panelHeaderCollapsed.value = false
+  }
+}
+
+function handlePanelTouchStart(event: TouchEvent) {
+  panelTouchStartY = event.touches[0]?.clientY ?? null
+}
+
+function handlePanelTouchMove(event: TouchEvent) {
+  const target = event.currentTarget as HTMLElement | null
+  const currentY = event.touches[0]?.clientY
+  if (!target || panelTouchStartY === null || currentY === undefined) return
+  if (panelHeaderCollapsed.value && currentY - panelTouchStartY > 8 && target.scrollTop <= 18) {
+    panelHeaderCollapsed.value = false
+    panelTouchStartY = null
+  }
+}
+
+function handlePanelTouchEnd() {
+  panelTouchStartY = null
+}
+
 watch([logSearch, logStatusFilter, logSort], () => {
   if (activeMenu.value !== 'logs') return
   logPage.value = 1
@@ -1194,9 +1272,13 @@ watch([logSearch, logStatusFilter, logSort], () => {
 onBeforeUnmount(() => {
   if (menuSwitchTimer !== undefined) window.clearTimeout(menuSwitchTimer)
   if (logFilterTimer !== undefined) window.clearTimeout(logFilterTimer)
+  if (logRefreshTimer !== undefined) window.clearInterval(logRefreshTimer)
 })
 
 onMounted(async () => {
+  logRefreshTimer = window.setInterval(() => {
+    void refreshLogsSilently()
+  }, 3000)
   await load()
 })
 </script>
@@ -1261,7 +1343,7 @@ onMounted(async () => {
     </aside>
 
     <div class="transition-[padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" :class="sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-[248px]'">
-      <header class="sticky top-0 z-20 flex min-h-[72px] items-center justify-between gap-3 border-b border-slate-200/80 bg-white/92 px-3 backdrop-blur-xl sm:px-5 md:px-7">
+      <header class="relay-top-header sticky top-0 z-20 flex h-[72px] items-center justify-between gap-3 border-b border-slate-200/80 bg-white/92 px-3 backdrop-blur-xl sm:px-5 md:px-7" :class="{ 'is-compact': compactPanelActive }">
         <div class="flex min-w-0 items-center gap-3">
           <button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 md:hidden" aria-label="打开导航" @click="mobileMenuOpen = true">
             <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
@@ -1270,7 +1352,7 @@ onMounted(async () => {
           <Transition name="relay-title" mode="out-in">
             <h1 :key="activeMenu" class="text-2xl font-black">{{ menus.find((item) => item.id === activeMenu)?.label }}</h1>
           </Transition>
-            <p class="mt-0.5 hidden text-xs font-semibold text-slate-500 lg:block">独立 API 中转站 · 账号、余额与原项目互通</p>
+            <p class="relay-top-subtitle mt-0.5 hidden text-xs font-semibold text-slate-500 lg:block">独立 API 中转站 · 账号、余额与原项目互通</p>
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-2 sm:gap-3">
@@ -1299,9 +1381,12 @@ onMounted(async () => {
 
       <main
         class="relay-shell"
-        :class="activeMenu === 'logs' || activeMenu === 'keys' || activeMenu === 'channels' || activeMenu === 'subscription' || activeMenu === 'orders' || activeMenu === 'profile'
-          ? 'h-[calc(100dvh-72px)] overflow-hidden p-3 sm:p-4 md:p-5'
-          : 'min-h-[calc(100vh-72px)] px-4 py-8 md:px-8'"
+        :class="[
+          activeMenu === 'logs' || activeMenu === 'keys' || activeMenu === 'channels' || activeMenu === 'subscription' || activeMenu === 'orders' || activeMenu === 'profile'
+            ? 'h-[calc(100dvh-72px)] overflow-hidden p-3 sm:p-4 md:p-5'
+            : 'min-h-[calc(100vh-72px)] px-4 py-8 md:px-8',
+          compactPanelActive ? 'is-compact' : ''
+        ]"
       >
         <div v-if="!auth.isAuthenticated" class="mx-auto max-w-xl rounded-2xl border border-amber-100 bg-amber-50 p-6 text-center">
           <p class="text-lg font-black text-amber-800">登录后查看中转站</p>
@@ -1395,8 +1480,8 @@ onMounted(async () => {
           </section>
 
           <section v-if="activeMenu === 'keys'" class="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_14px_45px_rgba(15,23,42,0.07)]">
-            <div class="shrink-0 border-b border-slate-100 px-4 py-4 sm:px-5">
-              <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="relay-panel-head shrink-0 border-b border-slate-100 px-4 py-4 sm:px-5" :class="{ 'is-condensed': panelHeaderCollapsed }">
+              <div class="relay-panel-headline flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div class="flex items-center gap-2">
                     <h2 class="text-lg font-black tracking-tight text-slate-950">密钥管理</h2>
@@ -1419,7 +1504,7 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <div role="note" class="mt-2 flex items-center gap-2 rounded-lg border border-amber-200/80 bg-amber-50/85 px-2.5 py-2 text-[11px] text-amber-950 shadow-sm shadow-amber-100/60 sm:px-3">
+              <div role="note" class="relay-panel-notice mt-2 flex items-center gap-2 rounded-lg border border-amber-200/80 bg-amber-50/85 px-2.5 py-2 text-[11px] text-amber-950 shadow-sm shadow-amber-100/60 sm:px-3">
                 <span class="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-amber-500 text-white shadow-sm shadow-amber-200" aria-hidden="true">
                   <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 17H3L12 3Z" /><path d="M12 9v4m0 3h.01" /></svg>
                 </span>
@@ -1429,14 +1514,14 @@ onMounted(async () => {
                 </p>
               </div>
 
-              <div class="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+              <div class="relay-panel-metrics mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
                 <article class="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5"><p class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">密钥总数</p><div class="mt-1 flex items-end justify-between gap-2"><strong class="text-xl font-black text-slate-950">{{ tokens.length }}</strong><span class="text-[11px] font-bold text-slate-400">当前账号</span></div></article>
                 <article class="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2.5"><p class="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-600/70">活跃密钥</p><div class="mt-1 flex items-end justify-between gap-2"><strong class="text-xl font-black text-emerald-700">{{ activeTokens.length }}</strong><span class="text-[11px] font-bold text-emerald-600">可正常调用</span></div></article>
                 <article class="rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2.5"><p class="text-[10px] font-black uppercase tracking-[0.12em] text-cyan-600/70">今日消费</p><div class="mt-1 flex items-end justify-between gap-2"><strong class="text-xl font-black text-cyan-700">{{ money(keyTodayCost) }}</strong><span class="text-[11px] font-bold text-cyan-600">全部密钥</span></div></article>
                 <article class="rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-2.5"><p class="text-[10px] font-black uppercase tracking-[0.12em] text-amber-600/70">累计用量</p><div class="mt-1 flex items-end justify-between gap-2"><strong class="text-xl font-black text-amber-700">{{ money(keyUsedQuota) }}</strong><span class="text-[11px] font-bold text-amber-600">USD</span></div></article>
               </div>
 
-              <div class="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+              <div class="relay-panel-filters mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
                 <label class="relative min-w-0 flex-1">
                   <span class="sr-only">搜索 API 密钥</span>
                   <svg viewBox="0 0 24 24" class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
@@ -1458,7 +1543,7 @@ onMounted(async () => {
 
             <div class="hidden shrink-0 grid-cols-[minmax(220px,1.45fr)_minmax(170px,.95fr)_minmax(155px,.8fr)_minmax(155px,.85fr)_auto] items-center gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:grid"><span>密钥 / 分组</span><span>用量</span><span>限制 / 有效期</span><span>状态 / 活动</span><span class="text-right">操作</span></div>
 
-            <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0">
+            <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0" @scroll="handlePanelScroll" @wheel="handlePanelWheel" @keydown="handlePanelKeydown" @touchstart="handlePanelTouchStart" @touchmove="handlePanelTouchMove" @touchend="handlePanelTouchEnd">
               <div v-if="activeMenuLoading" class="relay-list-refresh-bar" aria-hidden="true"><span></span></div>
               <div v-if="activeMenuLoading && !tokens.length" class="grid h-full min-h-52 place-items-center"><RequestLoader label="正在读取 API 密钥" :cell-size="13" /></div>
               <div v-else-if="filteredTokens.length" class="divide-y divide-slate-100">
@@ -1499,8 +1584,8 @@ onMounted(async () => {
           </section>
 
           <section v-if="activeMenu === 'logs'" class="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_14px_45px_rgba(15,23,42,0.07)]">
-            <div class="shrink-0 border-b border-slate-100 px-4 py-4 sm:px-5">
-              <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="relay-panel-head shrink-0 border-b border-slate-100 px-4 py-4 sm:px-5" :class="{ 'is-condensed': panelHeaderCollapsed }">
+              <div class="relay-panel-headline flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div class="flex items-center gap-2">
                     <h2 class="text-lg font-black tracking-tight text-slate-950">调用明细</h2>
@@ -1528,7 +1613,7 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <div class="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+              <div class="relay-panel-metrics mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
                 <article class="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
                   <p class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">请求总数</p>
                   <div class="mt-1 flex items-end justify-between gap-2"><strong class="text-xl font-black text-slate-950">{{ logs.length }}</strong><span class="text-[11px] font-bold text-slate-400">最近记录</span></div>
@@ -1547,7 +1632,7 @@ onMounted(async () => {
                 </article>
               </div>
 
-              <div class="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+              <div class="relay-panel-filters mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
                 <label class="relative min-w-0 flex-1">
                   <span class="sr-only">搜索使用记录</span>
                   <svg viewBox="0 0 24 24" class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
@@ -1571,7 +1656,7 @@ onMounted(async () => {
               <span>请求</span><span>状态</span><span>Token / 缓存</span><span>费用</span><span>耗时 / 时间</span><span></span>
             </div>
 
-            <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0">
+            <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0" @scroll="handlePanelScroll" @wheel="handlePanelWheel" @keydown="handlePanelKeydown" @touchstart="handlePanelTouchStart" @touchmove="handlePanelTouchMove" @touchend="handlePanelTouchEnd">
               <div v-if="activeMenuLoading" class="relay-list-refresh-bar" aria-hidden="true"><span></span></div>
               <div v-if="activeMenuLoading && !logs.length" class="grid h-full min-h-52 place-items-center">
                 <RequestLoader label="正在读取使用记录" :cell-size="13" />
@@ -1649,7 +1734,21 @@ onMounted(async () => {
               </div>
             </div>
             <footer class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
-              <span class="text-xs font-semibold text-slate-500">第 {{ logPage }} 页，共 {{ logPages }} 页，{{ logTotal }} 条记录</span>
+              <div class="flex min-w-0 items-center gap-3">
+                <span class="text-xs font-semibold text-slate-500">第 {{ logPage }} 页，共 {{ logPages }} 页，{{ logTotal }} 条记录</span>
+                <label class="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-slate-500">
+                  <span class="hidden sm:inline">每页</span>
+                  <select
+                    :value="logPageSize"
+                    class="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-black text-slate-600 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                    aria-label="每页显示条数"
+                    :disabled="activeMenuLoading"
+                    @change="handleLogPageSizeChange"
+                  >
+                    <option v-for="option in logPageSizeOptions" :key="option" :value="option">{{ option }} 条</option>
+                  </select>
+                </label>
+              </div>
               <Pagination :current="logPage" :pages="logPages" @change="changeLogPage" />
             </footer>
           </section>
@@ -2446,6 +2545,84 @@ onMounted(async () => {
   opacity: .18;
 }
 
+.relay-top-header,
+.relay-shell,
+.relay-panel-head,
+.relay-panel-headline,
+.relay-panel-notice,
+.relay-panel-metrics,
+.relay-panel-filters,
+.relay-top-subtitle {
+  transition-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+
+.relay-top-header {
+  transition: height 380ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.relay-top-header.is-compact {
+  height: 56px !important;
+}
+
+.relay-top-subtitle {
+  max-height: 24px;
+  overflow: hidden;
+  transition: max-height 300ms ease, opacity 220ms ease, transform 300ms ease, margin 300ms ease;
+}
+
+.relay-top-header.is-compact .relay-top-subtitle {
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+  transform: translateY(-5px);
+}
+
+.relay-shell {
+  transition: height 380ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.relay-shell.is-compact {
+  height: calc(100dvh - 56px) !important;
+}
+
+.relay-panel-head {
+  overflow: hidden;
+  transition: padding 380ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.relay-panel-head.is-condensed {
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+.relay-panel-headline,
+.relay-panel-notice,
+.relay-panel-metrics {
+  overflow: hidden;
+  transition: max-height 380ms cubic-bezier(.16, 1, .3, 1), opacity 220ms ease, transform 380ms cubic-bezier(.16, 1, .3, 1), margin 380ms cubic-bezier(.16, 1, .3, 1), padding 380ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.relay-panel-headline { max-height: 160px; }
+.relay-panel-notice { max-height: 80px; }
+.relay-panel-metrics { max-height: 140px; }
+
+.relay-panel-head.is-condensed .relay-panel-headline,
+.relay-panel-head.is-condensed .relay-panel-notice,
+.relay-panel-head.is-condensed .relay-panel-metrics {
+  max-height: 0;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-10px);
+}
+
+.relay-panel-head.is-condensed .relay-panel-filters {
+  margin-top: 0 !important;
+}
+
 .relay-list-item {
   animation: relayListIn 420ms cubic-bezier(.16, 1, .3, 1) both;
   animation-delay: calc(var(--i, 0) * 38ms);
@@ -2887,6 +3064,17 @@ onMounted(async () => {
 @keyframes horizonGlow { to { transform: translate3d(8%, 5%, 0) scale(1.08); opacity: .25; } }
 
 @media (prefers-reduced-motion: reduce) {
+  .relay-top-header,
+  .relay-shell,
+  .relay-panel-head,
+  .relay-panel-headline,
+  .relay-panel-notice,
+  .relay-panel-metrics,
+  .relay-panel-filters,
+  .relay-top-subtitle {
+    transition: none !important;
+  }
+
   .relay-view-forward-enter-active,
   .relay-view-forward-leave-active,
   .relay-view-back-enter-active,

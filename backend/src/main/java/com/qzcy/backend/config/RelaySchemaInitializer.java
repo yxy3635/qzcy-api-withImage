@@ -27,6 +27,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         normalizeImplicitChannelUpstreamModels();
         ensureRelayPrecision();
         ensureRelayTokenIndexes();
+        trimRelayUsageLogs();
         ensureGptImage2Model();
         ensureEmptyGroupsHaveModels();
         ensureChannelsHaveModels();
@@ -178,6 +179,27 @@ public class RelaySchemaInitializer implements CommandLineRunner {
             addIndexIfMissing("payment_record", "idx_payment_record_user_status_type", "CREATE INDEX idx_payment_record_user_status_type ON payment_record (user_id, status, type)");
             addIndexIfMissing("payment_record", "idx_payment_record_status_type_user", "CREATE INDEX idx_payment_record_status_type_user ON payment_record (status, type, user_id)");
         }
+    }
+
+    private void trimRelayUsageLogs() {
+        if (!tableExists("relay_usage_log")) {
+            return;
+        }
+        jdbcTemplate.queryForList("SELECT DISTINCT user_id FROM relay_usage_log", Long.class)
+                .forEach(userId -> jdbcTemplate.update("""
+                        DELETE FROM relay_usage_log
+                        WHERE user_id = ?
+                          AND id NOT IN (
+                              SELECT id
+                              FROM (
+                                  SELECT id
+                                  FROM relay_usage_log
+                                  WHERE user_id = ?
+                                  ORDER BY created_at DESC, id DESC
+                                  LIMIT 100
+                              ) recent_logs
+                          )
+                        """, userId, userId));
     }
 
     private void attachModelToDefaultGroup(String model) {

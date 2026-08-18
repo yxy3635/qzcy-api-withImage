@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
 import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
@@ -10,6 +10,8 @@ import type { AdminStats } from '@/types'
 const stats = ref<AdminStats | null>(null)
 const loading = ref(false)
 const error = ref('')
+let dashboardRefreshTimer: number | undefined
+let dashboardRequestInFlight = false
 
 const totalRelayTokens = computed(() =>
   (stats.value?.relayChannelProfits || []).reduce((sum, item) => sum + Number(item.totalTokens || 0), 0)
@@ -30,16 +32,21 @@ const relayCards = computed(() => [
   { label: '今日利润', value: Math.abs(Number(stats.value?.todayRelayProfit || 0)), previous: `昨日 ${profitLabel(stats.value?.yesterdayRelayProfit)}`, accent: Number(stats.value?.todayRelayProfit || 0) >= 0 ? 'teal' : 'red', icon: 'trend', money: true, negative: Number(stats.value?.todayRelayProfit || 0) < 0 }
 ])
 
-async function load() {
-  loading.value = true
-  error.value = ''
+async function load(silent = false) {
+  if (dashboardRequestInFlight) return
+  dashboardRequestInFlight = true
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     const { data } = await adminApi.dashboard()
     stats.value = data.data
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '仪表盘数据加载失败'
+    if (!silent) error.value = err instanceof Error ? err.message : '仪表盘数据加载失败'
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
+    dashboardRequestInFlight = false
   }
 }
 
@@ -60,7 +67,16 @@ function profitLabel(value?: number) {
   return `${amount >= 0 ? '盈利' : '亏损'} ${yuan(Math.abs(amount))}`
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  dashboardRefreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') void load(true)
+  }, 3000)
+})
+
+onBeforeUnmount(() => {
+  if (dashboardRefreshTimer !== undefined) window.clearInterval(dashboardRefreshTimer)
+})
 </script>
 
 <template>
@@ -77,7 +93,7 @@ onMounted(load)
             用户用量
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
           </RouterLink>
-          <button class="refresh-button" type="button" title="刷新数据" :disabled="loading" @click="load">
+          <button class="refresh-button" type="button" title="刷新数据" :disabled="loading" @click="load()">
             <svg :class="{ 'is-spinning': loading }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2.6L3 10m1-6v4h4m-4 5a8.1 8.1 0 0 0 15.5 2.6L21 14m-1 6v-4h-4" /></svg>
           </button>
         </div>
