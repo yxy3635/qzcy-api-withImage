@@ -139,9 +139,6 @@ public class RechargeCouponServiceImpl implements RechargeCouponService {
         if (coupon == null) {
             throw new BusinessException(404, "优惠码不存在");
         }
-        if (usageMapper.activeUseCountForCoupon(id) > 0) {
-            throw new BusinessException(400, "优惠码已经产生使用记录，请停用而不要删除");
-        }
         couponMapper.deleteById(id);
     }
 
@@ -165,6 +162,14 @@ public class RechargeCouponServiceImpl implements RechargeCouponService {
     public void completeReservation(Long paymentRecordId) {
         if (paymentRecordId != null) {
             usageMapper.completeByPaymentRecordId(paymentRecordId);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void releaseReservation(Long paymentRecordId) {
+        if (paymentRecordId != null) {
+            usageMapper.releaseByPaymentRecordId(paymentRecordId);
         }
     }
 

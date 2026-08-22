@@ -323,7 +323,7 @@ onMounted(load)
                   <td class="px-5 py-4"><p class="font-black text-slate-900">{{ coupon.usedCount }} 次</p><p class="mt-1 text-xs font-semibold text-slate-400">{{ coupon.maxUsesPerUser > 0 ? `每用户最多 ${coupon.maxUsesPerUser} 次` : '每用户不限次数' }}</p></td>
                   <td class="px-5 py-4"><span class="rounded-full px-3 py-1 text-xs font-black" :class="coupon.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-200 text-slate-600'">{{ coupon.enabled ? '已启用' : '已停用' }}</span></td>
                   <td class="px-5 py-4 text-xs font-semibold text-slate-500">{{ formatDate(coupon.createdAt) }}</td>
-                  <td class="px-5 py-4"><div class="flex justify-end gap-3 text-xs font-black"><button class="text-sky-600 transition hover:text-sky-800" type="button" @click="editCoupon(coupon)">编辑</button><button class="text-rose-600 transition hover:text-rose-800 disabled:cursor-not-allowed disabled:text-slate-300" type="button" :disabled="coupon.usedCount > 0" :title="coupon.usedCount > 0 ? '已有使用记录，不能删除' : '删除优惠码'" @click="requestDelete(coupon)">删除</button></div></td>
+                  <td class="px-5 py-4"><div class="flex justify-end gap-3 text-xs font-black"><button class="text-sky-600 transition hover:text-sky-800" type="button" @click="editCoupon(coupon)">编辑</button><button class="text-rose-600 transition hover:text-rose-800" type="button" title="删除优惠码" @click="requestDelete(coupon)">删除</button></div></td>
                 </tr>
               </tbody>
             </table>
@@ -337,7 +337,7 @@ onMounted(load)
     <AppConfirmDialog
       :open="Boolean(deleteTarget)"
       title="删除这个优惠码？"
-      description="只有没有产生使用记录的优惠码可以删除。删除后无法恢复，已使用过的优惠码请先停用。"
+      description="管理员可以删除已使用过的优惠码，删除后无法恢复。"
       confirm-label="确认删除"
       tone="danger"
       :subject="deleteTarget?.code"

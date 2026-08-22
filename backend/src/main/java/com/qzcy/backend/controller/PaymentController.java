@@ -3,6 +3,7 @@ package com.qzcy.backend.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.ApiResponse;
 import com.qzcy.backend.dto.PaymentConfigDto;
+import com.qzcy.backend.dto.RechargeCancelDto;
 import com.qzcy.backend.dto.RechargeDto;
 import com.qzcy.backend.dto.RechargeCouponPreviewDto;
 import com.qzcy.backend.dto.RechargeCouponPreviewRequest;
@@ -34,6 +35,17 @@ public class PaymentController {
     @PostMapping("/recharge")
     public ApiResponse<Map<String, Object>> recharge(@RequestBody RechargeDto dto, HttpServletRequest request) {
         return ApiResponse.success(paymentService.recharge(SecurityUtil.current().userId(), dto, backendBaseUrl(request), frontendBaseUrl(request)));
+    }
+
+    @PostMapping("/cancel")
+    public ApiResponse<Void> cancel(@RequestBody RechargeCancelDto dto) {
+        paymentService.cancelRecharge(SecurityUtil.current().userId(), dto == null ? null : dto.getOrderId());
+        return ApiResponse.success(null);
+    }
+
+    @GetMapping("/pending")
+    public ApiResponse<PaymentRecord> pending() {
+        return ApiResponse.success(paymentService.pendingRecharge(SecurityUtil.current().userId()));
     }
 
     @PostMapping("/coupon-preview")

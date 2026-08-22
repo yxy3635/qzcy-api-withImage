@@ -53,6 +53,27 @@ class RelayDispatchServiceImplTest {
     }
 
     @Test
+    void preservesUpstreamErrorBodyWhileRedactingUrls() {
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        String upstreamError = "{\"type\":\"error\",\"error\":{\"type\":\"provider_error\",\"message\":\"See https://api.example.com/v1/errors?id=42\"},\"request_id\":\"req_123\"}";
+
+        String sanitized = ReflectionTestUtils.invokeMethod(service, "sanitizeUpstreamErrorBody", upstreamError);
+
+        assertEquals("{\"type\":\"error\",\"error\":{\"type\":\"provider_error\",\"message\":\"See <redacted-url>\"},\"request_id\":\"req_123\"}", sanitized);
+        assertFalse(sanitized.contains("https://"));
+    }
+
+    @Test
+    void redactsJsonEscapedUrlsWithoutReformattingErrorBody() {
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        String upstreamError = "{\"message\":\"See https:\\/\\/api.example.com\\/v1\\/errors\"}";
+
+        String sanitized = ReflectionTestUtils.invokeMethod(service, "sanitizeUpstreamErrorBody", upstreamError);
+
+        assertEquals("{\"message\":\"See <redacted-url>\"}", sanitized);
+    }
+
+    @Test
     void extractsThinkingEffortFromCommonRequestFormats() throws Exception {
         RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
 

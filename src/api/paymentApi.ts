@@ -5,6 +5,12 @@ export const paymentApi = {
   recharge(amount: number, type: string, couponCode = '') {
     return http.post<ApiResponse<Record<string, unknown>>>('/payment/recharge', { amount, type, couponCode })
   },
+  cancelRecharge(orderId: number) {
+    return http.post<ApiResponse<void>>('/payment/cancel', { orderId })
+  },
+  pendingRecharge() {
+    return http.get<ApiResponse<PaymentRecord | null>>('/payment/pending')
+  },
   previewCoupon(amount: number, code: string) {
     return http.post<ApiResponse<RechargeCouponPreview>>('/payment/coupon-preview', { amount, code })
   },

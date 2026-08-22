@@ -12,6 +12,8 @@ public interface PaymentService {
     void deductBalanceOnly(Long userId, BigDecimal amount);
     void refundBalance(Long userId, BigDecimal amount);
     Map<String, Object> recharge(Long userId, RechargeDto dto, String backendBaseUrl, String frontendBaseUrl);
+    PaymentRecord pendingRecharge(Long userId);
+    void cancelRecharge(Long userId, Long paymentRecordId);
     String handleNotify(Map<String, String> params);
     Page<PaymentRecord> history(Long userId, long page, long size);
 }

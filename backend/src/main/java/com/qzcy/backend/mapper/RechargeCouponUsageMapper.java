@@ -40,6 +40,14 @@ public interface RechargeCouponUsageMapper extends BaseMapper<RechargeCouponUsag
             """)
     int completeByPaymentRecordId(@Param("paymentRecordId") Long paymentRecordId);
 
+    @Update("""
+            UPDATE recharge_coupon_usage
+            SET status = 'released'
+            WHERE payment_record_id = #{paymentRecordId}
+              AND status = 'reserved'
+            """)
+    int releaseByPaymentRecordId(@Param("paymentRecordId") Long paymentRecordId);
+
     @Delete("""
             DELETE u
             FROM recharge_coupon_usage u

@@ -7,6 +7,7 @@ import RequestLoader from '@/components/RequestLoader.vue'
 import { paymentApi } from '@/api/paymentApi'
 import { useAuthStore } from '@/store/authStore'
 import { useToast } from '@/composables/useToast'
+import { clearPendingRecharge, isBackForwardNavigation, pendingRechargeOrderId, rememberPendingRecharge } from '@/utils/pendingRecharge'
 import type { PaymentRecord, RechargeCouponPreview } from '@/types'
 
 const auth = useAuthStore()
@@ -23,6 +24,11 @@ const successModalOpen = ref(false)
 const successAmount = ref('')
 const successOrderId = ref('')
 const returnedPaymentParams = ref<Record<string, string> | null>(null)
+const showHistoryModal = ref(false)
+const pendingOrderDialogOpen = ref(false)
+const pendingOrder = ref<PaymentRecord | null>(null)
+const pendingOrderChecking = ref(false)
+const pendingOrderActionLoading = ref(false)
 const records = ref<PaymentRecord[]>([])
 const current = ref(1)
 const pages = ref(1)
@@ -40,6 +46,11 @@ const enabledPaymentOptions = () => paymentOptions.value.filter((item) => item.e
 
 let couponPreviewTimer: number | undefined
 let couponPreviewRequestId = 0
+
+type PaymentReturn = {
+  status: 'success' | 'cancelled'
+  orderId: number
+}
 
 function localCouponPreview(): RechargeCouponPreview {
   const originalAmount = Number(amount.value || 0)
@@ -75,6 +86,7 @@ async function recharge() {
     const { data } = await paymentApi.recharge(amount.value, type.value, couponCode.value.trim())
     const paymentUrl = data.data.paymentUrl ? String(data.data.paymentUrl) : ''
     if (paymentUrl) {
+      rememberPendingRecharge(data.data.orderId)
       window.location.href = paymentUrl
       return
     }
@@ -83,10 +95,50 @@ async function recharge() {
     await auth.refreshUser()
     await loadHistory()
   } catch (err) {
+    if (err instanceof Error && err.message.includes('上一个充值订单')) {
+      if (await checkPendingRecharge()) return
+    }
     error.value = err instanceof Error ? err.message : '创建支付订单失败'
     toast.error(error.value)
   } finally {
     rechargeLoading.value = false
+  }
+}
+
+async function checkPendingRecharge() {
+  pendingOrderChecking.value = true
+  try {
+    const { data } = await paymentApi.pendingRecharge()
+    if (data.data) {
+      pendingOrder.value = data.data
+      pendingOrderDialogOpen.value = true
+      return true
+    }
+    return false
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '无法检查未支付订单'
+    toast.error(error.value)
+    return true
+  } finally {
+    pendingOrderChecking.value = false
+  }
+}
+
+async function cancelPendingOrderAndContinue() {
+  const order = pendingOrder.value
+  if (!order) return
+  pendingOrderActionLoading.value = true
+  try {
+    await paymentApi.cancelRecharge(order.id)
+    clearPendingRecharge(order.id)
+    pendingOrderDialogOpen.value = false
+    pendingOrder.value = null
+    await recharge()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '取消上一个订单失败'
+    toast.error(error.value)
+  } finally {
+    pendingOrderActionLoading.value = false
   }
 }
 
@@ -165,6 +217,7 @@ async function openCheckout() {
 }
 
 async function confirmRecharge() {
+  if (await checkPendingRecharge()) return
   await recharge()
 }
 
@@ -207,17 +260,58 @@ function paymentTypeText(value: string) {
   return value || '-'
 }
 
-function handlePaymentReturn() {
+function paymentStatusText(value: string) {
+  if (value === 'completed') return '已完成'
+  if (value === 'pending') return '待支付'
+  if (value === 'cancelled') return '已取消'
+  if (value === 'failed') return '失败'
+  return value || '-'
+}
+
+function parseOrderId(value: string | null) {
+  const normalized = Number(value || 0)
+  return Number.isInteger(normalized) && normalized > 0 ? normalized : null
+}
+
+function handlePaymentReturn(): PaymentReturn | null {
   const params = new URLSearchParams(window.location.search)
-  if (params.get('trade_status') !== 'TRADE_SUCCESS') {
-    return false
-  }
+  const status = params.get('trade_status')?.toUpperCase()
+  const orderId = parseOrderId(params.get('out_trade_no'))
+  if (!status || !orderId) return null
   returnedPaymentParams.value = Object.fromEntries(params.entries())
   successAmount.value = params.get('money') || ''
-  successOrderId.value = params.get('out_trade_no') || ''
-  successModalOpen.value = true
+  successOrderId.value = String(orderId)
   window.history.replaceState({}, document.title, window.location.pathname)
-  return true
+  if (status === 'TRADE_SUCCESS') {
+    clearPendingRecharge(orderId)
+    successModalOpen.value = true
+    return { status: 'success', orderId }
+  }
+  return { status: 'cancelled', orderId }
+}
+
+async function cancelPendingRecharge(orderId: number) {
+  try {
+    await paymentApi.cancelRecharge(orderId)
+    clearPendingRecharge(orderId)
+  } catch (err) {
+    console.warn('pending recharge cancellation failed', err)
+  }
+}
+
+async function releaseStoredPendingRecharge() {
+  const orderId = pendingRechargeOrderId()
+  if (orderId) await cancelPendingRecharge(orderId)
+}
+
+function openHistory() {
+  showHistoryModal.value = true
+  void loadHistory(current.value)
+}
+
+function handlePageShow(event: PageTransitionEvent) {
+  if (!event.persisted) return
+  void releaseStoredPendingRecharge()
 }
 
 function sleep(ms: number) {
@@ -251,11 +345,17 @@ onMounted(async () => {
   try {
     const returnedFromPayment = handlePaymentReturn()
     await Promise.all([loadPaymentConfig(), auth.refreshUser()])
+    if (returnedFromPayment?.status === 'cancelled') {
+      await cancelPendingRecharge(returnedFromPayment.orderId)
+    } else if (!returnedFromPayment && isBackForwardNavigation()) {
+      await releaseStoredPendingRecharge()
+    }
     await loadHistory()
-    if (returnedFromPayment) {
+    if (returnedFromPayment?.status === 'success') {
       await confirmReturnedPayment()
       toast.success('支付成功，余额到账状态请以支付回调和余额刷新结果为准。')
     }
+    window.addEventListener('pageshow', handlePageShow)
   } finally {
     initialLoading.value = false
   }
@@ -267,6 +367,7 @@ onBeforeUnmount(() => {
   if (couponPreviewTimer !== undefined) {
     window.clearTimeout(couponPreviewTimer)
   }
+  window.removeEventListener('pageshow', handlePageShow)
 })
 </script>
 
@@ -277,7 +378,7 @@ onBeforeUnmount(() => {
         <RequestLoader label="正在加载余额与支付信息" :cell-size="16" />
       </div>
     </Transition>
-    <div class="grid gap-6 lg:grid-cols-[380px_1fr]">
+    <div class="mx-auto w-full max-w-2xl">
       <div class="space-y-4">
         <div>
           <p class="text-sm font-bold uppercase tracking-[0.22em] text-sky-600">余额中心</p>
@@ -286,6 +387,16 @@ onBeforeUnmount(() => {
         </div>
         <BalanceCard :balance="auth.userInfo?.balance || 0" />
         <section class="soft-card space-y-4 p-5">
+          <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
+            <div>
+              <h2 class="text-xl font-black text-slate-950">余额充值</h2>
+              <p class="mt-1 text-xs font-semibold text-slate-500">选择金额后确认支付，优惠码会实时计算。</p>
+            </div>
+            <button class="inline-flex h-10 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3.5 text-xs font-black text-sky-700 transition hover:border-sky-300 hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400" type="button" @click="openHistory">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h9" /><path d="m17 16 2 2 4-4" /></svg>
+              查看充值记录
+            </button>
+          </div>
           <div>
             <label class="text-sm font-semibold text-slate-600">充值金额</label>
             <div class="mt-2 grid grid-cols-2 gap-2">
@@ -361,24 +472,6 @@ onBeforeUnmount(() => {
           <p v-if="error" class="rounded-2xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{{ error }}</p>
         </section>
       </div>
-      <section class="soft-card overflow-hidden">
-        <div class="border-b border-slate-100 bg-white/70 p-5">
-          <h2 class="text-2xl font-black">支付记录</h2>
-          <p class="mt-1 text-sm text-slate-500">第三方支付完成后余额会通过支付回调入账。</p>
-        </div>
-        <RequestLoader v-if="historyLoading" class="p-12" label="正在加载支付记录" :cell-size="15" />
-        <div v-else class="divide-y divide-slate-100">
-          <div v-for="record in records" :key="record.id" class="interactive-row grid gap-2 p-4 text-sm md:grid-cols-[120px_150px_1fr_120px_180px] md:p-5">
-            <span class="font-black text-slate-950">￥{{ Number(record.amount).toFixed(6) }}</span>
-            <span class="text-slate-600">{{ paymentTypeText(record.type) }}</span>
-            <span class="min-w-0 truncate text-slate-500" :title="record.remark || ''">{{ record.remark || '-' }}</span>
-            <span class="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{{ record.status }}</span>
-            <span class="text-slate-500">{{ record.createdAt }}</span>
-          </div>
-          <div v-if="records.length === 0" class="p-8 text-sm text-slate-500">暂无支付记录</div>
-        </div>
-        <div v-if="!historyLoading" class="border-t border-slate-100 bg-white/70 p-4"><Pagination :current="current" :pages="pages" @change="loadHistory" /></div>
-      </section>
     </div>
 
     <Teleport to="body">
@@ -403,8 +496,60 @@ onBeforeUnmount(() => {
             </div>
             <footer class="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/80 px-6 py-4 sm:flex-row sm:justify-end">
               <button class="h-11 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50" type="button" :disabled="rechargeLoading" @click="checkoutModalOpen = false">返回修改</button>
-              <button class="h-11 rounded-xl bg-sky-500 px-5 text-sm font-black text-white shadow-[0_12px_28px_rgba(14,165,233,0.22)] transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60" type="button" :disabled="rechargeLoading" @click="confirmRecharge">{{ rechargeLoading ? '正在创建订单…' : '确认支付' }}</button>
+              <button class="h-11 rounded-xl bg-sky-500 px-5 text-sm font-black text-white shadow-[0_12px_28px_rgba(14,165,233,0.22)] transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60" type="button" :disabled="rechargeLoading || pendingOrderChecking" @click="confirmRecharge">{{ pendingOrderChecking ? '检查未支付订单…' : rechargeLoading ? '正在创建订单…' : '确认支付' }}</button>
             </footer>
+          </section>
+        </div>
+      </Transition>
+
+      <Transition name="zoom-fade">
+        <div v-if="pendingOrderDialogOpen" class="fixed inset-0 z-[120] grid place-items-center bg-slate-950/50 px-4 backdrop-blur-sm" @click.self="!pendingOrderActionLoading && (pendingOrderDialogOpen = false)">
+          <section class="w-full max-w-md overflow-hidden rounded-[26px] border border-white/80 bg-white shadow-[0_32px_100px_rgba(15,23,42,0.28)]" role="dialog" aria-modal="true" aria-labelledby="pending-order-title">
+            <header class="border-b border-amber-100 bg-amber-50/80 px-5 py-5 sm:px-6">
+              <p class="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600">已有未支付订单</p>
+              <h2 id="pending-order-title" class="mt-1.5 text-2xl font-black tracking-tight text-slate-950">上一个订单还没支付</h2>
+              <p class="mt-1 text-sm font-semibold leading-6 text-slate-500">继续创建前需要先处理上一个订单，避免优惠码被重复占用。</p>
+            </header>
+            <div class="space-y-3 px-5 py-5 text-sm font-semibold text-slate-600 sm:px-6">
+              <div class="flex justify-between gap-4"><span>上一个订单</span><span class="font-black text-slate-950">#{{ pendingOrder?.id || '-' }}</span></div>
+              <div class="flex justify-between gap-4"><span>待支付金额</span><span class="font-black text-slate-950">￥{{ formatMoney(pendingOrder?.amount) }}</span></div>
+              <div v-if="pendingOrder?.couponCode" class="flex justify-between gap-4"><span>优惠码</span><span class="font-mono font-black text-sky-700">{{ pendingOrder.couponCode }}</span></div>
+            </div>
+            <footer class="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button class="h-11 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50" type="button" :disabled="pendingOrderActionLoading" @click="pendingOrderDialogOpen = false">保留上一个订单</button>
+              <button class="h-11 rounded-xl bg-amber-500 px-5 text-sm font-black text-white shadow-[0_12px_28px_rgba(245,158,11,0.22)] transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60" type="button" :disabled="pendingOrderActionLoading" @click="cancelPendingOrderAndContinue">{{ pendingOrderActionLoading ? '正在取消…' : '取消上一个并继续' }}</button>
+            </footer>
+          </section>
+        </div>
+      </Transition>
+
+      <Transition name="zoom-fade">
+        <div v-if="showHistoryModal" class="fixed inset-0 z-[90] bg-slate-950/50 p-0 backdrop-blur-sm sm:p-4" @click.self="showHistoryModal = false">
+          <section class="flex h-full w-full flex-col overflow-hidden bg-white shadow-[0_32px_100px_rgba(15,23,42,0.28)] sm:max-h-[calc(100dvh-32px)] sm:rounded-[26px]" role="dialog" aria-modal="true" aria-labelledby="payment-history-title">
+            <header class="flex shrink-0 items-center justify-between gap-4 border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur-xl sm:px-7 sm:py-5">
+              <div class="min-w-0">
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-sky-600">账户明细</p>
+                <h2 id="payment-history-title" class="mt-1 text-xl font-black tracking-tight text-slate-950 sm:text-2xl">充值记录</h2>
+                <p class="mt-1 text-xs font-semibold text-slate-500">第三方支付完成后，余额会通过支付回调入账。</p>
+              </div>
+              <button class="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400" type="button" aria-label="关闭充值记录" @click="showHistoryModal = false">
+                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              </button>
+            </header>
+            <div class="min-h-0 flex-1 overflow-y-auto">
+              <RequestLoader v-if="historyLoading" class="p-12" label="正在加载充值记录" :cell-size="15" />
+              <div v-else class="divide-y divide-slate-100">
+                <div v-for="record in records" :key="record.id" class="grid gap-2 px-5 py-4 text-sm sm:px-7 md:grid-cols-[140px_160px_minmax(180px,1fr)_120px_190px] md:items-center">
+                  <span class="font-black text-slate-950">￥{{ Number(record.amount).toFixed(6) }}</span>
+                  <span class="text-slate-600">{{ paymentTypeText(record.type) }}</span>
+                  <span class="min-w-0 truncate text-slate-500" :title="record.remark || ''">{{ record.remark || '-' }}</span>
+                  <span class="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{{ paymentStatusText(record.status) }}</span>
+                  <span class="text-slate-500">{{ record.createdAt }}</span>
+                </div>
+                <div v-if="records.length === 0" class="p-12 text-center text-sm font-semibold text-slate-400">暂无充值记录</div>
+              </div>
+            </div>
+            <footer v-if="!historyLoading" class="shrink-0 border-t border-slate-100 bg-white/95 px-5 py-4 sm:px-7"><Pagination :current="current" :pages="pages" @change="loadHistory" /></footer>
           </section>
         </div>
       </Transition>

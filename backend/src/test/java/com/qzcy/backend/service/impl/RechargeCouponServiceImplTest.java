@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RechargeCouponServiceImplTest {
@@ -62,5 +63,24 @@ class RechargeCouponServiceImplTest {
         assertEquals(new BigDecimal("15.000000"), preview.getDiscountAmount());
         assertEquals(new BigDecimal("85.00"), preview.getPayableAmount());
         assertEquals("优惠码已生效", preview.getMessage());
+    }
+
+    @Test
+    void releasesReservedUsageWhenPaymentIsCancelled() {
+        service.releaseReservation(42L);
+
+        verify(usageMapper).releaseByPaymentRecordId(42L);
+    }
+
+    @Test
+    void deletesCouponEvenWhenItHasUsageRecords() {
+        RechargeCoupon coupon = new RechargeCoupon();
+        coupon.setId(9L);
+        when(couponMapper.selectById(9L)).thenReturn(coupon);
+        when(usageMapper.activeUseCountForCoupon(9L)).thenReturn(1L);
+
+        service.delete(9L);
+
+        verify(couponMapper).deleteById(9L);
     }
 }

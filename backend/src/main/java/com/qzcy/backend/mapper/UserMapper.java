@@ -4,12 +4,16 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.qzcy.backend.entity.User;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.math.BigDecimal;
 
 @Mapper
 public interface UserMapper extends BaseMapper<User> {
+    @Select("SELECT id FROM `user` WHERE id = #{userId} FOR UPDATE")
+    Long lockUserForRecharge(@Param("userId") Long userId);
+
     @Update("UPDATE `user` SET balance = balance - #{amount}, updated_at = NOW(), version = version + 1 WHERE id = #{userId} AND balance >= #{amount}")
     int deductBalance(@Param("userId") Long userId, @Param("amount") BigDecimal amount);
 

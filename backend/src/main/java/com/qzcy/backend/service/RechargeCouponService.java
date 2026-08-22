@@ -25,5 +25,7 @@ public interface RechargeCouponService {
 
     void completeReservation(Long paymentRecordId);
 
+    void releaseReservation(Long paymentRecordId);
+
     int releaseExpiredReservations(LocalDateTime before);
 }

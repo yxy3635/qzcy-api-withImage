@@ -97,6 +97,12 @@ public class PaymentServiceImpl implements PaymentService {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(400, "充值金额必须大于0");
         }
+        if (userMapper.lockUserForRecharge(userId) == null) {
+            throw new BusinessException(404, "用户不存在");
+        }
+        if (paymentRecordMapper.selectPendingThirdPartyByUserId(userId) != null) {
+            throw new BusinessException(409, "上一个充值订单还未支付，请先取消后再提交");
+        }
         PaymentConfig config = paymentConfigService.current();
         if (!Boolean.TRUE.equals(config.getEnabled())) {
             throw new BusinessException(400, "第三方支付暂未启用");
@@ -144,19 +150,38 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
+    public PaymentRecord pendingRecharge(Long userId) {
+        return paymentRecordMapper.selectPendingThirdPartyByUserId(userId);
+    }
+
+    @Override
+    @Transactional
+    public void cancelRecharge(Long userId, Long paymentRecordId) {
+        if (paymentRecordId == null) {
+            throw new BusinessException(400, "支付订单无效");
+        }
+        int cancelled = paymentRecordMapper.markCancelledIfPendingForUser(paymentRecordId, userId);
+        if (cancelled > 0) {
+            rechargeCouponService.releaseReservation(paymentRecordId);
+        }
+    }
+
+    @Override
     @Transactional
     public String handleNotify(Map<String, String> params) {
         PaymentConfig config = paymentConfigService.current();
         if (!verifySign(params, config.getMerchantSecret())) {
             return "fail";
         }
-        if (!"TRADE_SUCCESS".equalsIgnoreCase(params.getOrDefault("trade_status", ""))) {
+        String tradeStatus = params.getOrDefault("trade_status", "");
+        Long recordId = parseRecordId(params.get("out_trade_no"));
+        if (!"TRADE_SUCCESS".equalsIgnoreCase(tradeStatus)) {
+            if (isCancelledTradeStatus(tradeStatus) && recordId != null) {
+                cancelPendingPaymentRecord(recordId);
+            }
             return "success";
         }
-        Long recordId;
-        try {
-            recordId = Long.valueOf(params.getOrDefault("out_trade_no", ""));
-        } catch (NumberFormatException ex) {
+        if (recordId == null) {
             return "fail";
         }
         PaymentRecord record = paymentRecordMapper.selectById(recordId);
@@ -187,6 +212,13 @@ public class PaymentServiceImpl implements PaymentService {
         adminUserRankingCache.evict();
         eventPublisher.publishEvent(new RechargeSucceededEvent(record.getUserId(), record.getId()));
         return "success";
+    }
+
+    private void cancelPendingPaymentRecord(Long paymentRecordId) {
+        int cancelled = paymentRecordMapper.markCancelledIfPending(paymentRecordId);
+        if (cancelled > 0) {
+            rechargeCouponService.releaseReservation(paymentRecordId);
+        }
     }
 
     @Override
@@ -245,6 +277,27 @@ public class PaymentServiceImpl implements PaymentService {
 
     private boolean isThirdPartyRecord(String type) {
         return "third_party".equals(type) || "alipay".equals(type) || "wxpay".equals(type) || "qqpay".equals(type);
+    }
+
+    private boolean isCancelledTradeStatus(String status) {
+        return "TRADE_CLOSED".equalsIgnoreCase(status)
+                || "TRADE_CANCELLED".equalsIgnoreCase(status)
+                || "TRADE_CANCELED".equalsIgnoreCase(status)
+                || "TRADE_FAILED".equalsIgnoreCase(status)
+                || "TRADE_FAIL".equalsIgnoreCase(status)
+                || "CANCELLED".equalsIgnoreCase(status)
+                || "CANCELED".equalsIgnoreCase(status);
+    }
+
+    private Long parseRecordId(String value) {
+        if (isBlank(value)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private String normalizeSubmitUrl(String apiUrl) {

@@ -20,6 +20,47 @@ public interface PaymentRecordMapper extends BaseMapper<PaymentRecord> {
     @Update("UPDATE payment_record SET status = 'completed' WHERE id = #{id} AND status = 'pending'")
     int markCompletedIfPending(@Param("id") Long id);
 
+    @Select("""
+            SELECT id,
+                   user_id AS userId,
+                   amount,
+                   recharge_amount AS rechargeAmount,
+                   discount_amount AS discountAmount,
+                   coupon_id AS couponId,
+                   coupon_code AS couponCode,
+                   coupon_discount_percent AS couponDiscountPercent,
+                   type,
+                   status,
+                   remark,
+                   created_at AS createdAt
+            FROM payment_record
+            WHERE user_id = #{userId}
+              AND status = 'pending'
+              AND type IN ('third_party', 'alipay', 'wxpay', 'qqpay', 'wechat')
+            ORDER BY created_at DESC
+            LIMIT 1
+            """)
+    PaymentRecord selectPendingThirdPartyByUserId(@Param("userId") Long userId);
+
+    @Update("""
+            UPDATE payment_record
+            SET status = 'cancelled'
+            WHERE id = #{id}
+              AND user_id = #{userId}
+              AND status = 'pending'
+              AND type IN ('third_party', 'alipay', 'wxpay', 'qqpay', 'wechat')
+            """)
+    int markCancelledIfPendingForUser(@Param("id") Long id, @Param("userId") Long userId);
+
+    @Update("""
+            UPDATE payment_record
+            SET status = 'cancelled'
+            WHERE id = #{id}
+              AND status = 'pending'
+              AND type IN ('third_party', 'alipay', 'wxpay', 'qqpay', 'wechat')
+            """)
+    int markCancelledIfPending(@Param("id") Long id);
+
     @Delete("""
             DELETE FROM payment_record
             WHERE status = 'pending'

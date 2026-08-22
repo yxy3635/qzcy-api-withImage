@@ -54,6 +54,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -136,6 +137,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             "x-codex-turn-state",
             "x-request-id"
     );
+    private static final Pattern UPSTREAM_URL_PATTERN = Pattern.compile(
+            "(?i)(?<![A-Za-z0-9])(?:https?|wss?|ftp):(?:\\\\/\\\\/|//)[^\\s\"'<>]+"
+    );
 
     private final RelayPolicyService relayPolicyService;
     private final RelayUsageLogMapper usageLogMapper;
@@ -214,18 +218,21 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 }
                 throw ex;
             }
-            JsonNode responseBody = parseResponseBody(response.body());
+            String responseText = response.statusCode() >= 200 && response.statusCode() < 300
+                    ? response.body()
+                    : sanitizeUpstreamErrorBody(response.body());
+            JsonNode responseBody = parseResponseBody(responseText);
             if (response.statusCode() >= 200 && response.statusCode() < 300
                     && !isCountTokensRequest(request.upstreamPath())
                     && !hasBillableUsage(responseBody)) {
-                responseBody = withEstimatedUsage(request.body(), response.body());
+                responseBody = withEstimatedUsage(request.body(), responseText);
             }
             RelayCostBreakdown cost = isCountTokensRequest(request.upstreamPath())
                     ? ZERO_COST
                     : relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), responseBody);
-            boolean retryable = isRetryableUpstreamError(response.statusCode(), responseBody, response.body());
+            boolean retryable = isRetryableUpstreamError(response.statusCode(), responseBody, responseText);
             if (retryable) {
-                recordChannelFailure(context.channel(), "HTTP " + response.statusCode() + ": " + truncateMessage(response.body()));
+                recordChannelFailure(context.channel(), "HTTP " + response.statusCode() + ": " + truncateMessage(responseText));
             } else {
                 recordChannelSuccess(context.channel());
             }
@@ -247,7 +254,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 }
                 saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
                 chargeIfSuccessful(response.statusCode(), context, cost);
-                return new RelayDispatchResult(response.statusCode(), contentType(response), response.body(), forwardedResponseHeaders(response));
+                return new RelayDispatchResult(response.statusCode(), contentType(response), responseText, forwardedResponseHeaders(response));
             }
             saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, response.statusCode(), responseBody, cost, System.currentTimeMillis() - startedAt);
         }
@@ -376,7 +383,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 String errorText;
                 try (InputStream inputStream = response.body()) {
-                    errorText = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+                    errorText = sanitizeUpstreamErrorBody(new String(inputStream.readAllBytes(), StandardCharsets.UTF_8));
                 } finally {
                     releaseStreamGate(streamGate);
                 }
@@ -405,8 +412,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 }
                 return new RelayStreamDispatchResult(
                         response.statusCode(),
-                        MediaType.APPLICATION_JSON_VALUE,
-                        outputStream -> outputStream.write(normalizeErrorBody(errorText, request.upstreamPath(), response.statusCode()).getBytes(StandardCharsets.UTF_8)),
+                        contentType(response),
+                        outputStream -> outputStream.write(errorText.getBytes(StandardCharsets.UTF_8)),
                         forwardedResponseHeaders(response)
                 );
             }
@@ -517,7 +524,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return new RelayStreamDispatchResult(
                 finalLastStatus,
                 MediaType.APPLICATION_JSON_VALUE,
-                outputStream -> outputStream.write(normalizeErrorBody(finalLastErrorText, request.upstreamPath(), finalLastStatus).getBytes(StandardCharsets.UTF_8))
+                outputStream -> outputStream.write(sanitizeUpstreamErrorBody(finalLastErrorText).getBytes(StandardCharsets.UTF_8))
         );
     }
 
@@ -882,14 +889,16 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             return "unknown upstream error";
         }
         String message = error.getMessage();
-        return message == null || message.isBlank() ? error.getClass().getSimpleName() : truncateMessage(message);
+        return message == null || message.isBlank()
+                ? error.getClass().getSimpleName()
+                : sanitizeUpstreamErrorBody(truncateMessage(message));
     }
 
     private JsonNode upstreamFailureBody(String message) {
         ObjectNode body = objectMapper.createObjectNode();
         ObjectNode error = objectMapper.createObjectNode();
         error.put("type", "upstream_error");
-        error.put("message", message);
+        error.put("message", sanitizeUpstreamErrorBody(message));
         body.set("error", error);
         return body;
     }
@@ -909,10 +918,10 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         if (path != null && path.startsWith("/v1/messages")) {
             body.put("type", "error");
             error.put("type", anthropicType);
-            error.put("message", message);
+            error.put("message", sanitizeUpstreamErrorBody(message));
         } else {
             error.put("type", openAiType);
-            error.put("message", message);
+            error.put("message", sanitizeUpstreamErrorBody(message));
             error.put("code", code);
         }
         body.set("error", error);
@@ -1363,48 +1372,11 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return empty;
     }
 
-    private String normalizeErrorBody(String body, String path, int statusCode) {
-        if (path != null && path.startsWith("/v1/messages")) {
-            try {
-                JsonNode root = objectMapper.readTree(body == null || body.isBlank() ? "{}" : body);
-                if ("error".equals(root.path("type").asText()) && root.path("error").isObject()) {
-                    return objectMapper.writeValueAsString(root);
-                }
-                JsonNode upstreamError = root.path("error");
-                String message = upstreamError.path("message").asText(root.path("message").asText(body == null ? "" : body));
-                ObjectNode wrapper = objectMapper.createObjectNode();
-                ObjectNode error = objectMapper.createObjectNode();
-                wrapper.put("type", "error");
-                error.put("type", anthropicErrorType(statusCode));
-                error.put("message", message == null || message.isBlank() ? "Upstream request failed" : message);
-                wrapper.set("error", error);
-                return objectMapper.writeValueAsString(wrapper);
-            } catch (Exception ignored) {
-                ObjectNode wrapper = objectMapper.createObjectNode();
-                ObjectNode error = objectMapper.createObjectNode();
-                wrapper.put("type", "error");
-                error.put("type", anthropicErrorType(statusCode));
-                error.put("message", body == null || body.isBlank() ? "Upstream request failed" : truncateMessage(body));
-                wrapper.set("error", error);
-                try {
-                    return objectMapper.writeValueAsString(wrapper);
-                } catch (Exception ignoredAgain) {
-                    return "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Upstream request failed\"}}";
-                }
-            }
+    private String sanitizeUpstreamErrorBody(String body) {
+        if (body == null || body.isBlank()) {
+            return body == null ? "" : body;
         }
-        return body == null ? "" : body;
-    }
-
-    private String anthropicErrorType(int code) {
-        return switch (code) {
-            case 400 -> "invalid_request_error";
-            case 401 -> "authentication_error";
-            case 403 -> "permission_error";
-            case 404 -> "not_found_error";
-            case 429 -> "rate_limit_error";
-            default -> "api_error";
-        };
+        return UPSTREAM_URL_PATTERN.matcher(body).replaceAll("<redacted-url>");
     }
 
     private String logMessage(int statusCode, JsonNode responseBody) {
