@@ -144,6 +144,30 @@ function cacheHitTitle(log: Pick<AdminRelayUsageLog, 'promptTokens' | 'cachedTok
   return `Cache hit ${cacheHitLabel(log)}, read ${compact(log.cachedTokens || 0)}, write ${compact(log.cacheCreationTokens || 0)}`
 }
 
+function firstTokenLabel(log: Pick<AdminRelayUsageLog, 'firstTokenMs'>) {
+  const ms = Number(log.firstTokenMs || 0)
+  if (!ms) return '-'
+  return `${(ms / 1000).toFixed(2)}s`
+}
+
+function tokensPerSecond(log: Pick<AdminRelayUsageLog, 'completionTokens' | 'durationMs' | 'firstTokenMs'>) {
+  const completion = Number(log.completionTokens || 0)
+  const duration = Number(log.durationMs || 0)
+  if (completion <= 0 || duration <= 0) return 0
+  const first = Number(log.firstTokenMs || 0)
+  // 首字之后才是吐字阶段;非流式或旧记录没有首字时退回按总耗时估算
+  const windowMs = first > 0 && first < duration ? duration - first : duration
+  if (windowMs <= 0) return 0
+  return completion / (windowMs / 1000)
+}
+
+function throughputLabel(log: Pick<AdminRelayUsageLog, 'completionTokens' | 'durationMs' | 'firstTokenMs'>) {
+  const tps = tokensPerSecond(log)
+  if (!tps) return '-'
+  if (tps >= 1000) return `${(tps / 1000).toFixed(1)}k tok/s`
+  return `${tps.toFixed(1)} tok/s`
+}
+
 function isRelayError(log: AdminRelayUsageLog) {
   return log.status === 'failed' || Number(log.statusCode || 0) >= 400
 }
@@ -204,22 +228,23 @@ onMounted(() => loadRelay())
 
       <section class="relative mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_60px_rgba(21,32,51,0.07)]">
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[1480px] table-fixed text-left text-sm">
+          <table class="w-full min-w-[1620px] table-fixed text-left text-sm">
             <colgroup>
-              <col class="w-[110px]" /><col class="w-[190px]" /><col class="w-[160px]" /><col class="w-[240px]" /><col class="w-[130px]" /><col class="w-[180px]" /><col class="w-[70px]" /><col class="w-[150px]" /><col class="w-[250px]" />
+              <col class="w-[110px]" /><col class="w-[190px]" /><col class="w-[160px]" /><col class="w-[240px]" /><col class="w-[130px]" /><col class="w-[180px]" /><col class="w-[120px]" /><col class="w-[80px]" /><col class="w-[150px]" /><col class="w-[250px]" />
             </colgroup>
             <thead class="bg-slate-50 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-              <tr><th class="px-5 py-4">用户</th><th>API 密钥 / 模型</th><th>端点 / 类型</th><th>Token</th><th>费用</th><th>状态</th><th>耗时</th><th>时间</th><th>User-Agent</th></tr>
+              <tr><th class="px-5 py-4">用户</th><th>API 密钥 / 模型</th><th>端点 / 类型</th><th>Token</th><th>费用</th><th>状态</th><th>首字 / 吞吐</th><th>耗时</th><th>时间</th><th>User-Agent</th></tr>
             </thead>
             <tbody class="divide-y divide-slate-100 font-semibold">
-              <tr v-if="!relayLoading && relayRecords.length === 0"><td colspan="9" class="p-8 text-sm text-slate-500">暂无 API 使用记录</td></tr>
+              <tr v-if="!relayLoading && relayRecords.length === 0"><td colspan="10" class="p-8 text-sm text-slate-500">暂无 API 使用记录</td></tr>
               <tr v-for="log in relayRecords" :key="log.id" class="align-top transition duration-200 hover:bg-sky-50/60" :class="relayLoading ? 'opacity-55' : 'opacity-100'">
                 <td class="px-5 py-4"><p class="font-black text-slate-900">{{ log.username || '未知用户' }}</p><p class="mt-1 text-xs text-slate-500">ID: {{ log.userId }}</p></td>
                 <td class="py-4"><p class="max-w-[170px] truncate font-black text-slate-900">{{ log.tokenName || '-' }}</p><p class="mt-1 max-w-[175px] truncate font-mono text-xs text-slate-500">{{ log.model || '-' }}</p><span v-if="log.thinkingEffort" class="mt-1 inline-flex max-w-[175px] items-center rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-black text-violet-700">思考 {{ log.thinkingEffort }}</span><p class="mt-1 max-w-[175px] truncate text-xs text-slate-400">{{ log.channelName || '-' }}</p></td>
                 <td class="py-4"><p class="max-w-[145px] truncate font-mono text-xs text-slate-600">{{ log.endpoint || '-' }}</p><span class="mt-2 inline-flex rounded bg-blue-50 px-2 py-1 text-xs font-black text-blue-600">{{ log.modelType || '-' }}</span></td>
-                <td class="py-4"><div class="w-48" :title="cacheHitTitle(log)"><p><span class="text-emerald-600">↓ {{ compact(log.promptTokens || 0) }}</span> <span class="text-violet-600">↑ {{ compact(log.completionTokens || 0) }}</span></p><div class="mt-2 flex items-center justify-between text-[11px] font-black"><span class="text-cyan-600">缓存命中</span><span class="text-slate-600">{{ cacheHitLabel(log) }}</span></div><div class="mt-1 h-2 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-teal-500 shadow-[0_0_14px_rgba(20,184,166,0.35)] transition-all duration-700 ease-out" :class="(log.cachedTokens || 0) > 0 ? 'animate-pulse' : ''" :style="{ width: `${cacheHitRate(log)}%` }"></div></div><p class="mt-1 text-[11px] font-bold text-slate-400">读 {{ compact(log.cachedTokens || 0) }} · 写 {{ compact(log.cacheCreationTokens || 0) }} · 总 {{ compact(log.totalTokens || 0) }}</p></div></td>
+                <td class="py-4"><div class="w-48" :title="cacheHitTitle(log)"><p><span class="text-emerald-600">↓ {{ compact(log.promptTokens || 0) }}</span> <span class="text-violet-600">↑ {{ compact(log.completionTokens || 0) }}</span></p><div class="mt-2 flex items-center justify-between text-[11px] font-black"><span class="text-cyan-600">缓存命中</span><span class="text-slate-600">{{ cacheHitLabel(log) }}</span></div><div class="mt-1 h-2 overflow-hidden rounded-full bg-slate-100"><div class="cache-flow h-full rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-teal-500 shadow-[0_0_14px_rgba(20,184,166,0.35)] transition-all duration-700 ease-out" :style="{ width: `${cacheHitRate(log)}%` }"></div></div><p class="mt-1 text-[11px] font-bold text-slate-400">读 {{ compact(log.cachedTokens || 0) }} · 写 {{ compact(log.cacheCreationTokens || 0) }} · 总 {{ compact(log.totalTokens || 0) }}</p></div></td>
                 <td class="py-4"><p class="font-black text-emerald-600">{{ money(log.cost) }}</p><p class="mt-1 text-xs text-slate-500">组 {{ Number(log.groupRatio || 1).toFixed(3) }}x / 渠道 {{ Number(log.channelRatio || 1).toFixed(3) }}x</p></td>
                 <td class="py-4"><span class="inline-flex rounded-full border px-3 py-1 text-xs font-black" :class="statusClass(log.status, log.statusCode)">HTTP {{ log.statusCode || 0 }} · {{ log.status || '-' }}</span><p v-if="log.message" class="mt-2 max-w-[160px] whitespace-pre-wrap break-words text-xs leading-5 text-rose-600">{{ log.message }}</p></td>
+                <td class="py-4"><p class="font-black" :class="Number(log.firstTokenMs || 0) > 5000 ? 'text-amber-600' : 'text-slate-800'" :title="log.firstTokenMs ? `首字延迟 ${(Number(log.firstTokenMs) / 1000).toFixed(2)}s` : '非流式请求未记录首字'">{{ firstTokenLabel(log) }}</p><p class="mt-1 text-xs font-bold text-cyan-600" :title="tokensPerSecond(log) ? `输出吞吐量 ${tokensPerSecond(log).toFixed(1)} tok/s` : '暂无吞吐数据'">{{ throughputLabel(log) }}</p></td>
                 <td class="py-4">{{ ((log.durationMs || 0) / 1000).toFixed(2) }}s</td>
                 <td class="py-4 text-slate-500">{{ formatDate(log.createdAt) }}</td>
                 <td class="py-4 pr-5"><p class="line-clamp-2 break-all text-xs leading-5 text-slate-500" :title="userAgentOf(log)">{{ userAgentOf(log) }}</p></td>

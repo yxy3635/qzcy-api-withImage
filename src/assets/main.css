@@ -606,3 +606,66 @@ details.panel .collapsible-body {
     border-radius: 20px;
   }
 }
+
+/* 缓存命中进度条：液态水流 + 高光扫过（用户端使用记录与管理端日志中心共用） */
+.cache-flow {
+  position: relative;
+  overflow: hidden;
+}
+
+/* 水流纹理层：细微斜纹持续向右流动 */
+.cache-flow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    60deg,
+    rgba(255, 255, 255, 0.28) 0,
+    rgba(255, 255, 255, 0.28) 4px,
+    rgba(255, 255, 255, 0) 4px,
+    rgba(255, 255, 255, 0) 11px
+  );
+  animation: cache-flow-stream 1.5s linear infinite;
+}
+
+/* 高光层：柔和光带周期性扫过，模拟液面反光 */
+.cache-flow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 12%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 88%
+  );
+  transform: translateX(-130%);
+  animation: cache-flow-shine 3.4s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+}
+
+@keyframes cache-flow-stream {
+  /* 60° 斜纹的水平重复周期 = 11px / sin(60°)，保证循环无缝 */
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 12.7px 0;
+  }
+}
+
+@keyframes cache-flow-shine {
+  0% {
+    transform: translateX(-130%);
+  }
+  55%,
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cache-flow::before,
+  .cache-flow::after {
+    animation: none;
+  }
+}

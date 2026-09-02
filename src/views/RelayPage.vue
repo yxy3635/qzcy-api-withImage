@@ -1935,7 +1935,7 @@ onMounted(async () => {
               <div v-else-if="filteredLogs.length" class="divide-y divide-slate-100">
                 <article v-for="(log, index) in filteredLogs" :key="log.id" class="relay-list-item group bg-white transition hover:bg-slate-50/80" :style="{ '--i': index }">
                   <button type="button" class="relative grid w-full gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500 sm:grid-cols-2 sm:px-5 xl:grid-cols-[minmax(220px,1.55fr)_92px_minmax(190px,1.15fr)_115px_110px_135px_32px] xl:items-center xl:gap-4" :aria-expanded="expandedLogIds.has(log.id)" @click="toggleLogDetails(log.id)">
-                    <div class="min-w-0 sm:col-span-2 xl:col-span-1">
+                    <div class="min-w-0 pr-9 sm:col-span-2 xl:col-span-1 xl:pr-0">
                       <div class="flex min-w-0 items-center gap-2">
                         <span class="h-2 w-2 shrink-0 rounded-full" :class="logFailed(log) ? 'bg-rose-500 shadow-[0_0_0_4px_rgba(244,63,94,0.10)]' : 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]'"></span>
                         <p class="truncate text-sm font-black text-slate-900" :title="log.model">{{ log.model || '-' }}</p>
@@ -1956,27 +1956,29 @@ onMounted(async () => {
                         <span class="text-slate-500">{{ compact(log.totalTokens || 0) }}</span>
                       </div>
                       <div class="mt-2 flex items-center gap-2">
-                        <div class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-500 transition-[width] duration-500" :style="{ width: `${cacheHitRate(log)}%` }"></div></div>
+                        <div class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100"><div class="cache-flow h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-500 shadow-[0_0_10px_rgba(20,184,166,0.35)] transition-[width] duration-500" :style="{ width: `${cacheHitRate(log)}%` }"></div></div>
                         <span class="w-10 text-right text-[10px] font-black text-cyan-600">{{ cacheHitLabel(log) }}</span>
                       </div>
                     </div>
 
-                    <div>
-                      <p class="text-sm font-black text-emerald-700">{{ money(log.cost) }}</p>
-                      <p class="mt-1 text-[10px] font-bold text-slate-400">用户消费</p>
+                    <div class="col-span-full grid grid-cols-2 gap-3 sm:grid-cols-3 xl:contents">
+                      <div>
+                        <p class="text-sm font-black text-emerald-700">{{ money(log.cost) }}</p>
+                        <p class="mt-1 text-[10px] font-bold text-slate-400">用户消费</p>
+                      </div>
+
+                      <div class="flex items-center justify-between gap-3 xl:block">
+                        <p class="text-sm font-black" :class="Number(log.firstTokenMs || 0) > 5000 ? 'text-amber-600' : 'text-slate-800'" :title="log.firstTokenMs ? `首字延迟 ${(Number(log.firstTokenMs) / 1000).toFixed(2)}s` : '非流式请求未记录首字'"><span class="mr-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:hidden">首字</span>{{ firstTokenLabel(log) }}</p>
+                        <p class="text-[11px] font-bold text-cyan-600 xl:mt-1" :title="tokensPerSecond(log) ? `输出吞吐量 ${tokensPerSecond(log).toFixed(1)} tok/s` : '暂无吞吐数据'">{{ throughputLabel(log) }}</p>
+                      </div>
+
+                      <div class="col-span-2 flex items-center justify-between gap-3 sm:col-span-1 xl:block">
+                        <p class="text-sm font-black" :class="Number(log.durationMs || 0) > 30000 ? 'text-amber-600' : 'text-slate-800'"><span class="mr-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:hidden">耗时</span>{{ ((log.durationMs || 0) / 1000).toFixed(2) }}s</p>
+                        <p class="text-[11px] font-semibold text-slate-400 xl:mt-1">{{ logDate(log.createdAt) }} <span class="text-slate-500">{{ logTime(log.createdAt) }}</span></p>
+                      </div>
                     </div>
 
-                    <div class="flex items-center justify-between gap-3 xl:block">
-                      <p class="text-sm font-black" :class="Number(log.firstTokenMs || 0) > 5000 ? 'text-amber-600' : 'text-slate-800'" :title="log.firstTokenMs ? `首字延迟 ${(Number(log.firstTokenMs) / 1000).toFixed(2)}s` : '非流式请求未记录首字'">{{ firstTokenLabel(log) }}</p>
-                      <p class="text-[11px] font-bold text-cyan-600 xl:mt-1" :title="tokensPerSecond(log) ? `输出吞吐量 ${tokensPerSecond(log).toFixed(1)} tok/s` : '暂无吞吐数据'">{{ throughputLabel(log) }}</p>
-                    </div>
-
-                    <div class="flex items-center justify-between gap-3 xl:block">
-                      <p class="text-sm font-black" :class="Number(log.durationMs || 0) > 30000 ? 'text-amber-600' : 'text-slate-800'">{{ ((log.durationMs || 0) / 1000).toFixed(2) }}s</p>
-                      <p class="text-[11px] font-semibold text-slate-400 xl:mt-1">{{ logDate(log.createdAt) }} <span class="text-slate-500">{{ logTime(log.createdAt) }}</span></p>
-                    </div>
-
-                    <span class="absolute right-4 top-4 grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition group-hover:bg-white group-hover:text-slate-700 sm:static" :class="expandedLogIds.has(log.id) ? 'rotate-180 bg-slate-100 text-slate-700' : ''">
+                    <span class="absolute right-4 top-4 grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition group-hover:bg-white group-hover:text-slate-700 xl:static" :class="expandedLogIds.has(log.id) ? 'rotate-180 bg-slate-100 text-slate-700' : ''">
                       <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
                     </span>
                   </button>
