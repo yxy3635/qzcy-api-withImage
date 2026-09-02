@@ -694,6 +694,30 @@ function logFailed(log: Pick<RelayUsageLog, 'status' | 'statusCode'>) {
   return log.status === 'failed' || Number(log.statusCode || 0) >= 400
 }
 
+function firstTokenLabel(log: Pick<RelayUsageLog, 'firstTokenMs'>) {
+  const ms = Number(log.firstTokenMs || 0)
+  if (!ms) return '-'
+  return `${(ms / 1000).toFixed(2)}s`
+}
+
+function tokensPerSecond(log: Pick<RelayUsageLog, 'completionTokens' | 'durationMs' | 'firstTokenMs'>) {
+  const completion = Number(log.completionTokens || 0)
+  const duration = Number(log.durationMs || 0)
+  if (completion <= 0 || duration <= 0) return 0
+  const first = Number(log.firstTokenMs || 0)
+  // 首字之后才是吐字阶段;非流式或旧记录没有首字时退回按总耗时估算
+  const windowMs = first > 0 && first < duration ? duration - first : duration
+  if (windowMs <= 0) return 0
+  return completion / (windowMs / 1000)
+}
+
+function throughputLabel(log: Pick<RelayUsageLog, 'completionTokens' | 'durationMs' | 'firstTokenMs'>) {
+  const tps = tokensPerSecond(log)
+  if (!tps) return '-'
+  if (tps >= 1000) return `${(tps / 1000).toFixed(1)}k tok/s`
+  return `${tps.toFixed(1)} tok/s`
+}
+
 function logDate(value?: string) {
   if (!value) return '-'
   const normalized = value.replace('T', ' ')
@@ -734,6 +758,8 @@ function exportUsageCsv() {
     '状态码',
     '状态',
     '耗时秒',
+    '首字秒',
+    '输出tok每秒',
     '时间',
     'User-Agent',
     '错误信息'
@@ -754,6 +780,8 @@ function exportUsageCsv() {
     log.statusCode || '',
     log.status || '',
     ((log.durationMs || 0) / 1000).toFixed(2),
+    log.firstTokenMs ? (Number(log.firstTokenMs) / 1000).toFixed(2) : '',
+    tokensPerSecond(log) ? tokensPerSecond(log).toFixed(2) : '',
     formatCsvDate(log.createdAt),
     log.userAgent || '',
     log.message || ''
@@ -1895,8 +1923,8 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="hidden shrink-0 grid-cols-[minmax(220px,1.55fr)_92px_minmax(190px,1.15fr)_115px_135px_32px] items-center gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:grid">
-              <span>请求</span><span>状态</span><span>Token / 缓存</span><span>费用</span><span>耗时 / 时间</span><span></span>
+            <div class="hidden shrink-0 grid-cols-[minmax(220px,1.55fr)_92px_minmax(190px,1.15fr)_115px_110px_135px_32px] items-center gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:grid">
+              <span>请求</span><span>状态</span><span>Token / 缓存</span><span>费用</span><span>首字 / 吞吐</span><span>耗时 / 时间</span><span></span>
             </div>
 
             <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0" @scroll="handlePanelScroll" @wheel="handlePanelWheel" @keydown="handlePanelKeydown" @touchstart="handlePanelTouchStart" @touchmove="handlePanelTouchMove" @touchend="handlePanelTouchEnd">
@@ -1906,7 +1934,7 @@ onMounted(async () => {
               </div>
               <div v-else-if="filteredLogs.length" class="divide-y divide-slate-100">
                 <article v-for="(log, index) in filteredLogs" :key="log.id" class="relay-list-item group bg-white transition hover:bg-slate-50/80" :style="{ '--i': index }">
-                  <button type="button" class="relative grid w-full gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500 sm:grid-cols-2 sm:px-5 xl:grid-cols-[minmax(220px,1.55fr)_92px_minmax(190px,1.15fr)_115px_135px_32px] xl:items-center xl:gap-4" :aria-expanded="expandedLogIds.has(log.id)" @click="toggleLogDetails(log.id)">
+                  <button type="button" class="relative grid w-full gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500 sm:grid-cols-2 sm:px-5 xl:grid-cols-[minmax(220px,1.55fr)_92px_minmax(190px,1.15fr)_115px_110px_135px_32px] xl:items-center xl:gap-4" :aria-expanded="expandedLogIds.has(log.id)" @click="toggleLogDetails(log.id)">
                     <div class="min-w-0 sm:col-span-2 xl:col-span-1">
                       <div class="flex min-w-0 items-center gap-2">
                         <span class="h-2 w-2 shrink-0 rounded-full" :class="logFailed(log) ? 'bg-rose-500 shadow-[0_0_0_4px_rgba(244,63,94,0.10)]' : 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]'"></span>
@@ -1939,6 +1967,11 @@ onMounted(async () => {
                     </div>
 
                     <div class="flex items-center justify-between gap-3 xl:block">
+                      <p class="text-sm font-black" :class="Number(log.firstTokenMs || 0) > 5000 ? 'text-amber-600' : 'text-slate-800'" :title="log.firstTokenMs ? `首字延迟 ${(Number(log.firstTokenMs) / 1000).toFixed(2)}s` : '非流式请求未记录首字'">{{ firstTokenLabel(log) }}</p>
+                      <p class="text-[11px] font-bold text-cyan-600 xl:mt-1" :title="tokensPerSecond(log) ? `输出吞吐量 ${tokensPerSecond(log).toFixed(1)} tok/s` : '暂无吞吐数据'">{{ throughputLabel(log) }}</p>
+                    </div>
+
+                    <div class="flex items-center justify-between gap-3 xl:block">
                       <p class="text-sm font-black" :class="Number(log.durationMs || 0) > 30000 ? 'text-amber-600' : 'text-slate-800'">{{ ((log.durationMs || 0) / 1000).toFixed(2) }}s</p>
                       <p class="text-[11px] font-semibold text-slate-400 xl:mt-1">{{ logDate(log.createdAt) }} <span class="text-slate-500">{{ logTime(log.createdAt) }}</span></p>
                     </div>
@@ -1954,6 +1987,8 @@ onMounted(async () => {
                       <div><p class="font-black text-slate-400">渠道 / 分组</p><p class="mt-1.5 break-all text-slate-700">{{ log.channelName || '-' }} · {{ log.groupNames || '-' }}</p></div>
                       <div><p class="font-black text-slate-400">请求端点</p><p class="mt-1.5 break-all font-mono text-slate-700">{{ log.endpoint || '-' }}</p></div>
                       <div><p class="font-black text-slate-400">缓存明细</p><p class="mt-1.5 text-slate-700">读取 {{ compact(log.cachedTokens || 0) }} · 写入 {{ compact(log.cacheCreationTokens || 0) }}</p></div>
+                      <div><p class="font-black text-slate-400">首字延迟</p><p class="mt-1.5 text-slate-700">{{ firstTokenLabel(log) }}<span v-if="!Number(log.firstTokenMs || 0)" class="text-slate-400">（非流式未记录）</span></p></div>
+                      <div><p class="font-black text-slate-400">输出吞吐量</p><p class="mt-1.5 text-slate-700">{{ throughputLabel(log) }}<span v-if="!tokensPerSecond(log)" class="text-slate-400">（暂无数据）</span></p></div>
                       <div><p class="font-black text-slate-400">完整时间</p><p class="mt-1.5 text-slate-700">{{ log.createdAt?.replace('T', ' ').slice(0, 19) || '-' }}</p></div>
                     </div>
                     <div class="mt-4">

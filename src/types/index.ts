@@ -500,6 +500,7 @@ export interface RelayUsageLog {
   cost: number
   statusCode: number
   durationMs: number
+  firstTokenMs?: number | null
   userAgent: string
   status: string
   message?: string

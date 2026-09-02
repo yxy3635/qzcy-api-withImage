@@ -979,7 +979,7 @@ public class RelayServiceImpl implements RelayService {
         return new RelayUsageLogDto(item.getId(), item.getTokenName(), item.getChannelName(), item.getGroupNames(),
                 item.getEndpoint(), publicModel, item.getModelType(), item.getThinkingEffort(), item.getPromptTokens(),
                 item.getCompletionTokens(), item.getCachedTokens(), item.getCacheCreationTokens(), item.getTotalTokens(),
-                item.getCost(), item.getStatusCode(), item.getDurationMs(), item.getUserAgent(), item.getStatus(),
+                item.getCost(), item.getStatusCode(), item.getDurationMs(), item.getFirstTokenMs(), item.getUserAgent(), item.getStatus(),
                 publicUsageMessage(item.getStatusCode()), item.getCreatedAt());
     }
 

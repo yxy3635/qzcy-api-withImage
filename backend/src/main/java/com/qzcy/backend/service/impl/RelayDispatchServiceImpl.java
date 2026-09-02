@@ -427,6 +427,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 // 不用 InputStream.available() 轮询判断首字节——对分块/SSE 响应体它不可靠，
                 // 会因上游整体缓冲返回而误判“无数据”，向客户端投放假错误并触发重试。
                 StreamUsageAccumulator acc = new StreamUsageAccumulator();
+                // 首字（TTFT）：从本次派发开始计时，到收到上游响应体第一段数据为止；0 表示未收到数据。
+                long firstTokenMs = 0L;
                 long totalBytes = 0;
                 byte[] buffer = new byte[8192];
                 InputStream inputStream = finalResponse.body();
@@ -445,6 +447,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     while ((read = inputStream.read(buffer)) != -1) {
                         if (read <= 0) {
                             continue;
+                        }
+                        if (firstTokenMs == 0L) {
+                            firstTokenMs = Math.max(1, System.currentTimeMillis() - finalStartedAt);
                         }
                         lastActivityNanos.set(System.nanoTime());
                         acc.onBytes(buffer, 0, read);
@@ -496,12 +501,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         enforceQuotaIfSuccessful(completionStatus, finalContext, cost);
                     } catch (BusinessException ex) {
                         saveUsage(finalContext, request.upstreamPath(), request.userAgent(), thinkingEffort, completionStatus,
-                                responseBody, cost, System.currentTimeMillis() - finalStartedAt);
+                                responseBody, cost, System.currentTimeMillis() - finalStartedAt, firstTokenMs);
                         disableTokenAfterBillingFailure(finalContext.token(), ex);
                         throw ex;
                     }
                     saveUsage(finalContext, request.upstreamPath(), request.userAgent(), thinkingEffort, completionStatus,
-                            responseBody, cost, System.currentTimeMillis() - finalStartedAt);
+                            responseBody, cost, System.currentTimeMillis() - finalStartedAt, firstTokenMs);
                     chargeIfSuccessful(completionStatus, finalContext, cost);
                     log.debug("Relay upstream stream response path={} channelId={} status={} billable={} durationMs={} usage={}",
                             request.upstreamPath(),
@@ -1086,6 +1091,11 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
 
     private void saveUsage(RelayContext context, String endpoint, String userAgent, String thinkingEffort,
                            int statusCode, JsonNode responseBody, RelayCostBreakdown cost, long durationMs) {
+        saveUsage(context, endpoint, userAgent, thinkingEffort, statusCode, responseBody, cost, durationMs, null);
+    }
+
+    private void saveUsage(RelayContext context, String endpoint, String userAgent, String thinkingEffort,
+                           int statusCode, JsonNode responseBody, RelayCostBreakdown cost, long durationMs, Long firstTokenMs) {
         RelayToken access = context.token();
         RelayChannel channel = context.channel();
         RelayGroup group = context.group();
@@ -1121,6 +1131,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         log.setCost(cost.total());
         log.setStatusCode(statusCode);
         log.setDurationMs(durationMs);
+        log.setFirstTokenMs(firstTokenMs == null || firstTokenMs <= 0 ? null : firstTokenMs);
         log.setUserAgent(limitForColumn(userAgent, 500));
         log.setStatus(statusCode >= 200 && statusCode < 300 ? "success" : "failed");
         log.setMessage(limitForColumn(logMessage(statusCode, responseBody), 1000));

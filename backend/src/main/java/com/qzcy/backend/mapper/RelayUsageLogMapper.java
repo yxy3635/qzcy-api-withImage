@@ -323,6 +323,7 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
                    r.cost,
                    r.status_code AS statusCode,
                    r.duration_ms AS durationMs,
+                   r.first_token_ms AS firstTokenMs,
                    r.user_agent AS userAgent,
                    r.status,
                    r.message,

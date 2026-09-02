@@ -36,6 +36,8 @@ public class RelayUsageLog {
     private BigDecimal cost;
     private Integer statusCode;
     private Long durationMs;
+    /** 流式请求收到上游首字节的耗时（毫秒）；非流式或未记录时为 null */
+    private Long firstTokenMs;
     private String userAgent;
     private String status;
     private String message;

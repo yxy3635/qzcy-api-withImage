@@ -32,6 +32,7 @@ public class AdminRelayUsageLogDto {
     private BigDecimal cost;
     private Integer statusCode;
     private Long durationMs;
+    private Long firstTokenMs;
     private String userAgent;
     private String status;
     private String message;
