@@ -1,5 +1,7 @@
 package com.qzcy.backend.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.exception.BusinessException;
@@ -115,5 +117,41 @@ class RelayPolicyRestrictionsTest {
         );
 
         assertEquals(402, error.getCode());
+    }
+
+    @Test
+    void longContextPricingUsesConfiguredTierAndFallsBackPerComponent() throws Exception {
+        RelayModel model = new RelayModel();
+        model.setInputPrice(new BigDecimal("1.000000"));
+        model.setOutputPrice(new BigDecimal("10.000000"));
+        model.setLongContextThreshold(200_000L);
+        model.setLongContextInputPrice(new BigDecimal("2.000000"));
+        model.setLongContextOutputPrice(new BigDecimal("20.000000"));
+
+        var usage = new ObjectMapper().readTree("{\"usage\":{\"prompt_tokens\":300000,\"completion_tokens\":100000}}");
+        var cost = service.estimateCost(model, null, null, usage);
+
+        assertEquals(0, cost.input().compareTo(new BigDecimal("0.6")));
+        assertEquals(0, cost.output().compareTo(new BigDecimal("2.0")));
+        assertEquals(0, cost.total().compareTo(new BigDecimal("2.6")));
+    }
+
+    @Test
+    void longContextPricingCanUseAnOrdinaryPriceMultiplier() throws Exception {
+        RelayModel model = new RelayModel();
+        model.setInputPrice(new BigDecimal("1.000000"));
+        model.setOutputPrice(new BigDecimal("10.000000"));
+        model.setCachedInputPrice(new BigDecimal("0.500000"));
+        model.setCacheCreationPrice(new BigDecimal("2.000000"));
+        model.setLongContextThreshold(200_000L);
+        model.setLongContextBillingMode("multiplier");
+        model.setLongContextMultiplier(new BigDecimal("2.000000"));
+
+        var usage = new ObjectMapper().readTree("{\"usage\":{\"prompt_tokens\":300000,\"completion_tokens\":100000,\"prompt_tokens_details\":{\"cached_tokens\":10000}}}");
+        var cost = service.estimateCost(model, null, null, usage);
+
+        assertEquals(0, cost.input().compareTo(new BigDecimal("0.58")));
+        assertEquals(0, cost.output().compareTo(new BigDecimal("2.0")));
+        assertEquals(0, cost.total().compareTo(new BigDecimal("2.59")));
     }
 }

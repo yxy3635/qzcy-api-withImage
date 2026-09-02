@@ -99,6 +99,15 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
     @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= #{since}")
     BigDecimal userCostSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
+    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE user_id = #{userId}")
+    Long userTotalRequests(@Param("userId") Long userId);
+
+    @Select("SELECT COALESCE(SUM(total_tokens), 0) FROM relay_usage_log WHERE user_id = #{userId}")
+    Long userTotalTokens(@Param("userId") Long userId);
+
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE user_id = #{userId}")
+    BigDecimal userTotalCost(@Param("userId") Long userId);
+
     @Select("SELECT COALESCE(SUM(cost), 0) FROM relay_usage_log WHERE user_id = #{userId} AND created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)")
     BigDecimal userTodayCost(@Param("userId") Long userId);
 
@@ -146,8 +155,8 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
                    COALESCE(usageSummary.yesterdayRequests, 0) AS yesterdayRequests,
                    COALESCE(usageSummary.todayCost, 0) AS todayCost,
                    COALESCE(usageSummary.yesterdayCost, 0) AS yesterdayCost,
-                   COALESCE(usageSummary.totalTokens, 0) AS totalTokens,
-                   COALESCE(usageSummary.totalCost, 0) AS totalCost,
+                   GREATEST(COALESCE(usageSummary.totalTokens, 0), COALESCE(tokenUsage.totalTokens, 0)) AS totalTokens,
+                   GREATEST(COALESCE(usageSummary.totalCost, 0), COALESCE(tokenUsage.totalCost, 0)) AS totalCost,
                    COALESCE(recharge.totalRecharge, 0) AS totalRecharge
             FROM (
                 SELECT r.user_id AS user_id,
@@ -168,6 +177,13 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
                 GROUP BY r.user_id
             ) usageSummary
             INNER JOIN `user` u ON u.id = usageSummary.user_id
+            LEFT JOIN (
+                SELECT user_id,
+                       SUM(COALESCE(used_quota, 0)) AS totalCost,
+                       SUM(COALESCE(token_count, 0)) AS totalTokens
+                FROM relay_token
+                GROUP BY user_id
+            ) tokenUsage ON tokenUsage.user_id = u.id
             LEFT JOIN (
                 SELECT p.user_id AS user_id,
                        SUM(amount) AS totalRecharge

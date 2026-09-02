@@ -21,6 +21,13 @@ public class RelayModel {
     private BigDecimal cacheCreationPrice;
     private BigDecimal requestPrice;
     private Boolean fixedRequestBilling;
+    private Long longContextThreshold;
+    private String longContextBillingMode;
+    private BigDecimal longContextMultiplier;
+    private BigDecimal longContextInputPrice;
+    private BigDecimal longContextOutputPrice;
+    private BigDecimal longContextCachedInputPrice;
+    private BigDecimal longContextCacheCreationPrice;
     private String status;
     private Boolean enabled;
     private Integer sortOrder;

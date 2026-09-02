@@ -144,6 +144,14 @@ public class RelaySchemaInitializer implements CommandLineRunner {
     private void ensureRelayPrecision() {
         if (tableExists("relay_model")) {
             addColumnIfMissing("relay_model", "fixed_request_billing", "TINYINT(1) NOT NULL DEFAULT 0");
+            addColumnIfMissing("relay_model", "long_context_threshold", "BIGINT NOT NULL DEFAULT 0");
+            addColumnIfMissing("relay_model", "long_context_billing_mode", "VARCHAR(20) NOT NULL DEFAULT 'price'");
+            addColumnIfMissing("relay_model", "long_context_multiplier", "DECIMAL(12, 6) NULL");
+            addColumnIfMissing("relay_model", "long_context_input_price", "DECIMAL(12, 6) NULL");
+            addColumnIfMissing("relay_model", "long_context_output_price", "DECIMAL(12, 6) NULL");
+            addColumnIfMissing("relay_model", "long_context_cached_input_price", "DECIMAL(12, 6) NULL");
+            addColumnIfMissing("relay_model", "long_context_cache_creation_price", "DECIMAL(12, 6) NULL");
+            jdbcTemplate.update("UPDATE relay_model SET long_context_billing_mode = 'price' WHERE long_context_billing_mode IS NULL OR long_context_billing_mode = ''");
         }
         if (tableExists("relay_usage_log")) {
             addColumnIfMissing("relay_usage_log", "thinking_effort", "VARCHAR(40) NOT NULL DEFAULT ''");

@@ -570,8 +570,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         if (token == null || token.getId() == null) {
             return;
         }
-        token.setEnabled(false);
-        tokenMapper.updateById(token);
+        // Update only the flag. The token may be an old request snapshot and must
+        // not overwrite usage counters accumulated by other requests.
+        RelayToken update = new RelayToken();
+        update.setId(token.getId());
+        update.setEnabled(false);
+        tokenMapper.updateById(update);
         log.warn("Relay API key disabled after billing failure tokenId={} userId={} code={} message={}",
                 token.getId(),
                 token.getUserId(),
@@ -1122,11 +1126,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         log.setMessage(limitForColumn(logMessage(statusCode, responseBody), 1000));
         log.setCreatedAt(LocalDateTime.now());
         insertUsageLog(log);
-        access.setRequestCount((access.getRequestCount() == null ? 0L : access.getRequestCount()) + 1);
-        access.setTokenCount((access.getTokenCount() == null ? 0L : access.getTokenCount()) + totalTokens);
-        access.setUsedQuota((access.getUsedQuota() == null ? BigDecimal.ZERO : access.getUsedQuota()).add(cost.total()));
-        access.setLastUsedAt(LocalDateTime.now());
-        tokenMapper.updateById(access);
+        LocalDateTime now = LocalDateTime.now();
+        tokenMapper.incrementUsage(access.getId(), 1L, totalTokens, cost.total(), now, now);
     }
 
     private void insertUsageLog(RelayUsageLog usageLog) {
@@ -1152,26 +1153,40 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             fallback.setEndpoint(limitForColumn(usageLog.getEndpoint(), 80));
             fallback.setModel(limitForColumn(usageLog.getModel(), 120));
             fallback.setModelType(limitForColumn(usageLog.getModelType(), 40));
-            fallback.setPromptTokens(0);
-            fallback.setCompletionTokens(0);
-            fallback.setCachedTokens(0);
-            fallback.setCacheCreationTokens(0);
-            fallback.setTotalTokens(0);
-            fallback.setInputCost(BigDecimal.ZERO);
-            fallback.setOutputCost(BigDecimal.ZERO);
-            fallback.setCacheReadCost(BigDecimal.ZERO);
-            fallback.setCacheCreationCost(BigDecimal.ZERO);
-            fallback.setRequestCost(BigDecimal.ZERO);
-            fallback.setGroupRatio(BigDecimal.ONE);
-            fallback.setChannelRatio(BigDecimal.ONE);
-            fallback.setCost(BigDecimal.ZERO);
+            // Keep the original usage and billing values.  The API key usage
+            // counter is incremented independently, so replacing these values
+            // with zero would make log-based totals (especially admin usage)
+            // permanently lower whenever the first insert fails.
+            fallback.setThinkingEffort(limitForColumn(usageLog.getThinkingEffort(), 40));
+            fallback.setPromptTokens(usageLog.getPromptTokens() == null ? 0 : usageLog.getPromptTokens());
+            fallback.setCompletionTokens(usageLog.getCompletionTokens() == null ? 0 : usageLog.getCompletionTokens());
+            fallback.setCachedTokens(usageLog.getCachedTokens() == null ? 0 : usageLog.getCachedTokens());
+            fallback.setCacheCreationTokens(usageLog.getCacheCreationTokens() == null ? 0 : usageLog.getCacheCreationTokens());
+            fallback.setTotalTokens(usageLog.getTotalTokens() == null ? 0 : usageLog.getTotalTokens());
+            fallback.setInputCost(usageLog.getInputCost() == null ? BigDecimal.ZERO : usageLog.getInputCost());
+            fallback.setOutputCost(usageLog.getOutputCost() == null ? BigDecimal.ZERO : usageLog.getOutputCost());
+            fallback.setCacheReadCost(usageLog.getCacheReadCost() == null ? BigDecimal.ZERO : usageLog.getCacheReadCost());
+            fallback.setCacheCreationCost(usageLog.getCacheCreationCost() == null ? BigDecimal.ZERO : usageLog.getCacheCreationCost());
+            fallback.setRequestCost(usageLog.getRequestCost() == null ? BigDecimal.ZERO : usageLog.getRequestCost());
+            fallback.setGroupRatio(usageLog.getGroupRatio() == null ? BigDecimal.ONE : usageLog.getGroupRatio());
+            fallback.setChannelRatio(usageLog.getChannelRatio() == null ? BigDecimal.ONE : usageLog.getChannelRatio());
+            fallback.setCost(usageLog.getCost() == null ? BigDecimal.ZERO : usageLog.getCost());
             fallback.setStatusCode(usageLog.getStatusCode() == null ? 0 : usageLog.getStatusCode());
             fallback.setDurationMs(usageLog.getDurationMs() == null ? 0L : usageLog.getDurationMs());
-            fallback.setUserAgent("");
-            fallback.setStatus("failed");
+            fallback.setUserAgent(limitForColumn(usageLog.getUserAgent(), 500));
+            fallback.setStatus(usageLog.getStatus() == null ? "failed" : usageLog.getStatus());
             fallback.setMessage(limitForColumn("usage log insert failed: " + ex.getMessage(), 1000));
-            fallback.setCreatedAt(LocalDateTime.now());
-            usageLogMapper.insert(fallback);
+            // Keep the request timestamp so a delayed fallback cannot move a
+            // previous day's charge into today's totals.
+            fallback.setCreatedAt(usageLog.getCreatedAt() == null ? LocalDateTime.now() : usageLog.getCreatedAt());
+            try {
+                usageLogMapper.insert(fallback);
+            } catch (Exception fallbackEx) {
+                // Usage telemetry must not prevent the independent API-key
+                // accounting update below from being applied.
+                log.error("Relay usage fallback log insert failed userId={} tokenId={} cost={} message={}",
+                        usageLog.getUserId(), usageLog.getTokenId(), usageLog.getCost(), fallbackEx.getMessage(), fallbackEx);
+            }
         }
     }
 

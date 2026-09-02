@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS relay_model (
     cache_creation_price DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     request_price DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     fixed_request_billing TINYINT(1) NOT NULL DEFAULT 0,
+    long_context_threshold BIGINT NOT NULL DEFAULT 0,
+    long_context_billing_mode VARCHAR(20) NOT NULL DEFAULT 'price',
+    long_context_multiplier DECIMAL(12, 6) NULL,
+    long_context_input_price DECIMAL(12, 6) NULL,
+    long_context_output_price DECIMAL(12, 6) NULL,
+    long_context_cached_input_price DECIMAL(12, 6) NULL,
+    long_context_cache_creation_price DECIMAL(12, 6) NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'available',
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     sort_order INT NOT NULL DEFAULT 10,
@@ -128,6 +135,27 @@ SET @add_model_status := IF(
 PREPARE stmt FROM @add_model_status; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'fixed_request_billing') = 0, 'ALTER TABLE relay_model ADD COLUMN fixed_request_billing TINYINT(1) NOT NULL DEFAULT 0 AFTER request_price', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'long_context_threshold') = 0, 'ALTER TABLE relay_model ADD COLUMN long_context_threshold BIGINT NOT NULL DEFAULT 0 AFTER fixed_request_billing', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'long_context_billing_mode') = 0, 'ALTER TABLE relay_model ADD COLUMN long_context_billing_mode VARCHAR(20) NOT NULL DEFAULT ''price'' AFTER long_context_threshold', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'long_context_multiplier') = 0, 'ALTER TABLE relay_model ADD COLUMN long_context_multiplier DECIMAL(12, 6) NULL AFTER long_context_billing_mode', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'long_context_input_price') = 0, 'ALTER TABLE relay_model ADD COLUMN long_context_input_price DECIMAL(12, 6) NULL AFTER long_context_threshold', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'long_context_output_price') = 0, 'ALTER TABLE relay_model ADD COLUMN long_context_output_price DECIMAL(12, 6) NULL AFTER long_context_input_price', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'long_context_cached_input_price') = 0, 'ALTER TABLE relay_model ADD COLUMN long_context_cached_input_price DECIMAL(12, 6) NULL AFTER long_context_output_price', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'long_context_cache_creation_price') = 0, 'ALTER TABLE relay_model ADD COLUMN long_context_cache_creation_price DECIMAL(12, 6) NULL AFTER long_context_cached_input_price', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 INSERT INTO relay_model

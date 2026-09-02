@@ -4,11 +4,24 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qzcy.backend.dto.relay.RelayContext;
+import com.qzcy.backend.entity.RelayUsageLog;
+import com.qzcy.backend.mapper.RelayTokenMapper;
+import com.qzcy.backend.mapper.RelayUsageLogMapper;
+import com.qzcy.backend.mapper.UserMapper;
+import com.qzcy.backend.service.PaymentService;
+import com.qzcy.backend.service.RelayPolicyService;
 import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayChannelModel;
 import com.qzcy.backend.entity.RelayModel;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import java.math.BigDecimal;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -162,5 +175,40 @@ class RelayDispatchServiceImplTest {
             assertEquals("public-alias", outbound.path("model").asText(), path);
             assertEquals("public-alias", inbound.path("model").asText(), path);
         }
+    }
+
+    @Test
+    void fallbackUsageLogKeepsOriginalBillingValues() {
+        RelayUsageLogMapper usageLogMapper = mock(RelayUsageLogMapper.class);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(
+                mock(RelayPolicyService.class), usageLogMapper, mock(RelayTokenMapper.class),
+                mock(UserMapper.class), mock(PaymentService.class), OBJECT_MAPPER);
+        when(usageLogMapper.insert(any(RelayUsageLog.class)))
+                .thenThrow(new RuntimeException("temporary insert failure"))
+                .thenReturn(1);
+
+        RelayUsageLog original = new RelayUsageLog();
+        original.setUserId(3L);
+        original.setTokenId(7L);
+        original.setPromptTokens(120);
+        original.setCompletionTokens(45);
+        original.setCachedTokens(20);
+        original.setTotalTokens(165);
+        original.setInputCost(new BigDecimal("0.120000"));
+        original.setOutputCost(new BigDecimal("0.045000"));
+        original.setCost(new BigDecimal("0.165000"));
+        original.setStatus("success");
+        original.setStatusCode(200);
+
+        ReflectionTestUtils.invokeMethod(service, "insertUsageLog", original);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(RelayUsageLog.class);
+        verify(usageLogMapper, org.mockito.Mockito.times(2)).insert(captor.capture());
+        RelayUsageLog fallback = captor.getAllValues().get(1);
+        assertEquals(120, fallback.getPromptTokens());
+        assertEquals(45, fallback.getCompletionTokens());
+        assertEquals(165, fallback.getTotalTokens());
+        assertEquals(new BigDecimal("0.165000"), fallback.getCost());
+        assertEquals("success", fallback.getStatus());
     }
 }

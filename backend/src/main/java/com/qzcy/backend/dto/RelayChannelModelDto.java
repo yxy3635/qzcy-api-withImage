@@ -22,6 +22,13 @@ public class RelayChannelModelDto {
     private BigDecimal cacheCreationPrice;
     private BigDecimal requestPrice;
     private Boolean fixedRequestBilling;
+    private Long longContextThreshold;
+    private String longContextBillingMode;
+    private BigDecimal longContextMultiplier;
+    private BigDecimal longContextInputPrice;
+    private BigDecimal longContextOutputPrice;
+    private BigDecimal longContextCachedInputPrice;
+    private BigDecimal longContextCacheCreationPrice;
     private String upstreamModel;
     private Boolean enabled;
 }

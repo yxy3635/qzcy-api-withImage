@@ -316,6 +316,13 @@ export interface RelayChannelModel {
   cacheCreationPrice?: number
   requestPrice?: number
   fixedRequestBilling?: boolean
+  longContextThreshold?: number
+  longContextBillingMode?: 'price' | 'multiplier' | string
+  longContextMultiplier?: number | null
+  longContextInputPrice?: number | null
+  longContextOutputPrice?: number | null
+  longContextCachedInputPrice?: number | null
+  longContextCacheCreationPrice?: number | null
   upstreamModel: string
   enabled: boolean
 }
@@ -344,6 +351,13 @@ export interface RelayPublicChannelModel {
   cacheCreationPrice?: number
   requestPrice?: number
   fixedRequestBilling?: boolean
+  longContextThreshold?: number
+  longContextBillingMode?: 'price' | 'multiplier' | string
+  longContextMultiplier?: number | null
+  longContextInputPrice?: number | null
+  longContextOutputPrice?: number | null
+  longContextCachedInputPrice?: number | null
+  longContextCacheCreationPrice?: number | null
   enabled: boolean
 }
 
@@ -451,6 +465,13 @@ export interface RelayModel {
   cacheCreationPrice: number
   requestPrice: number
   fixedRequestBilling: boolean
+  longContextThreshold: number
+  longContextBillingMode?: 'price' | 'multiplier' | string
+  longContextMultiplier?: number | null
+  longContextInputPrice?: number | null
+  longContextOutputPrice?: number | null
+  longContextCachedInputPrice?: number | null
+  longContextCacheCreationPrice?: number | null
   status: string
   enabled: boolean
   sortOrder: number

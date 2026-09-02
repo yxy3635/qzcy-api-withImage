@@ -291,10 +291,17 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         BigDecimal billableInputTokens = claudeSeparateCacheUsage(usage)
                 ? promptTokens
                 : promptTokens.subtract(cachedTokens).subtract(cacheCreationTokens).max(BigDecimal.ZERO);
-        BigDecimal input = perMillion(billableInputTokens).multiply(zeroIfNull(model.getInputPrice()));
-        BigDecimal output = perMillion(completionTokens).multiply(zeroIfNull(model.getOutputPrice()));
-        BigDecimal cacheRead = perMillion(cachedTokens).multiply(zeroIfNull(model.getCachedInputPrice()));
-        BigDecimal cacheCreation = perMillion(cacheCreationTokens).multiply(zeroIfNull(model.getCacheCreationPrice()));
+        boolean longContext = model.getLongContextThreshold() != null
+                && model.getLongContextThreshold() > 0
+                && promptTokens.longValue() >= model.getLongContextThreshold();
+        BigDecimal inputPrice = longContextPrice(model, model.getInputPrice(), model.getLongContextInputPrice());
+        BigDecimal outputPrice = longContextPrice(model, model.getOutputPrice(), model.getLongContextOutputPrice());
+        BigDecimal cacheReadPrice = longContextPrice(model, model.getCachedInputPrice(), model.getLongContextCachedInputPrice());
+        BigDecimal cacheCreationPrice = longContextPrice(model, model.getCacheCreationPrice(), model.getLongContextCacheCreationPrice());
+        BigDecimal input = perMillion(billableInputTokens).multiply(longContext ? inputPrice : zeroIfNull(model.getInputPrice()));
+        BigDecimal output = perMillion(completionTokens).multiply(longContext ? outputPrice : zeroIfNull(model.getOutputPrice()));
+        BigDecimal cacheRead = perMillion(cachedTokens).multiply(longContext ? cacheReadPrice : zeroIfNull(model.getCachedInputPrice()));
+        BigDecimal cacheCreation = perMillion(cacheCreationTokens).multiply(longContext ? cacheCreationPrice : zeroIfNull(model.getCacheCreationPrice()));
         BigDecimal request = zeroIfNull(model.getRequestPrice());
         if (Boolean.TRUE.equals(model.getFixedRequestBilling())) {
             return new RelayCostBreakdown(input, output, cacheRead, cacheCreation, request, request);
@@ -312,6 +319,14 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
 
     private BigDecimal zeroIfNull(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private BigDecimal longContextPrice(RelayModel model, BigDecimal ordinaryPrice, BigDecimal configuredPrice) {
+        if ("multiplier".equalsIgnoreCase(model.getLongContextBillingMode())) {
+            BigDecimal multiplier = model.getLongContextMultiplier();
+            return zeroIfNull(ordinaryPrice).multiply(multiplier == null ? BigDecimal.ONE : multiplier);
+        }
+        return configuredPrice == null ? zeroIfNull(ordinaryPrice) : configuredPrice;
     }
 
     private BigDecimal groupRatio(RelayGroup group) {

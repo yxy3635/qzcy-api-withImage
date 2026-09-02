@@ -223,7 +223,10 @@ const failedChannels = computed(() => channels.value.filter((item) => item.statu
 const channelModelCount = computed(() => new Set(channels.value.flatMap((item) => (item.models || []).filter((model) => model.enabled).map((model) => publicModelName(model)))).size)
 const activeTokens = computed(() => tokens.value.filter((item) => item.enabled))
 const keyTodayCost = computed(() => tokens.value.reduce((sum, item) => sum + Number(item.todayCost || 0), 0))
-const keyUsedQuota = computed(() => tokens.value.reduce((sum, item) => sum + Number(item.usedQuota || 0), 0))
+const keyUsedQuota = computed(() => Math.max(
+  tokens.value.reduce((sum, item) => sum + Number(item.usedQuota || 0), 0),
+  Number(overview.value?.totalCost || 0)
+))
 const enabledPaymentOptions = computed(() => paymentOptions.value.filter((item) => item.enabled))
 const filteredTokens = computed(() => tokens.value.filter((item) => {
   const keyword = keySearch.value.trim().toLowerCase()
@@ -588,19 +591,32 @@ function channelModelDetail(binding: RelayPublicChannelModel): RelayModel {
     cacheCreationPrice: Number(binding.cacheCreationPrice ?? exact?.cacheCreationPrice ?? 0),
     requestPrice: Number(binding.requestPrice ?? exact?.requestPrice ?? 0),
     fixedRequestBilling: Boolean(binding.fixedRequestBilling ?? exact?.fixedRequestBilling),
+    longContextThreshold: Number(binding.longContextThreshold ?? exact?.longContextThreshold ?? 0),
+    longContextBillingMode: binding.longContextBillingMode ?? exact?.longContextBillingMode ?? 'price',
+    longContextMultiplier: binding.longContextMultiplier ?? exact?.longContextMultiplier,
+    longContextInputPrice: binding.longContextInputPrice ?? exact?.longContextInputPrice,
+    longContextOutputPrice: binding.longContextOutputPrice ?? exact?.longContextOutputPrice,
+    longContextCachedInputPrice: binding.longContextCachedInputPrice ?? exact?.longContextCachedInputPrice,
+    longContextCacheCreationPrice: binding.longContextCacheCreationPrice ?? exact?.longContextCacheCreationPrice,
     status: exact?.status || '',
     enabled: binding.enabled,
     sortOrder: exact?.sortOrder || 0
   }
 }
 
-function modelHasConfiguredPricing(model?: Pick<RelayModel, 'inputPrice' | 'outputPrice' | 'cachedInputPrice' | 'cacheCreationPrice' | 'requestPrice'>) {
+function modelHasConfiguredPricing(model?: Pick<RelayModel, 'inputPrice' | 'outputPrice' | 'cachedInputPrice' | 'cacheCreationPrice' | 'requestPrice' | 'longContextThreshold' | 'longContextInputPrice' | 'longContextOutputPrice' | 'longContextCachedInputPrice' | 'longContextCacheCreationPrice' | 'longContextMultiplier'>) {
   if (!model) return false
   return Number(model.inputPrice || 0) > 0
     || Number(model.outputPrice || 0) > 0
     || Number(model.cachedInputPrice || 0) > 0
     || Number(model.cacheCreationPrice || 0) > 0
     || Number(model.requestPrice || 0) > 0
+    || Number(model.longContextThreshold || 0) > 0
+    || Number(model.longContextInputPrice || 0) > 0
+    || Number(model.longContextOutputPrice || 0) > 0
+    || Number(model.longContextCachedInputPrice || 0) > 0
+    || Number(model.longContextCacheCreationPrice || 0) > 0
+    || Number(model.longContextMultiplier || 0) > 0
 }
 
 function priceValue(value?: number) {
@@ -609,6 +625,21 @@ function priceValue(value?: number) {
 
 function fixedBilling(model: RelayModel) {
   return Boolean(model.fixedRequestBilling)
+}
+
+function longContextEnabled(model: Pick<RelayModel, 'longContextThreshold'>) {
+  return Number(model.longContextThreshold || 0) > 0
+}
+
+function longContextUsesMultiplier(model: Pick<RelayModel, 'longContextBillingMode'>) {
+  return model.longContextBillingMode === 'multiplier'
+}
+
+function longContextPrice(model: RelayModel, ordinaryPrice?: number, configuredPrice?: number | null) {
+  if (longContextUsesMultiplier(model)) {
+    return Number(ordinaryPrice || 0) * Number(model.longContextMultiplier || 1)
+  }
+  return configuredPrice == null ? Number(ordinaryPrice || 0) : Number(configuredPrice)
 }
 
 function groupDetail(code: string) {
@@ -623,7 +654,7 @@ function groupRatioLabel(code: string) {
 function showPricingTooltip(event: MouseEvent | FocusEvent, model: RelayPublicChannelModel, rule: string) {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   const width = 288
-  const estimatedHeight = 270
+  const estimatedHeight = 430
   const margin = 16
   let x = rect.left
   let y = rect.bottom + 10
@@ -2079,7 +2110,6 @@ onMounted(async () => {
                 <div class="flex items-start justify-between gap-3">
                   <div>
                     <p class="font-black">{{ model.displayName || model.model }}</p>
-                    <p class="mt-1 font-mono text-xs font-bold text-slate-500">{{ model.model }}</p>
                   </div>
                   <span class="rounded-full px-3 py-1 text-xs font-black" :class="modelStateBadgeClass(model)">{{ statusText(model.lastStatus) }}</span>
                 </div>
@@ -2581,6 +2611,21 @@ onMounted(async () => {
               <p class="flex justify-between gap-3"><span>缓存读 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.cachedInputPrice) }}</span></p>
               <p class="flex justify-between gap-3"><span>缓存写 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.cacheCreationPrice) }}</span></p>
             </template>
+            <div v-if="longContextEnabled(activePricingTooltip.detail)" class="mt-3 border-t border-slate-100 pt-3">
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-[10px] font-black uppercase tracking-[0.12em] text-sky-600">长上下文计费</span>
+                <span class="rounded-md bg-sky-50 px-2 py-1 text-[10px] font-black text-sky-700">{{ Number(activePricingTooltip.detail.longContextThreshold).toLocaleString() }}+ tokens</span>
+              </div>
+              <p class="mt-1 text-[11px] font-semibold text-slate-500">
+                达到该输入 Token 数后生效 · {{ longContextUsesMultiplier(activePricingTooltip.detail) ? `普通价格 × ${Number(activePricingTooltip.detail.longContextMultiplier || 1).toFixed(2)}` : '单独设置价格' }}
+              </p>
+              <div class="mt-2 grid gap-1.5">
+                <p class="flex justify-between gap-3"><span>输入 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(longContextPrice(activePricingTooltip.detail, activePricingTooltip.detail.inputPrice, activePricingTooltip.detail.longContextInputPrice)) }}</span></p>
+                <p class="flex justify-between gap-3"><span>输出 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(longContextPrice(activePricingTooltip.detail, activePricingTooltip.detail.outputPrice, activePricingTooltip.detail.longContextOutputPrice)) }}</span></p>
+                <p class="flex justify-between gap-3"><span>缓存读 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(longContextPrice(activePricingTooltip.detail, activePricingTooltip.detail.cachedInputPrice, activePricingTooltip.detail.longContextCachedInputPrice)) }}</span></p>
+                <p class="flex justify-between gap-3"><span>缓存写 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(longContextPrice(activePricingTooltip.detail, activePricingTooltip.detail.cacheCreationPrice, activePricingTooltip.detail.longContextCacheCreationPrice)) }}</span></p>
+              </div>
+            </div>
           </div>
           <div v-else class="rounded-xl border border-amber-100 bg-amber-50/70 p-3 text-amber-800">
             <div class="flex items-center gap-2 font-black"><svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3zm0 6v5m0 3h.01" /></svg>价格尚未配置</div>

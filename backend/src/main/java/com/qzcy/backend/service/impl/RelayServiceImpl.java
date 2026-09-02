@@ -53,7 +53,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.SecureRandom;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -208,6 +207,9 @@ public class RelayServiceImpl implements RelayService {
         if (model.getCacheCreationPrice() == null) model.setCacheCreationPrice(BigDecimal.ZERO);
         if (model.getRequestPrice() == null) model.setRequestPrice(BigDecimal.ZERO);
         if (model.getFixedRequestBilling() == null) model.setFixedRequestBilling(false);
+        if (model.getLongContextThreshold() == null) model.setLongContextThreshold(0L);
+        if (isBlank(model.getLongContextBillingMode())) model.setLongContextBillingMode("price");
+        validateLongContextBilling(model);
         if (isBlank(model.getStatus())) model.setStatus("available");
         if (model.getEnabled() == null) model.setEnabled(true);
         if (model.getSortOrder() == null) model.setSortOrder(10);
@@ -226,6 +228,9 @@ public class RelayServiceImpl implements RelayService {
         if (model.getCachedInputPrice() == null) model.setCachedInputPrice(BigDecimal.ZERO);
         if (model.getCacheCreationPrice() == null) model.setCacheCreationPrice(BigDecimal.ZERO);
         if (model.getFixedRequestBilling() == null) model.setFixedRequestBilling(false);
+        if (model.getLongContextThreshold() == null) model.setLongContextThreshold(0L);
+        if (isBlank(model.getLongContextBillingMode())) model.setLongContextBillingMode("price");
+        validateLongContextBilling(model);
         if (isBlank(model.getStatus())) model.setStatus("available");
         modelMapper.updateById(model);
         return toModelDto(modelMapper.selectById(id));
@@ -317,16 +322,20 @@ public class RelayServiceImpl implements RelayService {
         if (item == null || !userId.equals(item.getUserId())) {
             throw new BusinessException(404, "API key not found");
         }
-        if (dto.getName() != null) item.setName(dto.getName().trim());
-        if (dto.getGroups() != null) item.setGroupNames(dto.getGroups().trim());
-        if (dto.getAllowedModels() != null) item.setAllowedModels(dto.getAllowedModels().trim());
-        if (dto.getQuota() != null) item.setQuota(nonNegative(dto.getQuota()));
-        if (dto.getRpmLimit() != null) item.setRpmLimit(Math.max(0, dto.getRpmLimit()));
-        if (dto.getTpmLimit() != null) item.setTpmLimit(Math.max(0, dto.getTpmLimit()));
-        if (dto.getIpWhitelist() != null) item.setIpWhitelist(normalizeIpWhitelist(dto.getIpWhitelist()));
-        if (dto.getExpiresAt() != null) item.setExpiresAt(validateExpiresAt(dto.getExpiresAt()));
-        if (dto.getEnabled() != null) item.setEnabled(dto.getEnabled());
-        tokenMapper.updateById(item);
+        // Build a partial update entity so a stale snapshot cannot overwrite
+        // usage counters accumulated by concurrent relay requests.
+        RelayToken update = new RelayToken();
+        update.setId(tokenId);
+        if (dto.getName() != null) update.setName(dto.getName().trim());
+        if (dto.getGroups() != null) update.setGroupNames(dto.getGroups().trim());
+        if (dto.getAllowedModels() != null) update.setAllowedModels(dto.getAllowedModels().trim());
+        if (dto.getQuota() != null) update.setQuota(nonNegative(dto.getQuota()));
+        if (dto.getRpmLimit() != null) update.setRpmLimit(Math.max(0, dto.getRpmLimit()));
+        if (dto.getTpmLimit() != null) update.setTpmLimit(Math.max(0, dto.getTpmLimit()));
+        if (dto.getIpWhitelist() != null) update.setIpWhitelist(normalizeIpWhitelist(dto.getIpWhitelist()));
+        if (dto.getExpiresAt() != null) update.setExpiresAt(validateExpiresAt(dto.getExpiresAt()));
+        if (dto.getEnabled() != null) update.setEnabled(dto.getEnabled());
+        tokenMapper.updateById(update);
         return toTokenDto(tokenMapper.selectById(tokenId));
     }
 
@@ -409,12 +418,14 @@ public class RelayServiceImpl implements RelayService {
                         .orderByAsc("id"))
                 .stream().map(this::toGroupDto).toList();
 
-        long totalRequests = tokens.stream().mapToLong(item -> item.getRequestCount() == null ? 0L : item.getRequestCount()).sum();
-        long totalTokens = tokens.stream().mapToLong(item -> item.getTokenCount() == null ? 0L : item.getTokenCount()).sum();
-        BigDecimal totalCost = tokens.stream()
+        long tokenRequests = tokens.stream().mapToLong(item -> item.getRequestCount() == null ? 0L : item.getRequestCount()).sum();
+        long tokenCount = tokens.stream().mapToLong(item -> item.getTokenCount() == null ? 0L : item.getTokenCount()).sum();
+        BigDecimal tokenCost = tokens.stream()
                 .map(item -> item.getUsedQuota() == null ? BigDecimal.ZERO : item.getUsedQuota())
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        long totalRequests = Math.max(tokenRequests, nullToZero(usageLogMapper.userTotalRequests(userId)));
+        long totalTokens = Math.max(tokenCount, nullToZero(usageLogMapper.userTotalTokens(userId)));
+        BigDecimal totalCost = max(tokenCost, usageLogMapper.userTotalCost(userId));
         LocalDateTime minuteStart = LocalDateTime.now().minusMinutes(1);
 
         return new RelayUserOverviewDto(
@@ -473,8 +484,10 @@ public class RelayServiceImpl implements RelayService {
     }
 
     private void fillKeysSection(RelayUserOverviewDto result, Long userId) {
-        result.setTokens(loadUserTokens(userId));
+        List<RelayTokenDto> tokens = loadUserTokens(userId);
+        result.setTokens(tokens);
         result.setGroups(loadGroups());
+        fillUsageStats(result, userId, tokens);
     }
 
     private void fillLogsSection(RelayUserOverviewDto result, Long userId, long page, long size,
@@ -561,11 +574,14 @@ public class RelayServiceImpl implements RelayService {
     }
 
     private void fillUsageStats(RelayUserOverviewDto result, Long userId, List<RelayTokenDto> tokens) {
-        long totalRequests = tokens.stream().mapToLong(item -> item.getRequestCount() == null ? 0L : item.getRequestCount()).sum();
-        long totalTokens = tokens.stream().mapToLong(item -> item.getTokenCount() == null ? 0L : item.getTokenCount()).sum();
-        BigDecimal totalCost = tokens.stream()
+        long tokenRequests = tokens.stream().mapToLong(item -> item.getRequestCount() == null ? 0L : item.getRequestCount()).sum();
+        long tokenCount = tokens.stream().mapToLong(item -> item.getTokenCount() == null ? 0L : item.getTokenCount()).sum();
+        BigDecimal tokenCost = tokens.stream()
                 .map(item -> item.getUsedQuota() == null ? BigDecimal.ZERO : item.getUsedQuota())
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long totalRequests = Math.max(tokenRequests, nullToZero(usageLogMapper.userTotalRequests(userId)));
+        long totalTokens = Math.max(tokenCount, nullToZero(usageLogMapper.userTotalTokens(userId)));
+        BigDecimal totalCost = max(tokenCost, usageLogMapper.userTotalCost(userId));
         LocalDateTime minuteStart = LocalDateTime.now().minusMinutes(1);
         result.setTotalRequests(totalRequests);
         result.setTotalTokens(totalTokens);
@@ -582,6 +598,20 @@ public class RelayServiceImpl implements RelayService {
         result.setTodayCost(usageLogMapper.userTodayCost(userId));
         result.setCurrentRpm(usageLogMapper.userRequestsSince(userId, minuteStart));
         result.setCurrentTpm(usageLogMapper.userTokensSince(userId, minuteStart));
+    }
+
+    private long nullToZero(Long value) {
+        return value == null ? 0L : value;
+    }
+
+    private BigDecimal zero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private BigDecimal max(BigDecimal first, BigDecimal second) {
+        BigDecimal left = zero(first);
+        BigDecimal right = zero(second);
+        return left.compareTo(right) >= 0 ? left : right;
     }
 
     private void setUsageLogs(RelayUserOverviewDto result, Page<RelayUsageLog> page,
@@ -697,9 +727,41 @@ public class RelayServiceImpl implements RelayService {
         if (dto.getCacheCreationPrice() != null) model.setCacheCreationPrice(nonNegative(dto.getCacheCreationPrice()));
         if (dto.getRequestPrice() != null) model.setRequestPrice(nonNegative(dto.getRequestPrice()));
         if (dto.getFixedRequestBilling() != null) model.setFixedRequestBilling(dto.getFixedRequestBilling());
+        if (dto.getLongContextThreshold() != null) {
+            if (dto.getLongContextThreshold() < 0) throw new BusinessException(400, "Long context threshold cannot be negative");
+            model.setLongContextThreshold(dto.getLongContextThreshold());
+        }
+        if (dto.getLongContextBillingMode() != null) {
+            String mode = dto.getLongContextBillingMode().trim().toLowerCase();
+            if (!"price".equals(mode) && !"multiplier".equals(mode)) {
+                throw new BusinessException(400, "Long context billing mode must be price or multiplier");
+            }
+            model.setLongContextBillingMode(mode);
+        }
+        if (dto.getLongContextMultiplier() != null) {
+            model.setLongContextMultiplier(nonNegative(dto.getLongContextMultiplier()));
+        }
+        if (dto.getLongContextInputPrice() != null) model.setLongContextInputPrice(nonNegative(dto.getLongContextInputPrice()));
+        if (dto.getLongContextOutputPrice() != null) model.setLongContextOutputPrice(nonNegative(dto.getLongContextOutputPrice()));
+        if (dto.getLongContextCachedInputPrice() != null) model.setLongContextCachedInputPrice(nonNegative(dto.getLongContextCachedInputPrice()));
+        if (dto.getLongContextCacheCreationPrice() != null) model.setLongContextCacheCreationPrice(nonNegative(dto.getLongContextCacheCreationPrice()));
         if (dto.getStatus() != null) model.setStatus(dto.getStatus().trim());
         if (dto.getEnabled() != null) model.setEnabled(dto.getEnabled());
         if (dto.getSortOrder() != null) model.setSortOrder(dto.getSortOrder());
+    }
+
+    private void validateLongContextBilling(RelayModel model) {
+        String mode = isBlank(model.getLongContextBillingMode()) ? "price" : model.getLongContextBillingMode().trim().toLowerCase();
+        if (!"price".equals(mode) && !"multiplier".equals(mode)) {
+            throw new BusinessException(400, "Long context billing mode must be price or multiplier");
+        }
+        model.setLongContextBillingMode(mode);
+        if ("multiplier".equals(mode)
+                && model.getLongContextThreshold() != null
+                && model.getLongContextThreshold() > 0
+                && (model.getLongContextMultiplier() == null || model.getLongContextMultiplier().compareTo(BigDecimal.ZERO) <= 0)) {
+            throw new BusinessException(400, "Long context multiplier must be greater than 0");
+        }
     }
 
     private void apply(RelayGroup group, RelayGroupUpdateDto dto) {
@@ -850,6 +912,13 @@ public class RelayServiceImpl implements RelayService {
                             model.getCacheCreationPrice(),
                             model.getRequestPrice(),
                             model.getFixedRequestBilling(),
+                            model.getLongContextThreshold(),
+                            model.getLongContextBillingMode(),
+                            model.getLongContextMultiplier(),
+                            model.getLongContextInputPrice(),
+                            model.getLongContextOutputPrice(),
+                            model.getLongContextCachedInputPrice(),
+                            model.getLongContextCacheCreationPrice(),
                             model.getEnabled()
                     );
                 })
@@ -872,14 +941,20 @@ public class RelayServiceImpl implements RelayService {
     private RelayModelDto toModelDto(RelayModel model) {
         return new RelayModelDto(model.getId(), model.getModel(), model.getDisplayName(), model.getModelType(),
                 model.getInputPrice(), model.getOutputPrice(), model.getCachedInputPrice(), model.getCacheCreationPrice(),
-                model.getRequestPrice(), model.getFixedRequestBilling(), model.getStatus(), model.getEnabled(), model.getSortOrder());
+                model.getRequestPrice(), model.getFixedRequestBilling(), model.getLongContextThreshold(),
+                model.getLongContextBillingMode(), model.getLongContextMultiplier(),
+                model.getLongContextInputPrice(), model.getLongContextOutputPrice(), model.getLongContextCachedInputPrice(),
+                model.getLongContextCacheCreationPrice(), model.getStatus(), model.getEnabled(), model.getSortOrder());
     }
 
     private RelayModelDto toPublicModelDto(RelayModel model) {
         String publicName = publicModelName(model);
         return new RelayModelDto(model.getId(), publicName, publicName, model.getModelType(),
                 model.getInputPrice(), model.getOutputPrice(), model.getCachedInputPrice(), model.getCacheCreationPrice(),
-                model.getRequestPrice(), model.getFixedRequestBilling(), model.getStatus(), model.getEnabled(), model.getSortOrder());
+                model.getRequestPrice(), model.getFixedRequestBilling(), model.getLongContextThreshold(),
+                model.getLongContextBillingMode(), model.getLongContextMultiplier(),
+                model.getLongContextInputPrice(), model.getLongContextOutputPrice(), model.getLongContextCachedInputPrice(),
+                model.getLongContextCacheCreationPrice(), model.getStatus(), model.getEnabled(), model.getSortOrder());
     }
 
     private RelayGroupDto toGroupDto(RelayGroup group) {

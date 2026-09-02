@@ -47,6 +47,13 @@ interface ModelDraft {
   cacheCreationPrice: number
   requestPrice: number
   fixedRequestBilling: boolean
+  longContextThreshold: number
+  longContextBillingMode: 'price' | 'multiplier'
+  longContextMultiplier: number | null
+  longContextInputPrice: number | null
+  longContextOutputPrice: number | null
+  longContextCachedInputPrice: number | null
+  longContextCacheCreationPrice: number | null
   status: string
   enabled: boolean
   sortOrder: number
@@ -116,6 +123,13 @@ const newModel = reactive<ModelDraft>({
   cacheCreationPrice: 0,
   requestPrice: 0,
   fixedRequestBilling: false,
+  longContextThreshold: 0,
+  longContextBillingMode: 'price',
+  longContextMultiplier: 2,
+  longContextInputPrice: null,
+  longContextOutputPrice: null,
+  longContextCachedInputPrice: null,
+  longContextCacheCreationPrice: null,
   status: 'available',
   enabled: true,
   sortOrder: 10
@@ -234,6 +248,13 @@ function setModelDraft(model: RelayModel) {
     cacheCreationPrice: Number(model.cacheCreationPrice || 0),
     requestPrice: Number(model.requestPrice || 0),
     fixedRequestBilling: Boolean(model.fixedRequestBilling),
+    longContextThreshold: Number(model.longContextThreshold || 0),
+    longContextBillingMode: model.longContextBillingMode === 'multiplier' ? 'multiplier' : 'price',
+    longContextMultiplier: model.longContextMultiplier == null ? null : Number(model.longContextMultiplier),
+    longContextInputPrice: model.longContextInputPrice == null ? null : Number(model.longContextInputPrice),
+    longContextOutputPrice: model.longContextOutputPrice == null ? null : Number(model.longContextOutputPrice),
+    longContextCachedInputPrice: model.longContextCachedInputPrice == null ? null : Number(model.longContextCachedInputPrice),
+    longContextCacheCreationPrice: model.longContextCacheCreationPrice == null ? null : Number(model.longContextCacheCreationPrice),
     status: model.status || 'available',
     enabled: model.enabled,
     sortOrder: Number(model.sortOrder || 0)
@@ -1193,6 +1214,7 @@ onMounted(load)
                     <td class="px-4 py-3">
                       <p class="font-black text-slate-800">￥{{ modelTotalPrice(modelDraftOf(model)).toFixed(4) }}</p>
                       <p class="mt-1 text-xs font-semibold text-slate-500">in {{ modelDraftOf(model).inputPrice }} / out {{ modelDraftOf(model).outputPrice }}</p>
+                      <p v-if="modelDraftOf(model).longContextThreshold > 0" class="mt-1 text-[10px] font-black text-sky-600">长上下文 {{ modelDraftOf(model).longContextThreshold.toLocaleString() }}+</p>
                     </td>
                     <td class="px-4 py-3 font-black text-slate-700">{{ modelDraftOf(model).sortOrder }}</td>
                     <td class="px-4 py-3">
@@ -1280,6 +1302,39 @@ onMounted(load)
                     </span>
                   </label>
                   <label class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文起算 Token</span>
+                    <input v-model.number="newModel.longContextThreshold" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="1" placeholder="例如 272000；0 表示关闭" />
+                  </label>
+                  <label class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文计费方式</span>
+                    <select v-model="newModel.longContextBillingMode" class="input mt-2 h-10 rounded-lg">
+                      <option value="price">单独设置价格</option>
+                      <option value="multiplier">按普通价格倍数</option>
+                    </select>
+                  </label>
+                  <p class="text-[11px] font-semibold text-slate-400 sm:col-span-2">输入 Token 达到此值后切换长上下文计费；价格均按每 1M Token 填写。</p>
+                  <label v-if="newModel.longContextBillingMode === 'multiplier'" class="block sm:col-span-2">
+                    <span class="text-xs font-black text-slate-700">长上下文价格倍数</span>
+                    <input v-model.number="newModel.longContextMultiplier" class="input mt-2 h-10 rounded-lg" type="number" min="0.000001" step="0.1" placeholder="例如 2，表示普通价格 × 2" />
+                    <span class="mt-1 block text-[11px] font-semibold text-slate-400">长上下文输入、输出、缓存读写均按普通价格乘以此倍数。</span>
+                  </label>
+                  <label v-if="newModel.longContextBillingMode !== 'multiplier'" class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文输入 / 1M</span>
+                    <input v-model.number="newModel.longContextInputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通输入价" />
+                  </label>
+                  <label v-if="newModel.longContextBillingMode !== 'multiplier'" class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文输出 / 1M</span>
+                    <input v-model.number="newModel.longContextOutputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通输出价" />
+                  </label>
+                  <label v-if="newModel.longContextBillingMode !== 'multiplier'" class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文缓存读 / 1M</span>
+                    <input v-model.number="newModel.longContextCachedInputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存读价" />
+                  </label>
+                  <label v-if="newModel.longContextBillingMode !== 'multiplier'" class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文缓存写 / 1M</span>
+                    <input v-model.number="newModel.longContextCacheCreationPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存写价" />
+                  </label>
+                  <label class="block">
                     <span class="text-xs font-black text-slate-700">排序</span>
                     <input v-model.number="newModel.sortOrder" class="input mt-2 h-10 rounded-lg" type="number" />
                   </label>
@@ -1346,6 +1401,39 @@ onMounted(load)
                       <span class="block">一次性扣费</span>
                       <span class="mt-1 block font-semibold text-slate-500">开启后每请求价格为最终扣费</span>
                     </span>
+                  </label>
+                  <label class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文起算 Token</span>
+                    <input v-model.number="modelDraftOf(editingModel).longContextThreshold" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="1" placeholder="例如 272000；0 表示关闭" />
+                  </label>
+                  <label class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文计费方式</span>
+                    <select v-model="modelDraftOf(editingModel).longContextBillingMode" class="input mt-2 h-10 rounded-lg">
+                      <option value="price">单独设置价格</option>
+                      <option value="multiplier">按普通价格倍数</option>
+                    </select>
+                  </label>
+                  <p class="text-[11px] font-semibold text-slate-400 sm:col-span-2">输入 Token 达到此值后切换长上下文计费；价格均按每 1M Token 填写。</p>
+                  <label v-if="modelDraftOf(editingModel).longContextBillingMode === 'multiplier'" class="block sm:col-span-2">
+                    <span class="text-xs font-black text-slate-700">长上下文价格倍数</span>
+                    <input v-model.number="modelDraftOf(editingModel).longContextMultiplier" class="input mt-2 h-10 rounded-lg" type="number" min="0.000001" step="0.1" placeholder="例如 2，表示普通价格 × 2" />
+                    <span class="mt-1 block text-[11px] font-semibold text-slate-400">长上下文输入、输出、缓存读写均按普通价格乘以此倍数。</span>
+                  </label>
+                  <label v-if="modelDraftOf(editingModel).longContextBillingMode !== 'multiplier'" class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文输入 / 1M</span>
+                    <input v-model.number="modelDraftOf(editingModel).longContextInputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通输入价" />
+                  </label>
+                  <label v-if="modelDraftOf(editingModel).longContextBillingMode !== 'multiplier'" class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文输出 / 1M</span>
+                    <input v-model.number="modelDraftOf(editingModel).longContextOutputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通输出价" />
+                  </label>
+                  <label v-if="modelDraftOf(editingModel).longContextBillingMode !== 'multiplier'" class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文缓存读 / 1M</span>
+                    <input v-model.number="modelDraftOf(editingModel).longContextCachedInputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存读价" />
+                  </label>
+                  <label v-if="modelDraftOf(editingModel).longContextBillingMode !== 'multiplier'" class="block">
+                    <span class="text-xs font-black text-slate-700">长上下文缓存写 / 1M</span>
+                    <input v-model.number="modelDraftOf(editingModel).longContextCacheCreationPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存写价" />
                   </label>
                   <label class="block">
                     <span class="text-xs font-black text-slate-700">排序</span>
