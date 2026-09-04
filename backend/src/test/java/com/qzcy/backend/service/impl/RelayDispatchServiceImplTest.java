@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qzcy.backend.dto.relay.RelayContext;
+import com.qzcy.backend.dto.relay.RelayCostBreakdown;
 import com.qzcy.backend.entity.RelayUsageLog;
 import com.qzcy.backend.mapper.RelayTokenMapper;
 import com.qzcy.backend.mapper.RelayUsageLogMapper;
@@ -56,6 +57,45 @@ class RelayDispatchServiceImplTest {
         assertTrue(RelayDispatchServiceImpl.isRetryableUpstreamError(429, body, ""));
         assertTrue(RelayDispatchServiceImpl.isRetryableUpstreamError(502, body, ""));
         assertTrue(RelayDispatchServiceImpl.isRetryableUpstreamError(503, body, ""));
+    }
+
+    @Test
+    void requestBillingDoesNotChargeNonSuccessfulUpstreamResponse() {
+        RelayModel model = new RelayModel();
+        model.setFixedRequestBilling(true);
+        RelayContext context = new RelayContext(null, model, null, null, null, "chat");
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayCostBreakdown cost = new RelayCostBreakdown(
+                new BigDecimal("0.010000"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("0.050000"), new BigDecimal("0.050000"));
+
+        RelayCostBreakdown failed = ReflectionTestUtils.invokeMethod(
+                service, "billingCostForResponse", context, 502, cost);
+        RelayCostBreakdown successful = ReflectionTestUtils.invokeMethod(
+                service, "billingCostForResponse", context, 200, cost);
+
+        assertEquals(BigDecimal.ZERO, failed.total());
+        assertEquals(BigDecimal.ZERO, failed.request());
+        assertEquals(cost.total(), successful.total());
+    }
+
+    @Test
+    void usageBillingKeepsExistingErrorCostAndSuccessCost() {
+        RelayModel model = new RelayModel();
+        model.setFixedRequestBilling(false);
+        RelayContext context = new RelayContext(null, model, null, null, null, "chat");
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayCostBreakdown cost = new RelayCostBreakdown(
+                new BigDecimal("0.010000"), new BigDecimal("0.020000"), BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, new BigDecimal("0.030000"));
+
+        RelayCostBreakdown failed = ReflectionTestUtils.invokeMethod(
+                service, "billingCostForResponse", context, 502, cost);
+        RelayCostBreakdown successful = ReflectionTestUtils.invokeMethod(
+                service, "billingCostForResponse", context, 200, cost);
+
+        assertEquals(cost.total(), failed.total());
+        assertEquals(cost.total(), successful.total());
     }
 
     @Test

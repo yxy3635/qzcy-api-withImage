@@ -230,6 +230,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             RelayCostBreakdown cost = isCountTokensRequest(request.upstreamPath())
                     ? ZERO_COST
                     : relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), responseBody);
+            // 按请求次数计费只对真正成功的上游请求收费；按量计费的错误响应保留上游 usage，
+            // 以兼容部分上游已产生可计费 Token 后才返回错误的现有口径。HTTP 200 不受影响。
+            cost = billingCostForResponse(context, response.statusCode(), cost);
             boolean retryable = isRetryableUpstreamError(response.statusCode(), responseBody, responseText);
             if (retryable) {
                 recordChannelFailure(context.channel(), "HTTP " + response.statusCode() + ": " + truncateMessage(responseText));
@@ -531,6 +534,17 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 MediaType.APPLICATION_JSON_VALUE,
                 outputStream -> outputStream.write(sanitizeUpstreamErrorBody(finalLastErrorText).getBytes(StandardCharsets.UTF_8))
         );
+    }
+
+    private RelayCostBreakdown billingCostForResponse(RelayContext context, int statusCode, RelayCostBreakdown cost) {
+        if (statusCode >= 200 && statusCode < 300) {
+            return cost;
+        }
+        RelayModel model = context == null ? null : context.model();
+        if (model != null && Boolean.TRUE.equals(model.getFixedRequestBilling())) {
+            return ZERO_COST;
+        }
+        return cost;
     }
 
     private void enforceQuotaIfSuccessful(int statusCode, RelayContext context, RelayCostBreakdown cost) {
