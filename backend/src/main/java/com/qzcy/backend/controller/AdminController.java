@@ -26,6 +26,8 @@ import com.qzcy.backend.dto.RechargeCouponAdminDto;
 import com.qzcy.backend.dto.RechargeCouponUpdateDto;
 import com.qzcy.backend.dto.RelayAdminOverviewDto;
 import com.qzcy.backend.dto.RelayChannelDto;
+import com.qzcy.backend.dto.RelayChannelTestRequestDto;
+import com.qzcy.backend.dto.RelayChannelTestResultDto;
 import com.qzcy.backend.dto.RelayChannelUpdateDto;
 import com.qzcy.backend.dto.RelayDashboardDto;
 import com.qzcy.backend.dto.RelayGroupDto;
@@ -45,6 +47,7 @@ import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.ReferralService;
 import com.qzcy.backend.service.RechargeCouponService;
 import com.qzcy.backend.service.RelayChannelStatusService;
+import com.qzcy.backend.service.RelayChannelTestService;
 import com.qzcy.backend.service.RelayDashboardService;
 import com.qzcy.backend.service.RelayService;
 import com.qzcy.backend.util.SecurityUtil;
@@ -74,6 +77,7 @@ public class AdminController {
     private final RelayService relayService;
     private final RelayChannelStatusService relayChannelStatusService;
     private final RelayDashboardService relayDashboardService;
+    private final RelayChannelTestService relayChannelTestService;
 
     @GetMapping("/dashboard")
     public ApiResponse<DashboardStats> dashboard() {
@@ -241,6 +245,12 @@ public class AdminController {
     @PostMapping("/relay/channels/{id}/status/sync")
     public ApiResponse<String> syncRelayChannelStatusById(@PathVariable Long id) {
         return ApiResponse.success(relayChannelStatusService.syncOne(id));
+    }
+
+    @PostMapping("/relay/channels/{id}/test")
+    public ApiResponse<RelayChannelTestResultDto> testRelayChannel(@PathVariable Long id,
+                                                                   @RequestBody RelayChannelTestRequestDto dto) {
+        return ApiResponse.success(relayChannelTestService.test(id, dto));
     }
 
     @GetMapping("/mail-config")

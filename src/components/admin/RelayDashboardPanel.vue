@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   refresh: []
   testChannel: [channelId: number]
+  chatTest: [channelId: number]
   editChannel: [channelId: number]
 }>()
 
@@ -231,6 +232,7 @@ function shortMessage(message?: string | null) {
                 :disabled="testingChannelId === channel.id"
                 @click="emit('testChannel', channel.id)"
               >{{ testingChannelId === channel.id ? '检测中…' : '检测' }}</button>
+              <button class="h-8 flex-1 rounded-lg bg-indigo-50 text-xs font-black text-indigo-700 transition hover:bg-indigo-100" @click="emit('chatTest', channel.id)">测试</button>
               <button class="h-8 flex-1 rounded-lg bg-slate-100 text-xs font-black text-slate-600 transition hover:bg-slate-200" @click="emit('editChannel', channel.id)">编辑</button>
             </div>
           </article>

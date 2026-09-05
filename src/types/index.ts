@@ -626,6 +626,25 @@ export interface RelayGroup {
   modelIds: number[]
 }
 
+export interface RelayChannelTestAttempt {
+  providerName: string
+  error: string
+  latencyMs: number
+}
+
+export interface RelayChannelTestResult {
+  success: boolean
+  providerName?: string | null
+  providerId?: number | null
+  rule?: string | null
+  model?: string | null
+  upstreamModel?: string | null
+  latencyMs: number
+  content?: string | null
+  error?: string | null
+  attempts: RelayChannelTestAttempt[]
+}
+
 export interface RelayModelUsage {
   model: string
   requests: number

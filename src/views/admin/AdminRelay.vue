@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import RelayModal from '@/components/RelayModal.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import RelayDashboardPanel from '@/components/admin/RelayDashboardPanel.vue'
+import RelayChannelTestDialog from '@/components/admin/RelayChannelTestDialog.vue'
 import RelayChannelDrawer from '@/components/admin/RelayChannelDrawer.vue'
 import RelayModelDrawer from '@/components/admin/RelayModelDrawer.vue'
 import RelayGroupDrawer from '@/components/admin/RelayGroupDrawer.vue'
@@ -22,6 +23,7 @@ const overview = ref<RelayAdminOverview | null>(null)
 const dashboard = ref<RelayDashboard | null>(null)
 const dashboardLoading = ref(false)
 const dashboardTestingId = ref<number | null>(null)
+const channelChatTest = ref<{ id: number; name: string } | null>(null)
 let dashboardTimer: number | null = null
 const activeTab = ref<Tab>('overview')
 const sidebarCollapsed = ref(false)
@@ -555,6 +557,28 @@ function editChannelFromDashboard(channelId: number) {
   editChannel(channel)
 }
 
+const channelChatTestModels = computed(() => {
+  if (!channelChatTest.value) return []
+  const channel = channels.value.find((item) => item.id === channelChatTest.value?.id)
+  return (channel?.models || [])
+    .filter((item) => item.enabled)
+    .map((item) => ({
+      modelId: item.modelId,
+      model: item.model,
+      displayName: item.displayName,
+      upstreamModel: item.upstreamModel || ''
+    }))
+})
+
+function openChannelChatTest(channelId: number) {
+  const channel = channels.value.find((item) => item.id === channelId)
+  if (!channel) {
+    toast.error('渠道数据未加载，请刷新后重试')
+    return
+  }
+  channelChatTest.value = { id: channelId, name: channel.name }
+}
+
 onMounted(() => {
   void load()
   void loadDashboard()
@@ -950,6 +974,7 @@ async function enableSelectedUpstreamModels() {
           :testing-channel-id="dashboardTestingId"
           @refresh="loadDashboard()"
           @test-channel="testChannelFromDashboard"
+          @chat-test="openChannelChatTest"
           @edit-channel="editChannelFromDashboard"
         />
       </section>
@@ -1232,6 +1257,15 @@ async function enableSelectedUpstreamModels() {
       </section>
       </Transition>
 
+      <RelayChannelTestDialog
+        :open="Boolean(channelChatTest)"
+        :channel-id="channelChatTest?.id ?? null"
+        :channel-name="channelChatTest?.name || ''"
+        :strategy="channels.find((item) => item.id === channelChatTest?.id)?.scheduleStrategy || 'weighted_random'"
+        :models="channelChatTestModels"
+        @close="channelChatTest = null"
+        @tested="loadDashboard(true)"
+      />
       <RelayChannelDrawer
         v-if="activeChannelDraft"
         :is-new="editingChannelId === 'new'"
