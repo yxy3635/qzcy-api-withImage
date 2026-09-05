@@ -7,12 +7,14 @@ import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayChannelMapper;
 import com.qzcy.backend.mapper.RelayChannelModelMapper;
+import com.qzcy.backend.mapper.RelayChannelProviderMapper;
 import com.qzcy.backend.mapper.RelayGroupMapper;
 import com.qzcy.backend.mapper.RelayGroupModelMapper;
 import com.qzcy.backend.mapper.RelayModelMapper;
 import com.qzcy.backend.mapper.RelayTokenMapper;
 import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
+import com.qzcy.backend.service.RelayProviderScheduler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -43,6 +45,8 @@ class RelayPolicyRestrictionsTest {
                 mock(RelayGroupModelMapper.class),
                 mock(RelayChannelMapper.class),
                 mock(RelayChannelModelMapper.class),
+                mock(RelayChannelProviderMapper.class),
+                new RelayProviderScheduler(),
                 usageLogMapper,
                 mock(UserMapper.class)
         );

@@ -7,6 +7,7 @@ import com.qzcy.backend.dto.relay.RelayContext;
 import com.qzcy.backend.dto.relay.RelayCostBreakdown;
 import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayChannelModel;
+import com.qzcy.backend.entity.RelayChannelProvider;
 import com.qzcy.backend.entity.RelayGroup;
 import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayToken;
@@ -14,6 +15,7 @@ import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayChannelMapper;
 import com.qzcy.backend.mapper.RelayChannelModelMapper;
+import com.qzcy.backend.mapper.RelayChannelProviderMapper;
 import com.qzcy.backend.mapper.RelayGroupMapper;
 import com.qzcy.backend.mapper.RelayGroupModelMapper;
 import com.qzcy.backend.mapper.RelayModelMapper;
@@ -21,12 +23,14 @@ import com.qzcy.backend.mapper.RelayTokenMapper;
 import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.RelayPolicyService;
+import com.qzcy.backend.service.RelayProviderScheduler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -40,6 +44,8 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
     private final RelayGroupModelMapper groupModelMapper;
     private final RelayChannelMapper channelMapper;
     private final RelayChannelModelMapper channelModelMapper;
+    private final RelayChannelProviderMapper channelProviderMapper;
+    private final RelayProviderScheduler providerScheduler;
     private final RelayUsageLogMapper usageLogMapper;
     private final UserMapper userMapper;
 
@@ -214,16 +220,49 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
             ordered.addAll(weightedOrder(candidates.subList(start, index)));
         }
         String effectiveModelType = isBlank(model.getModelType()) ? endpointType : model.getModelType();
-        return ordered.stream()
-                .map(channel -> new RelayContext(
-                        access,
-                        model,
-                        group,
-                        channel,
-                        channelModelMapper.selectByChannelAndModel(channel.getId(), model.getId()),
-                        effectiveModelType
-                ))
-                .toList();
+        // 两层调度：渠道级（上方 priority 分层 + 加权随机）之后，再按渠道配置的策略对
+        // 渠道内供应商排序。每个 (channel, provider) 组合生成一个候选上下文，
+        // dispatch 的循环按顺序尝试，失败转移天然覆盖渠道内与跨渠道两个层级。
+        List<RelayContext> contexts = new ArrayList<>();
+        for (RelayChannel channel : ordered) {
+            List<RelayChannelProvider> allProviders = channelProviderMapper.selectByChannelId(channel.getId());
+            List<RelayChannelProvider> providers = allProviders.stream()
+                    .filter(item -> item.getEnabled() == null || item.getEnabled())
+                    .filter(item -> item.getStatus() == null || !"failed".equalsIgnoreCase(item.getStatus()))
+                    .filter(item -> !isBlank(item.getApiBaseUrl()) && !isBlank(item.getApiKey()))
+                    .toList();
+            if (providers.isEmpty()) {
+                // 渠道下已有供应商记录但都不可用（停用/失败）时不再回退渠道旧凭证，
+                // 否则管理员停用全部供应商后渠道仍会接流量；仅对从未配置过供应商的老渠道兜底。
+                if (!allProviders.isEmpty() || isBlank(channel.getApiBaseUrl()) || isBlank(channel.getApiKey())) {
+                    continue;
+                }
+                providers = List.of(legacyProvider(channel));
+            }
+            RelayChannelModel binding = channelModelMapper.selectByChannelAndModel(channel.getId(), model.getId());
+            for (RelayChannelProvider provider : providerScheduler.order(channel, providers)) {
+                contexts.add(new RelayContext(access, model, group, channel, provider, binding, effectiveModelType));
+            }
+        }
+        if (contexts.isEmpty()) {
+            throw new BusinessException(400, "No available relay channel for current group and model");
+        }
+        return contexts;
+    }
+
+    /** 老渠道未回填供应商时的兜底候选：直接把渠道自身配置当作一个隐式供应商。 */
+    private RelayChannelProvider legacyProvider(RelayChannel channel) {
+        RelayChannelProvider provider = new RelayChannelProvider();
+        provider.setChannelId(channel.getId());
+        provider.setName(channel.getProvider());
+        provider.setApiBaseUrl(channel.getApiBaseUrl());
+        provider.setApiKey(channel.getApiKey());
+        provider.setChannelRule(channel.getChannelRule());
+        provider.setPriority(channel.getPriority());
+        provider.setWeight(channel.getWeight());
+        provider.setStatus("available");
+        provider.setEnabled(true);
+        return provider;
     }
 
     @Override

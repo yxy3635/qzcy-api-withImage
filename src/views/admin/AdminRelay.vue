@@ -13,6 +13,19 @@ const auth = useAuthStore()
 const router = useRouter()
 type Tab = 'overview' | 'channels' | 'tokens' | 'models' | 'usage' | 'policy'
 
+interface ProviderDraft {
+  id: number | null
+  name: string
+  apiBaseUrl: string
+  keyValue: string
+  apiKeyMasked: string
+  channelRule: string
+  priority: number
+  weight: number
+  status: string
+  enabled: boolean
+}
+
 interface ChannelDraft {
   name: string
   provider: string
@@ -28,6 +41,8 @@ interface ChannelDraft {
   maxConcurrency: number
   priceMultiplier: number
   enabled: boolean
+  scheduleStrategy: string
+  providers: ProviderDraft[]
   models: ChannelModelDraft[]
 }
 
@@ -110,6 +125,8 @@ const newChannel = reactive<ChannelDraft>({
   maxConcurrency: 0,
   priceMultiplier: 1,
   enabled: true,
+  scheduleStrategy: 'weighted_random',
+  providers: [newProviderDraft()],
   models: []
 })
 
@@ -162,11 +179,13 @@ const filteredChannels = computed(() => {
   const keyword = channelSearch.value.trim().toLowerCase()
   return channels.value.filter((channel) => {
     const draft = channelDraftOf(channel)
-    const matchesKeyword = !keyword
-      || draft.name.toLowerCase().includes(keyword)
-      || draft.provider.toLowerCase().includes(keyword)
-      || draft.apiBaseUrl.toLowerCase().includes(keyword)
-      || draft.groupNames.toLowerCase().includes(keyword)
+    const haystack = [
+      draft.name,
+      draft.provider,
+      draft.groupNames,
+      ...draft.providers.map((provider) => `${provider.name} ${provider.apiBaseUrl}`)
+    ].join(' ').toLowerCase()
+    const matchesKeyword = !keyword || haystack.includes(keyword)
     const matchesState = channelStateFilter.value === 'all'
       || (channelStateFilter.value === 'enabled' && draft.enabled)
       || (channelStateFilter.value === 'disabled' && !draft.enabled)
@@ -211,11 +230,32 @@ function compactToken(value?: number) {
 }
 
 function setChannelDraft(channel: RelayChannel) {
+  const providers: ProviderDraft[] = (channel.providers && channel.providers.length
+    ? channel.providers.map((provider) => ({
+        id: provider.id,
+        name: provider.name || '',
+        apiBaseUrl: provider.apiBaseUrl || '',
+        keyValue: '',
+        apiKeyMasked: provider.apiKeyMasked || '',
+        channelRule: provider.channelRule || 'openai',
+        priority: Number(provider.priority || 10),
+        weight: Number(provider.weight || 10),
+        status: provider.status || 'unknown',
+        enabled: Boolean(provider.enabled)
+      }))
+    : [Object.assign(newProviderDraft(), {
+        name: channel.provider || '',
+        apiBaseUrl: channel.apiBaseUrl || '',
+        apiKeyMasked: channel.apiKeyMasked || '',
+        channelRule: channel.channelRule || inferChannelRule(channel),
+        priority: Number(channel.priority || 10),
+        weight: Number(channel.weight || 10)
+      })])
   channelDrafts[channel.id] = {
     name: channel.name,
     provider: channel.provider,
-    channelRule: channel.channelRule || inferChannelRule(channel),
-    apiBaseUrl: channel.apiBaseUrl,
+    channelRule: providers[0]?.channelRule || channel.channelRule || inferChannelRule(channel),
+    apiBaseUrl: providers[0]?.apiBaseUrl || channel.apiBaseUrl,
     keyValue: '',
     groupNames: channel.groupNames || 'default',
     remark: channel.remark || '',
@@ -226,6 +266,8 @@ function setChannelDraft(channel: RelayChannel) {
     maxConcurrency: Number(channel.maxConcurrency || 0),
     priceMultiplier: Number(channel.priceMultiplier || 1),
     enabled: channel.enabled,
+    scheduleStrategy: channel.scheduleStrategy || 'weighted_random',
+    providers,
     models: models.value.map((model) => {
       const binding = (channel.models || []).find((item) => item.modelId === model.id)
       return {
@@ -287,11 +329,12 @@ function groupDraftOf(group: RelayGroup) {
 }
 
 function channelPayload(draft: ChannelDraft) {
+  const firstProvider = draft.providers[0]
   const payload: Record<string, unknown> = {
     name: draft.name,
     provider: draft.provider,
-    channelRule: draft.channelRule,
-    apiBaseUrl: draft.apiBaseUrl,
+    channelRule: firstProvider?.channelRule || draft.channelRule,
+    apiBaseUrl: firstProvider?.apiBaseUrl || draft.apiBaseUrl,
     groupNames: draft.groupNames,
     remark: draft.remark,
     priority: draft.priority,
@@ -301,6 +344,21 @@ function channelPayload(draft: ChannelDraft) {
     maxConcurrency: draft.maxConcurrency,
     priceMultiplier: draft.priceMultiplier,
     enabled: draft.enabled,
+    scheduleStrategy: draft.scheduleStrategy || 'weighted_random',
+    providers: draft.providers.map((provider) => {
+      const item: Record<string, unknown> = {
+        name: provider.name,
+        apiBaseUrl: provider.apiBaseUrl.trim(),
+        channelRule: provider.channelRule,
+        priority: provider.priority,
+        weight: provider.weight,
+        enabled: provider.enabled
+      }
+      if (provider.id != null) item['id'] = provider.id
+      const keyValue = provider.keyValue.trim()
+      if (keyValue) item['api' + 'Key'] = keyValue
+      return item
+    }),
     models: draft.models
   }
   const keyValue = draft.keyValue.trim()
@@ -414,6 +472,65 @@ function providerBadgeClass() {
   return 'bg-slate-100 text-slate-700 ring-slate-200'
 }
 
+function newProviderDraft(): ProviderDraft {
+  return {
+    id: null,
+    name: '',
+    apiBaseUrl: '',
+    keyValue: '',
+    apiKeyMasked: '',
+    channelRule: 'openai',
+    priority: 10,
+    weight: 10,
+    status: 'unknown',
+    enabled: true
+  }
+}
+
+function addProviderDraft(draft: ChannelDraft) {
+  const last = draft.providers[draft.providers.length - 1]
+  const fresh = newProviderDraft()
+  fresh.channelRule = last?.channelRule || 'openai'
+  draft.providers.push(fresh)
+}
+
+function removeProviderDraft(draft: ChannelDraft, index: number) {
+  draft.providers.splice(index, 1)
+}
+
+function providerDraftError(draft: ChannelDraft) {
+  if (!draft.providers.length) return '请至少添加一个上游供应商'
+  for (const [index, provider] of draft.providers.entries()) {
+    const label = provider.name.trim() || `供应商 ${index + 1}`
+    if (!provider.apiBaseUrl.trim()) return `${label} 缺少 Base URL`
+    if (provider.id == null && !provider.keyValue.trim()) return `${label} 缺少 API Key`
+  }
+  return ''
+}
+
+const strategyLabels: Record<string, string> = {
+  weighted_random: '加权随机',
+  smooth_rr: '平滑轮询',
+  least_conn: '最小并发',
+  priority: '严格优先级'
+}
+
+function strategyLabel(strategy?: string) {
+  return strategyLabels[strategy || 'weighted_random'] || strategyLabels['weighted_random']
+}
+
+function providerDotClass(provider: ProviderDraft) {
+  if (provider.status === 'available') return 'bg-emerald-500'
+  if (provider.status === 'failed') return 'bg-red-500'
+  return 'bg-slate-300'
+}
+
+function providerSummary(draft: ChannelDraft) {
+  const urls = draft.providers.map((provider) => provider.apiBaseUrl).filter(Boolean)
+  if (!urls.length) return draft.apiBaseUrl || '尚未配置上游地址'
+  return urls.length === 1 ? urls[0] : `${urls[0]} 等 ${urls.length} 个供应商`
+}
+
 function ruleLabel(rule: string) {
   return rule === 'anthropic' ? 'Anthropic' : 'OpenAI'
 }
@@ -509,12 +626,21 @@ async function deleteGroupNow(group: RelayGroup) {
 }
 
 async function createChannel() {
+  const providerError = providerDraftError(newChannel)
+  if (providerError) {
+    error.value = providerError
+    toast.error(providerError)
+    return
+  }
   saving.value = 'channel-new'
   error.value = ''
   try {
     if (!newChannel.models.length) selectAllChannelModels(newChannel)
     await adminApi.createRelayChannel(channelPayload(newChannel))
     newChannel.keyValue = ''
+    newChannel.providers.forEach((provider) => {
+      provider.keyValue = ''
+    })
     toast.success('渠道已创建')
     editingChannelId.value = null
     await load()
@@ -528,10 +654,19 @@ async function createChannel() {
 
 async function saveChannel(channel: RelayChannel) {
   const draft = channelDraftOf(channel)
+  const providerError = providerDraftError(draft)
+  if (providerError) {
+    error.value = providerError
+    toast.error(providerError)
+    return
+  }
   saving.value = `channel-${channel.id}`
   error.value = ''
   try {
     await adminApi.updateRelayChannel(channel.id, channelPayload(draft))
+    draft.providers.forEach((provider) => {
+      provider.keyValue = ''
+    })
     draft.keyValue = ''
     toast.success(`${draft.name} 已保存`)
     editingChannelId.value = null
@@ -847,28 +982,64 @@ onMounted(load)
               <input v-model="newChannel.name" class="input mt-2 h-12 rounded-2xl" placeholder="渠道名称" />
             </label>
             <label class="block">
-              <span class="text-sm font-black text-slate-800">供应商</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">自由填写，只用于管理展示和后续排查。</span>
-              <input v-model="newChannel.provider" class="input mt-2 h-12 rounded-2xl" placeholder="自定义供应商名称" />
-            </label>
-            <label class="block">
-              <span class="text-sm font-black text-slate-800">规则</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">决定上游鉴权和请求格式，目前支持 OpenAI 与 Anthropic。</span>
-              <select v-model="newChannel.channelRule" class="input mt-2 h-12 rounded-2xl">
-                <option value="openai">OpenAI 兼容</option>
-                <option value="anthropic">Anthropic</option>
+              <span class="text-sm font-black text-slate-800">调度策略</span>
+              <span class="mt-1 block text-xs font-semibold text-slate-500">渠道内多个供应商之间如何分流；请求失败会按候选顺序自动故障转移。</span>
+              <select v-model="newChannel.scheduleStrategy" class="input mt-2 h-12 rounded-2xl">
+                <option value="weighted_random">加权随机（默认）</option>
+                <option value="smooth_rr">平滑加权轮询</option>
+                <option value="least_conn">最小并发</option>
+                <option value="priority">严格优先级</option>
               </select>
             </label>
-            <label class="block">
-              <span class="text-sm font-black text-slate-800">Base URL</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">上游中转或模型服务地址，系统会按所选规则拼接标准路径。</span>
-              <input v-model="newChannel.apiBaseUrl" class="input mt-2 h-12 rounded-2xl" placeholder="https://api.openai.com" />
-            </label>
-            <label class="block">
-              <span class="text-sm font-black text-slate-800">上游 API Key</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">调用上游服务使用的密钥，只保存在后台，用户不会看到。</span>
-              <input v-model="newChannel.keyValue" class="input mt-2 h-12 rounded-2xl" type="password" placeholder="上游 API Key" />
-            </label>
+            <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-sm font-black text-slate-800">上游供应商（{{ newChannel.providers.length }}）</p>
+                  <p class="mt-1 text-xs font-semibold text-slate-500">一个渠道可配置多个供应商；优先级数字越小越先，权重控制分流比例。</p>
+                </div>
+                <button class="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-black text-sky-700 transition hover:bg-sky-50" type="button" @click="addProviderDraft(newChannel)">添加供应商</button>
+              </div>
+              <div class="space-y-3">
+                <div v-for="(provider, index) in newChannel.providers" :key="`new-provider-${index}`" class="rounded-xl border border-slate-200 bg-white p-3">
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <label class="block">
+                      <span class="text-xs font-black text-slate-600">名称</span>
+                      <input v-model="provider.name" class="input mt-1 h-10 rounded-lg text-sm" placeholder="例如 OpenAI 官方" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-black text-slate-600">规则</span>
+                      <select v-model="provider.channelRule" class="input mt-1 h-10 rounded-lg text-sm">
+                        <option value="openai">OpenAI 兼容</option>
+                        <option value="anthropic">Anthropic</option>
+                      </select>
+                    </label>
+                    <label class="block sm:col-span-2">
+                      <span class="text-xs font-black text-slate-600">Base URL</span>
+                      <input v-model="provider.apiBaseUrl" class="input mt-1 h-10 rounded-lg text-sm" placeholder="https://api.openai.com" />
+                    </label>
+                    <label class="block sm:col-span-2">
+                      <span class="text-xs font-black text-slate-600">API Key</span>
+                      <input v-model="provider.keyValue" class="input mt-1 h-10 rounded-lg text-sm" type="password" placeholder="上游 API Key" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-black text-slate-600">优先级</span>
+                      <input v-model.number="provider.priority" class="input mt-1 h-10 rounded-lg text-sm" type="number" placeholder="10" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-black text-slate-600">权重</span>
+                      <input v-model.number="provider.weight" class="input mt-1 h-10 rounded-lg text-sm" type="number" placeholder="10" />
+                    </label>
+                  </div>
+                  <div class="mt-2 flex items-center justify-between">
+                    <label class="flex items-center gap-2 text-xs font-black text-slate-600">
+                      <input v-model="provider.enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
+                      启用
+                    </label>
+                    <button v-if="newChannel.providers.length > 1" class="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-black text-red-600 transition hover:bg-red-100" type="button" @click="removeProviderDraft(newChannel, index)">移除</button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <label class="block">
               <span class="text-sm font-black text-slate-800">可用分组</span>
               <span class="mt-1 block text-xs font-semibold text-slate-500">逗号分隔，例如 default,vip；只有这些分组的令牌会路由到该渠道。</span>
@@ -959,13 +1130,17 @@ onMounted(load)
           <div v-for="channel in filteredChannels" :key="channel.id" class="space-y-3">
             <article class="panel grid gap-3 p-4 transition hover:border-sky-200 lg:grid-cols-[minmax(220px,1fr)_160px_180px_120px_88px] lg:items-center">
               <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="inline-flex rounded-md px-2 py-1 text-xs font-black ring-1" :class="providerBadgeClass()">{{ channel.provider || '未标记供应商' }}</span>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span v-for="provider in channelDraftOf(channel).providers" :key="provider.id ?? provider.apiBaseUrl" class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-black ring-1" :class="providerBadgeClass()">
+                    <span class="h-1.5 w-1.5 rounded-full" :class="providerDotClass(provider)" aria-hidden="true"></span>
+                    {{ provider.name || '未命名供应商' }}
+                  </span>
                   <span class="inline-flex rounded-md px-2 py-1 text-xs font-black ring-1" :class="ruleBadgeClass(channelDraftOf(channel).channelRule)">{{ ruleLabel(channelDraftOf(channel).channelRule) }}</span>
+                  <span class="rounded-md bg-sky-50 px-2 py-1 text-xs font-black text-sky-700">{{ strategyLabel(channelDraftOf(channel).scheduleStrategy) }}</span>
                   <span class="rounded-md px-2 py-1 text-xs font-black" :class="channel.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'">{{ channel.status }}</span>
                 </div>
                 <h3 class="mt-2 truncate text-base font-black text-slate-950">{{ channel.name }}</h3>
-                <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ channel.apiBaseUrl }}</p>
+                <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ providerSummary(channelDraftOf(channel)) }}</p>
               </div>
               <p class="text-xs font-black text-slate-600">{{ channelDraftOf(channel).groupNames || 'default' }}</p>
               <p class="text-xs font-semibold text-slate-500">P{{ channelDraftOf(channel).priority }} / W{{ channelDraftOf(channel).weight }} · {{ enabledChannelModelCount(channel) }} 模型</p>
@@ -992,27 +1167,14 @@ onMounted(load)
                 <input v-model="channelDraftOf(channel).name" class="input mt-2 h-12 rounded-2xl" />
               </label>
               <label class="block">
-                <span class="text-sm font-black text-slate-800">供应商</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">自由填写，只用于管理展示和后续排查。</span>
-                <input v-model="channelDraftOf(channel).provider" class="input mt-2 h-12 rounded-2xl" placeholder="自定义供应商名称" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">规则</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">决定上游鉴权和请求格式。</span>
-                <select v-model="channelDraftOf(channel).channelRule" class="input mt-2 h-12 rounded-2xl">
-                  <option value="openai">OpenAI 兼容</option>
-                  <option value="anthropic">Anthropic</option>
+                <span class="text-sm font-black text-slate-800">调度策略</span>
+                <span class="mt-1 block text-xs font-semibold text-slate-500">渠道内多个供应商之间的分流方式，失败自动切换下一个。</span>
+                <select v-model="channelDraftOf(channel).scheduleStrategy" class="input mt-2 h-12 rounded-2xl">
+                  <option value="weighted_random">加权随机（默认）</option>
+                  <option value="smooth_rr">平滑加权轮询</option>
+                  <option value="least_conn">最小并发</option>
+                  <option value="priority">严格优先级</option>
                 </select>
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">Base URL</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">当前渠道转发到的上游服务地址。</span>
-                <input v-model="channelDraftOf(channel).apiBaseUrl" class="input mt-2 h-12 rounded-2xl" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">上游 API Key</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">留空表示继续使用当前密钥。</span>
-                <input v-model="channelDraftOf(channel).keyValue" class="input mt-2 h-12 rounded-2xl" type="password" placeholder="留空则不修改 Key" />
               </label>
               <label class="block">
                 <span class="text-sm font-black text-slate-800">可用分组</span>
@@ -1054,6 +1216,55 @@ onMounted(load)
                 <span class="mt-1 block text-xs font-semibold text-slate-500">用于记录渠道成本差异，不参与用户扣费。</span>
                 <input v-model.number="channelDraftOf(channel).priceMultiplier" class="input mt-2 h-12 rounded-2xl" type="number" step="0.0001" />
               </label>
+            </div>
+            <div class="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-sm font-black text-slate-800">上游供应商（{{ channelDraftOf(channel).providers.length }}）</p>
+                  <p class="mt-1 text-xs font-semibold text-slate-500">按「{{ strategyLabel(channelDraftOf(channel).scheduleStrategy) }}」策略分流；API Key 留空表示保持当前密钥不变。</p>
+                </div>
+                <button class="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-black text-sky-700 transition hover:bg-sky-50" type="button" @click="addProviderDraft(channelDraftOf(channel))">添加供应商</button>
+              </div>
+              <div class="space-y-3">
+                <div v-for="(provider, index) in channelDraftOf(channel).providers" :key="provider.id ?? `editing-provider-${index}`" class="rounded-xl border border-slate-200 bg-white p-3">
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <label class="block">
+                      <span class="text-xs font-black text-slate-600">名称</span>
+                      <input v-model="provider.name" class="input mt-1 h-10 rounded-lg text-sm" placeholder="例如 OpenAI 官方" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-black text-slate-600">规则</span>
+                      <select v-model="provider.channelRule" class="input mt-1 h-10 rounded-lg text-sm">
+                        <option value="openai">OpenAI 兼容</option>
+                        <option value="anthropic">Anthropic</option>
+                      </select>
+                    </label>
+                    <label class="block sm:col-span-2">
+                      <span class="text-xs font-black text-slate-600">Base URL</span>
+                      <input v-model="provider.apiBaseUrl" class="input mt-1 h-10 rounded-lg text-sm" placeholder="https://api.openai.com" />
+                    </label>
+                    <label class="block sm:col-span-2">
+                      <span class="text-xs font-black text-slate-600">API Key</span>
+                      <input v-model="provider.keyValue" class="input mt-1 h-10 rounded-lg text-sm" type="password" :placeholder="provider.id != null && provider.apiKeyMasked ? `留空保持 ${provider.apiKeyMasked} 不变` : '上游 API Key'" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-black text-slate-600">优先级</span>
+                      <input v-model.number="provider.priority" class="input mt-1 h-10 rounded-lg text-sm" type="number" placeholder="10" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-black text-slate-600">权重</span>
+                      <input v-model.number="provider.weight" class="input mt-1 h-10 rounded-lg text-sm" type="number" placeholder="10" />
+                    </label>
+                  </div>
+                  <div class="mt-2 flex items-center justify-between">
+                    <label class="flex items-center gap-2 text-xs font-black text-slate-600">
+                      <input v-model="provider.enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
+                      启用
+                    </label>
+                    <button v-if="channelDraftOf(channel).providers.length > 1" class="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-black text-red-600 transition hover:bg-red-100" type="button" @click="removeProviderDraft(channelDraftOf(channel), index)">移除</button>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
               <div class="mb-3 flex flex-wrap items-center justify-between gap-3">

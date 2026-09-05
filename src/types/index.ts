@@ -283,6 +283,8 @@ export interface AdminUserRankings {
   tokens: AdminUserRanking[]
 }
 
+export type RelayScheduleStrategy = 'weighted_random' | 'smooth_rr' | 'least_conn' | 'priority' | string
+
 export interface RelayChannel {
   id: number
   name: string
@@ -300,7 +302,22 @@ export interface RelayChannel {
   maxConcurrency: number
   priceMultiplier: number
   enabled: boolean
+  scheduleStrategy?: RelayScheduleStrategy
+  providers?: RelayChannelProvider[]
   models: RelayChannelModel[]
+}
+
+export interface RelayChannelProvider {
+  id: number
+  channelId: number
+  name: string
+  apiBaseUrl: string
+  apiKeyMasked: string
+  channelRule: 'openai' | 'anthropic' | string
+  priority: number
+  weight: number
+  status: string
+  enabled: boolean
 }
 
 export interface RelayChannelModel {

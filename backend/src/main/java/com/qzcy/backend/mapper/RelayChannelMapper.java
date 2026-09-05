@@ -16,10 +16,6 @@ public interface RelayChannelMapper extends BaseMapper<RelayChannel> {
             JOIN relay_channel_model cm ON cm.channel_id = c.id
             WHERE c.enabled = 1
               AND c.status <> 'failed'
-              AND c.api_key IS NOT NULL
-              AND c.api_key <> ''
-              AND c.api_base_url IS NOT NULL
-              AND c.api_base_url <> ''
               AND cm.enabled = 1
               AND cm.model_id = #{modelId}
               AND (

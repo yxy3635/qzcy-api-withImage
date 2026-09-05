@@ -21,5 +21,7 @@ public class RelayChannelUpdateDto {
     private Integer maxConcurrency;
     private BigDecimal priceMultiplier;
     private Boolean enabled;
+    private String scheduleStrategy;
+    private List<RelayProviderUpdateDto> providers;
     private List<RelayChannelModelUpdateDto> models;
 }

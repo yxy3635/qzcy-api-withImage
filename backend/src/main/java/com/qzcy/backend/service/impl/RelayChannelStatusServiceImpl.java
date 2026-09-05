@@ -2,7 +2,9 @@ package com.qzcy.backend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.qzcy.backend.entity.RelayChannel;
+import com.qzcy.backend.entity.RelayChannelProvider;
 import com.qzcy.backend.mapper.RelayChannelMapper;
+import com.qzcy.backend.mapper.RelayChannelProviderMapper;
 import com.qzcy.backend.service.RelayChannelStatusService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -15,10 +17,16 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 
+/**
+ * 健康探测粒度为渠道内供应商：每个启用的供应商单独探测并写回自身 status；
+ * 渠道 status 聚合——任一供应商可用即 available，全部不可用（或无可用供应商）才 failed，
+ * 与调度侧“failed 供应商被剔除、failed 渠道整体剔除”的规则对应。
+ */
 @Service
 @RequiredArgsConstructor
 public class RelayChannelStatusServiceImpl implements RelayChannelStatusService {
     private final RelayChannelMapper channelMapper;
+    private final RelayChannelProviderMapper providerMapper;
 
     @Scheduled(fixedDelay = 600_000, initialDelay = 30_000)
     public void scheduledSync() {
@@ -41,21 +49,44 @@ public class RelayChannelStatusServiceImpl implements RelayChannelStatusService 
     public String syncOne(Long channelId) {
         RelayChannel channel = channelMapper.selectById(channelId);
         if (channel == null) return "unknown";
-        String status = check(channel) ? "available" : "failed";
-        channel.setStatus(status);
+        boolean anyAvailable = false;
+        boolean anyChecked = false;
+        List<RelayChannelProvider> providers = providerMapper.selectByChannelId(channelId);
+        for (RelayChannelProvider provider : providers) {
+            if (!Boolean.TRUE.equals(provider.getEnabled())) {
+                continue;
+            }
+            boolean available = check(provider.getApiBaseUrl(), provider.getApiKey(), provider.getChannelRule());
+            provider.setStatus(available ? "available" : "failed");
+            provider.setUpdatedAt(java.time.LocalDateTime.now());
+            providerMapper.updateById(provider);
+            anyChecked = true;
+            anyAvailable |= available;
+        }
+        if (!anyChecked) {
+            if (providers.isEmpty()) {
+                // 无供应商记录的老渠道：回退探测渠道自身凭证。
+                anyAvailable = check(channel.getApiBaseUrl(), channel.getApiKey(), channel.getChannelRule());
+            } else {
+                // 有供应商记录但全部停用：渠道当前无法承载流量。
+                anyAvailable = false;
+            }
+        }
+        channel.setStatus(anyAvailable ? "available" : "failed");
+        channel.setUpdatedAt(java.time.LocalDateTime.now());
         channelMapper.updateById(channel);
-        return status;
+        return channel.getStatus();
     }
 
-    private boolean check(RelayChannel channel) {
-        if (channel.getApiBaseUrl() == null || channel.getApiBaseUrl().isBlank()) return false;
-        if (channel.getApiKey() == null || channel.getApiKey().isBlank()) return false;
+    private boolean check(String apiBaseUrl, String apiKey, String channelRule) {
+        if (apiBaseUrl == null || apiBaseUrl.isBlank()) return false;
+        if (apiKey == null || apiKey.isBlank()) return false;
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), "/v1/models")))
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(apiBaseUrl, "/v1/models")))
                     .timeout(Duration.ofSeconds(15))
                     .header("Accept", "application/json")
                     .GET();
-            applyAuthHeaders(builder, channel);
+            applyAuthHeaders(builder, apiKey, channelRule);
             HttpRequest request = builder.build();
             HttpResponse<String> response = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(8))
@@ -74,23 +105,12 @@ public class RelayChannelStatusServiceImpl implements RelayChannelStatusService 
         return baseUrl + path;
     }
 
-    private void applyAuthHeaders(HttpRequest.Builder builder, RelayChannel channel) {
-        if (isAnthropicChannel(channel)) {
-            builder.header("x-api-key", channel.getApiKey())
+    private void applyAuthHeaders(HttpRequest.Builder builder, String apiKey, String channelRule) {
+        if ("anthropic".equalsIgnoreCase(channelRule)) {
+            builder.header("x-api-key", apiKey)
                     .header("anthropic-version", "2023-06-01");
             return;
         }
-        builder.header("Authorization", "Bearer " + channel.getApiKey());
-    }
-
-    private boolean isAnthropicChannel(RelayChannel channel) {
-        String rule = channel == null || channel.getChannelRule() == null ? "" : channel.getChannelRule().toLowerCase();
-        if ("anthropic".equals(rule)) return true;
-        if ("openai".equals(rule)) return false;
-        String provider = channel == null || channel.getProvider() == null ? "" : channel.getProvider().toLowerCase();
-        String baseUrl = channel == null || channel.getApiBaseUrl() == null ? "" : channel.getApiBaseUrl().toLowerCase();
-        return provider.contains("anthropic")
-                || provider.contains("claude")
-                || baseUrl.contains("api.anthropic.com");
+        builder.header("Authorization", "Bearer " + apiKey);
     }
 }

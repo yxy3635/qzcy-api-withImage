@@ -11,6 +11,7 @@ import com.qzcy.backend.dto.relay.RelayMultipartFile;
 import com.qzcy.backend.dto.relay.RelayStreamDispatchResult;
 import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayChannelModel;
+import com.qzcy.backend.entity.RelayChannelProvider;
 import com.qzcy.backend.entity.RelayGroup;
 import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayToken;
@@ -23,6 +24,7 @@ import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.PaymentService;
 import com.qzcy.backend.service.RelayDispatchService;
 import com.qzcy.backend.service.RelayPolicyService;
+import com.qzcy.backend.service.RelayProviderScheduler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -52,6 +54,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
@@ -65,7 +68,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO
     );
     private static final Map<Long, ChannelStreamGate> STREAM_CHANNEL_GATES = new ConcurrentHashMap<>();
-    private static final Map<Long, ChannelCircuitState> CHANNEL_CIRCUITS = new ConcurrentHashMap<>();
+    private static final Map<String, ChannelCircuitState> CHANNEL_CIRCUITS = new ConcurrentHashMap<>();
 
     /** 每渠道流式并发闸门：持有信号量与配置的许可数，便于配置变更后自愈重建。 */
     private record ChannelStreamGate(Semaphore semaphore, int permits) {
@@ -142,6 +145,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     );
 
     private final RelayPolicyService relayPolicyService;
+    private final RelayProviderScheduler providerScheduler;
     private final RelayUsageLogMapper usageLogMapper;
     private final RelayTokenMapper tokenMapper;
     private final UserMapper userMapper;
@@ -167,10 +171,11 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         boolean circuitSkipped = false;
         for (int index = 0; index < contexts.size(); index++) {
             RelayContext context = contexts.get(index);
-            if (isChannelCircuitOpen(context.channel())) {
+            if (isChannelCircuitOpen(context)) {
                 circuitSkipped = true;
-                log.warn("Relay channel skipped by circuit breaker path={} channelId={} channelName={}",
-                        request.upstreamPath(), context.channel().getId(), context.channel().getName());
+                log.warn("Relay channel skipped by circuit breaker path={} channelId={} channelName={} providerId={} providerName={}",
+                        request.upstreamPath(), context.channel().getId(), context.channel().getName(),
+                        providerId(context), providerName(context));
                 continue;
             }
             try {
@@ -184,31 +189,34 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             }
             ensureMinimumBalance(context);
             long startedAt = System.currentTimeMillis();
-            log.debug("Relay upstream attempt path={} model={} channelId={} channelName={} rule={} group={} endpointType={} attempt={}/{}",
+            log.debug("Relay upstream attempt path={} model={} channelId={} providerId={} providerName={} rule={} group={} endpointType={} attempt={}/{}",
                     request.upstreamPath(),
                     model,
                     context.channel().getId(),
-                    context.channel().getName(),
-                    context.channel().getChannelRule(),
+                    providerId(context),
+                    providerName(context),
+                    endpointRule(context),
                     context.group() == null ? "" : context.group().getCode(),
                     request.endpointType(),
                     index + 1,
                     contexts.size());
             HttpResponse<String> response;
+            AtomicInteger inFlight = beginProviderRequest(context);
             try {
                 response = hasFiles(request.files())
                         ? relayMultipart(request.body(), request.files(), context, request.upstreamPath(), request.anthropicVersion(), request.anthropicBeta(), request.protocolHeaders())
                         : relayString(request.body(), context, request.upstreamPath(), request.anthropicVersion(), request.anthropicBeta(), request.protocolHeaders());
             } catch (Exception ex) {
-                log.warn("Relay upstream request failed path={} channelId={} channelName={} rule={} message={}",
+                log.warn("Relay upstream request failed path={} channelId={} providerId={} providerName={} rule={} message={}",
                         request.upstreamPath(),
                         context.channel().getId(),
-                        context.channel().getName(),
-                        context.channel().getChannelRule(),
+                        providerId(context),
+                        providerName(context),
+                        endpointRule(context),
                         ex.getMessage(),
                         ex);
                 if (isRetryableTransportFailure(ex)) {
-                    recordChannelFailure(context.channel(), "transport failure: " + safeExceptionMessage(ex));
+                    recordChannelFailure(context, "transport failure: " + safeExceptionMessage(ex));
                     JsonNode failureBody = upstreamFailureBody("Upstream connection failed: " + safeExceptionMessage(ex));
                     saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, 502, failureBody, ZERO_COST,
                             System.currentTimeMillis() - startedAt);
@@ -217,6 +225,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     }
                 }
                 throw ex;
+            } finally {
+                endProviderRequest(inFlight);
             }
             String responseText = response.statusCode() >= 200 && response.statusCode() < 300
                     ? response.body()
@@ -235,9 +245,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             cost = billingCostForResponse(context, response.statusCode(), cost);
             boolean retryable = isRetryableUpstreamError(response.statusCode(), responseBody, responseText);
             if (retryable) {
-                recordChannelFailure(context.channel(), "HTTP " + response.statusCode() + ": " + truncateMessage(responseText));
+                recordChannelFailure(context, "HTTP " + response.statusCode() + ": " + truncateMessage(responseText));
             } else {
-                recordChannelSuccess(context.channel());
+                recordChannelSuccess(context);
             }
             log.debug("Relay upstream response path={} channelId={} status={} retryable={} billable={} durationMs={} usage={}",
                     request.upstreamPath(),
@@ -284,10 +294,11 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         boolean circuitSkipped = false;
         for (int index = 0; index < contexts.size(); index++) {
             RelayContext context = contexts.get(index);
-            if (isChannelCircuitOpen(context.channel())) {
+            if (isChannelCircuitOpen(context)) {
                 circuitSkipped = true;
-                log.warn("Relay stream channel skipped by circuit breaker path={} channelId={} channelName={}",
-                        request.upstreamPath(), context.channel().getId(), context.channel().getName());
+                log.warn("Relay stream channel skipped by circuit breaker path={} channelId={} channelName={} providerId={} providerName={}",
+                        request.upstreamPath(), context.channel().getId(), context.channel().getName(),
+                        providerId(context), providerName(context));
                 continue;
             }
             try {
@@ -342,30 +353,34 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         context.channel().getId(),
                         context.channel().getName());
             }
-            log.debug("Relay upstream stream attempt path={} model={} channelId={} channelName={} rule={} group={} endpointType={} attempt={}/{}",
+            log.debug("Relay upstream stream attempt path={} model={} channelId={} providerId={} providerName={} rule={} group={} endpointType={} attempt={}/{}",
                     request.upstreamPath(),
                     model,
                     context.channel().getId(),
-                    context.channel().getName(),
-                    context.channel().getChannelRule(),
+                    providerId(context),
+                    providerName(context),
+                    endpointRule(context),
                     context.group() == null ? "" : context.group().getCode(),
                     request.endpointType(),
                     index + 1,
                     contexts.size());
             HttpResponse<InputStream> response;
+            AtomicInteger inFlight = beginProviderRequest(context);
             try {
                 response = relayStream(request.body(), context, request.upstreamPath(), request.anthropicVersion(), request.anthropicBeta(), request.protocolHeaders());
             } catch (Exception ex) {
+                endProviderRequest(inFlight);
                 releaseStreamGate(streamGate);
-                log.warn("Relay upstream stream request failed path={} channelId={} channelName={} rule={} message={}",
+                log.warn("Relay upstream stream request failed path={} channelId={} providerId={} providerName={} rule={} message={}",
                         request.upstreamPath(),
                         context.channel().getId(),
-                        context.channel().getName(),
-                        context.channel().getChannelRule(),
+                        providerId(context),
+                        providerName(context),
+                        endpointRule(context),
                         ex.getMessage(),
                         ex);
                 if (isRetryableTransportFailure(ex)) {
-                    recordChannelFailure(context.channel(), "transport failure: " + safeExceptionMessage(ex));
+                    recordChannelFailure(context, "transport failure: " + safeExceptionMessage(ex));
                     lastStatus = 502;
                     lastErrorText = localUpstreamFailureError(request.upstreamPath(), safeExceptionMessage(ex));
                     saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, lastStatus,
@@ -388,6 +403,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 try (InputStream inputStream = response.body()) {
                     errorText = sanitizeUpstreamErrorBody(new String(inputStream.readAllBytes(), StandardCharsets.UTF_8));
                 } finally {
+                    endProviderRequest(inFlight);
                     releaseStreamGate(streamGate);
                 }
                 JsonNode responseBody = parseResponseBody(errorText);
@@ -396,9 +412,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         responseBody, cost, System.currentTimeMillis() - startedAt);
                 boolean retryable = isRetryableUpstreamError(response.statusCode(), responseBody, errorText);
                 if (retryable) {
-                    recordChannelFailure(context.channel(), "HTTP " + response.statusCode() + ": " + truncateMessage(errorText));
+                    recordChannelFailure(context, "HTTP " + response.statusCode() + ": " + truncateMessage(errorText));
                 } else {
-                    recordChannelSuccess(context.channel());
+                    recordChannelSuccess(context);
                 }
                 lastErrorText = errorText;
                 lastStatus = response.statusCode();
@@ -420,11 +436,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         forwardedResponseHeaders(response)
                 );
             }
-            recordChannelSuccess(context.channel());
+            recordChannelSuccess(context);
             RelayContext finalContext = context;
             long finalStartedAt = startedAt;
             HttpResponse<InputStream> finalResponse = response;
             Semaphore finalStreamGate = streamGate;
+            AtomicInteger finalInFlight = inFlight;
             StreamingResponseBody stream = outputStream -> {
                 // 边收边转发：用阻塞 read() 等待上游每一段数据，收到立即 flush 给客户端。
                 // 不用 InputStream.available() 轮询判断首字节——对分块/SSE 响应体它不可靠，
@@ -472,10 +489,11 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     throw ex;
                 } finally {
                     idleWatchdog.cancel(false);
+                    endProviderRequest(finalInFlight);
                     releaseStreamGate(finalStreamGate);
                     int completionStatus = idleTimedOut.get() ? 504 : finalResponse.statusCode();
                     if (idleTimedOut.get()) {
-                        recordChannelFailure(finalContext.channel(), "stream idle timeout");
+                        recordChannelFailure(finalContext, "stream idle timeout");
                     }
                     if (log.isDebugEnabled() && acc.hasPreview()) {
                         log.debug("Relay upstream stream preview path={} channelId={} status={} preview={}",
@@ -617,24 +635,26 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     private HttpRequest upstreamRequest(ObjectNode body, RelayContext context, String path, String anthropicVersion, String anthropicBeta, Map<String, String> protocolHeaders) throws Exception {
         RelayChannel channel = context.channel();
         ObjectNode outboundBody = prepareOutboundBody(body, context, path);
-        String url = relayUrl(channel.getApiBaseUrl(), path);
-        log.debug("Relay upstream request url={} channelId={} channelName={} rule={} model={} outboundModel={} stream={} authMode={} anthropicVersion={} anthropicBeta={}",
+        String url = relayUrl(endpointBaseUrl(context), path);
+        log.debug("Relay upstream request url={} channelId={} channelName={} providerId={} providerName={} rule={} model={} outboundModel={} stream={} authMode={} anthropicVersion={} anthropicBeta={}",
                 url,
                 channel.getId(),
                 channel.getName(),
-                channel.getChannelRule(),
+                providerId(context),
+                providerName(context),
+                endpointRule(context),
                 body == null ? "" : body.path("model").asText(""),
                 outboundBody.path("model").asText(""),
                 body != null && body.path("stream").asBoolean(false),
-                isAnthropicChannel(channel) ? "x-api-key" : "bearer",
+                isAnthropicEndpoint(context) ? "x-api-key" : "bearer",
                 headerOrDefault(anthropicVersion, "2023-06-01"),
                 anthropicBeta == null || anthropicBeta.isBlank() ? "" : "present");
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), path)))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(endpointBaseUrl(context), path)))
                 .timeout(RELAY_TIMEOUT)
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .header(HttpHeaders.ACCEPT, acceptHeader(body))
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(outboundBody)));
-        applyAuthHeaders(builder, channel, anthropicVersion, anthropicBeta);
+        applyAuthHeaders(builder, context, anthropicVersion, anthropicBeta);
         applyProtocolHeaders(builder, protocolHeaders);
         return builder.build();
     }
@@ -642,24 +662,26 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     private HttpRequest upstreamMultipartRequest(ObjectNode body, List<RelayMultipartFile> files, RelayContext context, String path, String anthropicVersion, String anthropicBeta, Map<String, String> protocolHeaders) throws Exception {
         RelayChannel channel = context.channel();
         ObjectNode outboundBody = prepareOutboundBody(body, context, path);
-        String url = relayUrl(channel.getApiBaseUrl(), path);
-        log.debug("Relay upstream multipart request url={} channelId={} channelName={} rule={} model={} outboundModel={} fileCount={} authMode={}",
+        String url = relayUrl(endpointBaseUrl(context), path);
+        log.debug("Relay upstream multipart request url={} channelId={} channelName={} providerId={} providerName={} rule={} model={} outboundModel={} fileCount={} authMode={}",
                 url,
                 channel.getId(),
                 channel.getName(),
-                channel.getChannelRule(),
+                providerId(context),
+                providerName(context),
+                endpointRule(context),
                 body == null ? "" : body.path("model").asText(""),
                 outboundBody.path("model").asText(""),
                 files == null ? 0 : files.size(),
-                isAnthropicChannel(channel) ? "x-api-key" : "bearer");
+                isAnthropicEndpoint(context) ? "x-api-key" : "bearer");
         String boundary = "----imageCreaterBoundary" + UUID.randomUUID();
         byte[] multipartBody = multipartBody(outboundBody, files, boundary);
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), path)))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(endpointBaseUrl(context), path)))
                 .timeout(RELAY_TIMEOUT)
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.MULTIPART_FORM_DATA_VALUE + "; boundary=" + boundary)
                 .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(multipartBody));
-        applyAuthHeaders(builder, channel, anthropicVersion, anthropicBeta);
+        applyAuthHeaders(builder, context, anthropicVersion, anthropicBeta);
         applyProtocolHeaders(builder, protocolHeaders);
         return builder.build();
     }
@@ -732,9 +754,52 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return body.path("stream").asBoolean(false) ? MediaType.TEXT_EVENT_STREAM_VALUE : MediaType.APPLICATION_JSON_VALUE;
     }
 
-    private void applyAuthHeaders(HttpRequest.Builder builder, RelayChannel channel, String anthropicVersion, String anthropicBeta) {
-        if (isAnthropicChannel(channel)) {
-            builder.header("x-api-key", channel.getApiKey())
+    /**
+     * 候选端点解析：渠道内供应商优先，未配置供应商的老渠道回退到渠道自身字段。
+     */
+    private String endpointBaseUrl(RelayContext context) {
+        RelayChannelProvider provider = context == null ? null : context.provider();
+        if (provider != null && provider.getApiBaseUrl() != null && !provider.getApiBaseUrl().isBlank()) {
+            return provider.getApiBaseUrl();
+        }
+        return context.channel().getApiBaseUrl();
+    }
+
+    private String endpointApiKey(RelayContext context) {
+        RelayChannelProvider provider = context == null ? null : context.provider();
+        if (provider != null && provider.getApiKey() != null && !provider.getApiKey().isBlank()) {
+            return provider.getApiKey();
+        }
+        return context.channel().getApiKey();
+    }
+
+    private String endpointRule(RelayContext context) {
+        RelayChannelProvider provider = context == null ? null : context.provider();
+        if (provider != null && provider.getChannelRule() != null && !provider.getChannelRule().isBlank()) {
+            return provider.getChannelRule();
+        }
+        return context.channel().getChannelRule();
+    }
+
+    private boolean isAnthropicEndpoint(RelayContext context) {
+        String rule = endpointRule(context) == null ? "" : endpointRule(context).toLowerCase();
+        if ("anthropic".equals(rule)) return true;
+        if ("openai".equals(rule)) return false;
+        RelayChannelProvider provider = context == null ? null : context.provider();
+        String providerName = provider == null || provider.getName() == null ? "" : provider.getName().toLowerCase();
+        String channelName = context.channel() == null || context.channel().getProvider() == null
+                ? "" : context.channel().getProvider().toLowerCase();
+        String baseUrl = endpointBaseUrl(context) == null ? "" : endpointBaseUrl(context).toLowerCase();
+        return providerName.contains("anthropic")
+                || providerName.contains("claude")
+                || channelName.contains("anthropic")
+                || channelName.contains("claude")
+                || baseUrl.contains("api.anthropic.com");
+    }
+
+    private void applyAuthHeaders(HttpRequest.Builder builder, RelayContext context, String anthropicVersion, String anthropicBeta) {
+        if (isAnthropicEndpoint(context)) {
+            builder.header("x-api-key", endpointApiKey(context))
                     .header("anthropic-version", headerOrDefault(anthropicVersion, "2023-06-01"));
             String beta = safeAnthropicBeta(anthropicBeta);
             if (!beta.isBlank()) {
@@ -742,7 +807,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             }
             return;
         }
-        builder.header(HttpHeaders.AUTHORIZATION, "Bearer " + channel.getApiKey());
+        builder.header(HttpHeaders.AUTHORIZATION, "Bearer " + endpointApiKey(context));
     }
 
     private void applyProtocolHeaders(HttpRequest.Builder builder, Map<String, String> protocolHeaders) {
@@ -785,17 +850,6 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             }
         }
         return joined;
-    }
-
-    private boolean isAnthropicChannel(RelayChannel channel) {
-        String rule = channel == null || channel.getChannelRule() == null ? "" : channel.getChannelRule().toLowerCase();
-        if ("anthropic".equals(rule)) return true;
-        if ("openai".equals(rule)) return false;
-        String provider = channel == null || channel.getProvider() == null ? "" : channel.getProvider().toLowerCase();
-        String baseUrl = channel == null || channel.getApiBaseUrl() == null ? "" : channel.getApiBaseUrl().toLowerCase();
-        return provider.contains("anthropic")
-                || provider.contains("claude")
-                || baseUrl.contains("api.anthropic.com");
     }
 
     private boolean hasFiles(List<RelayMultipartFile> files) {
@@ -859,35 +913,72 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         }, STREAM_IDLE_CHECK_INTERVAL.toMillis(), STREAM_IDLE_CHECK_INTERVAL.toMillis(), TimeUnit.MILLISECONDS);
     }
 
-    private boolean isChannelCircuitOpen(RelayChannel channel) {
+    /** 熔断作用域：渠道内按供应商隔离（channelId:providerId），无供应商的兜底渠道退化为 channelId。 */
+    private String circuitScopeKey(RelayContext context) {
+        RelayChannel channel = context == null ? null : context.channel();
+        RelayChannelProvider provider = context == null ? null : context.provider();
         if (channel == null || channel.getId() == null) {
+            return "unknown";
+        }
+        if (provider != null && provider.getId() != null) {
+            return channel.getId() + ":" + provider.getId();
+        }
+        return String.valueOf(channel.getId());
+    }
+
+    private Long providerId(RelayContext context) {
+        RelayChannelProvider provider = context == null ? null : context.provider();
+        return provider == null ? null : provider.getId();
+    }
+
+    private String providerName(RelayContext context) {
+        RelayChannelProvider provider = context == null ? null : context.provider();
+        return provider == null ? "" : provider.getName();
+    }
+
+    private boolean isChannelCircuitOpen(RelayContext context) {
+        if (context == null || context.channel() == null || context.channel().getId() == null) {
             return false;
         }
-        ChannelCircuitState state = CHANNEL_CIRCUITS.get(channel.getId());
+        ChannelCircuitState state = CHANNEL_CIRCUITS.get(circuitScopeKey(context));
         return state != null && state.isOpen(System.currentTimeMillis());
     }
 
-    private void recordChannelFailure(RelayChannel channel, String reason) {
-        if (channel == null || channel.getId() == null) {
+    private void recordChannelFailure(RelayContext context, String reason) {
+        if (context == null || context.channel() == null || context.channel().getId() == null) {
             return;
         }
         long blockedUntil = CHANNEL_CIRCUITS
-                .computeIfAbsent(channel.getId(), ignored -> new ChannelCircuitState())
+                .computeIfAbsent(circuitScopeKey(context), ignored -> new ChannelCircuitState())
                 .recordFailure(System.currentTimeMillis());
         if (blockedUntil > 0) {
-            log.warn("Relay channel circuit opened channelId={} channelName={} blockedForSeconds={} reason={}",
-                    channel.getId(), channel.getName(), CHANNEL_CIRCUIT_COOLDOWN.toSeconds(), truncateMessage(reason));
+            log.warn("Relay channel circuit opened scope={} channelId={} channelName={} providerId={} providerName={} blockedForSeconds={} reason={}",
+                    circuitScopeKey(context), context.channel().getId(), context.channel().getName(),
+                    providerId(context), providerName(context), CHANNEL_CIRCUIT_COOLDOWN.toSeconds(), truncateMessage(reason));
         }
     }
 
-    private void recordChannelSuccess(RelayChannel channel) {
-        if (channel == null || channel.getId() == null) {
+    private void recordChannelSuccess(RelayContext context) {
+        if (context == null || context.channel() == null || context.channel().getId() == null) {
             return;
         }
-        ChannelCircuitState state = CHANNEL_CIRCUITS.remove(channel.getId());
+        ChannelCircuitState state = CHANNEL_CIRCUITS.remove(circuitScopeKey(context));
         if (state != null) {
             state.recordSuccess();
         }
+    }
+
+    /** least_conn 在途计数：上游尝试（含整个流式生命周期）期间保持 +1。 */
+    private AtomicInteger beginProviderRequest(RelayContext context) {
+        RelayChannelProvider provider = context == null ? null : context.provider();
+        if (provider == null || provider.getId() == null) {
+            return null;
+        }
+        return providerScheduler.beginRequest(provider.getId());
+    }
+
+    private void endProviderRequest(AtomicInteger counter) {
+        providerScheduler.endRequest(counter);
     }
 
     private boolean isRetryableTransportFailure(Throwable error) {

@@ -15,7 +15,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Value("${app.upload.image-path:userImage/}")
     private String imagePath;
 
-    @Value("${app.cors.allowed-origin-patterns:http://localhost:5173,http://127.0.0.1:5173,http://image.qzcy3.top,https://image.qzcy3.top,http://*.qzcy3.top,https://*.qzcy3.top}")
+    @Value("${app.cors.allowed-origin-patterns:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://image.qzcy3.top,https://image.qzcy3.top,http://*.qzcy3.top,https://*.qzcy3.top}")
     private String[] allowedOriginPatterns;
 
     @Override

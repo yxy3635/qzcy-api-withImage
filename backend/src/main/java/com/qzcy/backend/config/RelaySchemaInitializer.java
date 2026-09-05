@@ -19,9 +19,12 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         addColumnIfMissing("relay_channel", "group_names", "VARCHAR(160) NOT NULL DEFAULT 'default'");
         addColumnIfMissing("relay_channel", "remark", "VARCHAR(500) NOT NULL DEFAULT ''");
         addColumnIfMissing("relay_channel", "max_concurrency", "INT NOT NULL DEFAULT 0");
+        addColumnIfMissing("relay_channel", "schedule_strategy", "VARCHAR(20) NOT NULL DEFAULT 'weighted_random'");
         jdbcTemplate.update("UPDATE relay_channel SET channel_rule = 'openai' WHERE channel_rule IS NULL OR channel_rule = ''");
         jdbcTemplate.update("UPDATE relay_channel SET group_names = 'default' WHERE group_names IS NULL OR group_names = ''");
+        jdbcTemplate.update("UPDATE relay_channel SET schedule_strategy = 'weighted_random' WHERE schedule_strategy IS NULL OR schedule_strategy = ''");
         ensureRelayChannelModelTable();
+        ensureRelayChannelProviderTable();
         ensureRelayModelAllowsDuplicateNames();
         ensureGroupModelNamesUniqueWithinGroup();
         normalizeImplicitChannelUpstreamModels();
@@ -51,6 +54,45 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         addColumnIfMissing("relay_channel_model", "upstream_model", "VARCHAR(120) NOT NULL DEFAULT ''");
         addColumnIfMissing("relay_channel_model", "enabled", "TINYINT(1) NOT NULL DEFAULT 1");
         addColumnIfMissing("relay_channel_model", "updated_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+    }
+
+    /**
+     * 渠道多供应商：老渠道的单上游凭证（base_url/api_key/rule）回填为一条供应商记录，
+     * 渠道上的旧字段保留作为无供应商时的兜底，升级后行为不变。
+     */
+    private void ensureRelayChannelProviderTable() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS relay_channel_provider (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    channel_id BIGINT NOT NULL,
+                    name VARCHAR(80) NOT NULL DEFAULT '',
+                    api_base_url VARCHAR(255) NOT NULL DEFAULT '',
+                    api_key VARCHAR(255) NOT NULL DEFAULT '',
+                    channel_rule VARCHAR(40) NOT NULL DEFAULT 'openai',
+                    priority INT NOT NULL DEFAULT 10,
+                    weight INT NOT NULL DEFAULT 10,
+                    status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+                    enabled TINYINT(1) NOT NULL DEFAULT 1,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL,
+                    INDEX idx_relay_channel_provider_channel (channel_id),
+                    INDEX idx_relay_channel_provider_enabled (enabled)
+                )
+                """);
+        addColumnIfMissing("relay_channel_provider", "channel_rule", "VARCHAR(40) NOT NULL DEFAULT 'openai'");
+        addColumnIfMissing("relay_channel_provider", "priority", "INT NOT NULL DEFAULT 10");
+        addColumnIfMissing("relay_channel_provider", "weight", "INT NOT NULL DEFAULT 10");
+        addColumnIfMissing("relay_channel_provider", "status", "VARCHAR(20) NOT NULL DEFAULT 'unknown'");
+        addColumnIfMissing("relay_channel_provider", "enabled", "TINYINT(1) NOT NULL DEFAULT 1");
+        jdbcTemplate.update("""
+                INSERT INTO relay_channel_provider
+                    (channel_id, name, api_base_url, api_key, channel_rule, priority, weight, status, enabled, created_at, updated_at)
+                SELECT c.id, c.provider, c.api_base_url, IFNULL(c.api_key, ''), c.channel_rule, c.priority, c.weight, c.status, 1, NOW(), NOW()
+                FROM relay_channel c
+                WHERE NOT EXISTS (SELECT 1 FROM relay_channel_provider p WHERE p.channel_id = c.id)
+                  AND c.api_base_url IS NOT NULL AND c.api_base_url <> ''
+                  AND c.api_key IS NOT NULL AND c.api_key <> ''
+                """);
     }
 
     private void ensureRelayModelAllowsDuplicateNames() {

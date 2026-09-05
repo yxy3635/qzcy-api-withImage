@@ -23,6 +23,35 @@ CREATE TABLE IF NOT EXISTS relay_channel (
     INDEX idx_relay_channel_priority (priority, weight)
     );
 
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_channel' AND COLUMN_NAME = 'schedule_strategy') = 0, 'ALTER TABLE relay_channel ADD COLUMN schedule_strategy VARCHAR(20) NOT NULL DEFAULT ''weighted_random'' AFTER enabled', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS relay_channel_provider (
+                                                     id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    channel_id BIGINT NOT NULL,
+    name VARCHAR(80) NOT NULL DEFAULT '',
+    api_base_url VARCHAR(255) NOT NULL DEFAULT '',
+    api_key VARCHAR(255) NOT NULL DEFAULT '',
+    channel_rule VARCHAR(40) NOT NULL DEFAULT 'openai',
+    priority INT NOT NULL DEFAULT 10,
+    weight INT NOT NULL DEFAULT 10,
+    status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    INDEX idx_relay_channel_provider_channel (channel_id),
+    INDEX idx_relay_channel_provider_enabled (enabled)
+    );
+
+-- 老渠道升级回填：把渠道上的单上游凭证迁移为一条供应商记录。
+INSERT INTO relay_channel_provider
+(channel_id, name, api_base_url, api_key, channel_rule, priority, weight, status, enabled, created_at, updated_at)
+SELECT c.id, c.provider, c.api_base_url, IFNULL(c.api_key, ''), c.channel_rule, c.priority, c.weight, c.status, 1, NOW(), NOW()
+FROM relay_channel c
+WHERE NOT EXISTS (SELECT 1 FROM relay_channel_provider p WHERE p.channel_id = c.id)
+  AND c.api_base_url IS NOT NULL AND c.api_base_url <> ''
+  AND c.api_key IS NOT NULL AND c.api_key <> '';
+
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_channel' AND COLUMN_NAME = 'channel_rule') = 0, 'ALTER TABLE relay_channel ADD COLUMN channel_rule VARCHAR(40) NOT NULL DEFAULT ''openai'' AFTER provider', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

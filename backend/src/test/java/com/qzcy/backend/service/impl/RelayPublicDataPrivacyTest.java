@@ -9,6 +9,7 @@ import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayUsageLog;
 import com.qzcy.backend.mapper.RelayChannelMapper;
 import com.qzcy.backend.mapper.RelayChannelModelMapper;
+import com.qzcy.backend.mapper.RelayChannelProviderMapper;
 import com.qzcy.backend.mapper.RelayGroupMapper;
 import com.qzcy.backend.mapper.RelayGroupModelMapper;
 import com.qzcy.backend.mapper.RelayModelMapper;
@@ -16,6 +17,7 @@ import com.qzcy.backend.mapper.RelayTokenMapper;
 import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.RelayModelStatusCache;
+import com.qzcy.backend.service.RelayProviderScheduler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -40,6 +42,8 @@ class RelayPublicDataPrivacyTest {
         service = new RelayServiceImpl(
                 mock(RelayChannelMapper.class),
                 channelModelMapper,
+                mock(RelayChannelProviderMapper.class),
+                new RelayProviderScheduler(),
                 mock(RelayGroupMapper.class),
                 mock(RelayGroupModelMapper.class),
                 mock(RelayModelMapper.class),

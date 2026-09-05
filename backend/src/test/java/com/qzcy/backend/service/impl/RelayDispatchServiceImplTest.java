@@ -11,8 +11,10 @@ import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.PaymentService;
 import com.qzcy.backend.service.RelayPolicyService;
+import com.qzcy.backend.service.RelayProviderScheduler;
 import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayChannelModel;
+import com.qzcy.backend.entity.RelayChannelProvider;
 import com.qzcy.backend.entity.RelayModel;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -63,8 +65,8 @@ class RelayDispatchServiceImplTest {
     void requestBillingDoesNotChargeNonSuccessfulUpstreamResponse() {
         RelayModel model = new RelayModel();
         model.setFixedRequestBilling(true);
-        RelayContext context = new RelayContext(null, model, null, null, null, "chat");
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayContext context = new RelayContext(null, model, null, null, null, null, "chat");
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
         RelayCostBreakdown cost = new RelayCostBreakdown(
                 new BigDecimal("0.010000"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("0.050000"), new BigDecimal("0.050000"));
@@ -83,8 +85,8 @@ class RelayDispatchServiceImplTest {
     void usageBillingKeepsExistingErrorCostAndSuccessCost() {
         RelayModel model = new RelayModel();
         model.setFixedRequestBilling(false);
-        RelayContext context = new RelayContext(null, model, null, null, null, "chat");
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayContext context = new RelayContext(null, model, null, null, null, null, "chat");
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
         RelayCostBreakdown cost = new RelayCostBreakdown(
                 new BigDecimal("0.010000"), new BigDecimal("0.020000"), BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, new BigDecimal("0.030000"));
@@ -107,7 +109,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void preservesUpstreamErrorBodyWhileRedactingUrls() {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
         String upstreamError = "{\"type\":\"error\",\"error\":{\"type\":\"provider_error\",\"message\":\"See https://api.example.com/v1/errors?id=42\"},\"request_id\":\"req_123\"}";
 
         String sanitized = ReflectionTestUtils.invokeMethod(service, "sanitizeUpstreamErrorBody", upstreamError);
@@ -118,7 +120,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void redactsJsonEscapedUrlsWithoutReformattingErrorBody() {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
         String upstreamError = "{\"message\":\"See https:\\/\\/api.example.com\\/v1\\/errors\"}";
 
         String sanitized = ReflectionTestUtils.invokeMethod(service, "sanitizeUpstreamErrorBody", upstreamError);
@@ -128,7 +130,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void extractsThinkingEffortFromCommonRequestFormats() throws Exception {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
 
         ObjectNode responsesBody = (ObjectNode) OBJECT_MAPPER.readTree("""
                 {"model":"gpt-5.6-luna","reasoning":{"effort":"high"}}
@@ -157,7 +159,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void responsesCompactBodyIsForwardedWithoutRemovingContext() throws Exception {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
         ObjectNode inbound = (ObjectNode) OBJECT_MAPPER.readTree("""
                 {
                   "model": "public-model",
@@ -173,7 +175,7 @@ class RelayDispatchServiceImplTest {
         ObjectNode original = inbound.deepCopy();
         RelayModel model = new RelayModel();
         model.setModel("internal-model");
-        RelayContext context = new RelayContext(null, model, null, null, null, "chat");
+        RelayContext context = new RelayContext(null, model, null, null, null, null, "chat");
 
         ObjectNode outbound = ReflectionTestUtils.invokeMethod(
                 service, "prepareOutboundBody", inbound, context, "/v1/responses/compact");
@@ -189,13 +191,13 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void explicitChannelMappingOverridesRequestModel() throws Exception {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
         ObjectNode inbound = (ObjectNode) OBJECT_MAPPER.readTree("""
                 {"model":"public-alias","messages":[{"role":"user","content":"ping"}]}
                 """);
         RelayChannelModel binding = new RelayChannelModel();
         binding.setUpstreamModel("provider/actual-model");
-        RelayContext context = new RelayContext(null, null, null, null, binding, "chat");
+        RelayContext context = new RelayContext(null, null, null, null, null, binding, "chat");
 
         ObjectNode outbound = ReflectionTestUtils.invokeMethod(
                 service, "prepareOutboundBody", inbound, context, "/v1/chat/completions");
@@ -206,8 +208,8 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void noMappingPreservesRequestModelForChatResponsesAndCompact() throws Exception {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, null, null, null, null, OBJECT_MAPPER);
-        RelayContext context = new RelayContext(null, null, null, null, null, "chat");
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayContext context = new RelayContext(null, null, null, null, null, null, "chat");
         for (String path : new String[]{"/v1/chat/completions", "/v1/responses", "/v1/responses/compact"}) {
             ObjectNode inbound = (ObjectNode) OBJECT_MAPPER.readTree("{\"model\":\"public-alias\",\"input\":\"ping\"}");
             ObjectNode outbound = ReflectionTestUtils.invokeMethod(
@@ -218,10 +220,24 @@ class RelayDispatchServiceImplTest {
     }
 
     @Test
+    void circuitScopeKeyIsolatesProvidersWithinChannel() {
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayChannel channel = new RelayChannel();
+        channel.setId(7L);
+        RelayChannelProvider provider = new RelayChannelProvider();
+        provider.setId(9L);
+        RelayContext legacy = new RelayContext(null, null, null, channel, null, null, "chat");
+        RelayContext scoped = new RelayContext(null, null, null, channel, provider, null, "chat");
+
+        assertEquals("7", ReflectionTestUtils.invokeMethod(service, "circuitScopeKey", legacy));
+        assertEquals("7:9", ReflectionTestUtils.invokeMethod(service, "circuitScopeKey", scoped));
+    }
+
+    @Test
     void fallbackUsageLogKeepsOriginalBillingValues() {
         RelayUsageLogMapper usageLogMapper = mock(RelayUsageLogMapper.class);
         RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(
-                mock(RelayPolicyService.class), usageLogMapper, mock(RelayTokenMapper.class),
+                mock(RelayPolicyService.class), new RelayProviderScheduler(), usageLogMapper, mock(RelayTokenMapper.class),
                 mock(UserMapper.class), mock(PaymentService.class), OBJECT_MAPPER);
         when(usageLogMapper.insert(any(RelayUsageLog.class)))
                 .thenThrow(new RuntimeException("temporary insert failure"))

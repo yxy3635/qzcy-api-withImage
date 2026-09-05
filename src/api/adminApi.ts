@@ -1,5 +1,11 @@
 import http from './http'
-import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
+import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayChannelProvider, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
+
+/** 渠道保存 payload：供应商 apiKey 留空表示保留原值，id 为空表示新增。 */
+export type RelayChannelPayload = Partial<Omit<RelayChannel, 'id' | 'apiKeyMasked' | 'status'>> & {
+  apiKey?: string
+  providers?: Array<Partial<Omit<RelayChannelProvider, 'id' | 'channelId' | 'apiKeyMasked'>> & { id?: number; apiKey?: string }>
+}
 
 export const adminApi = {
   dashboard() {
@@ -56,10 +62,10 @@ export const adminApi = {
   relayOverview() {
     return http.get<ApiResponse<RelayAdminOverview>>('/admin/relay')
   },
-  createRelayChannel(payload: Partial<Omit<RelayChannel, 'id' | 'apiKeyMasked' | 'status'>> & { apiKey?: string }) {
+  createRelayChannel(payload: RelayChannelPayload) {
     return http.post<ApiResponse<RelayChannel>>('/admin/relay/channels', payload)
   },
-  updateRelayChannel(id: number, payload: Partial<Omit<RelayChannel, 'id' | 'apiKeyMasked' | 'status'>> & { apiKey?: string }) {
+  updateRelayChannel(id: number, payload: RelayChannelPayload) {
     return http.put<ApiResponse<RelayChannel>>(`/admin/relay/channels/${id}`, payload)
   },
   deleteRelayChannel(id: number) {

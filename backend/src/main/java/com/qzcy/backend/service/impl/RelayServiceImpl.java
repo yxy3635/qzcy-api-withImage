@@ -16,6 +16,8 @@ import com.qzcy.backend.dto.RelayModelDto;
 import com.qzcy.backend.dto.RelayModelRecentCallDto;
 import com.qzcy.backend.dto.RelayModelUpdateDto;
 import com.qzcy.backend.dto.RelayModelUsageDto;
+import com.qzcy.backend.dto.RelayProviderDto;
+import com.qzcy.backend.dto.RelayProviderUpdateDto;
 import com.qzcy.backend.dto.RelayPublicChannelDto;
 import com.qzcy.backend.dto.RelayPublicChannelModelDto;
 import com.qzcy.backend.dto.RelayStatsDto;
@@ -26,6 +28,7 @@ import com.qzcy.backend.dto.RelayUsageLogDto;
 import com.qzcy.backend.dto.RelayUserOverviewDto;
 import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayChannelModel;
+import com.qzcy.backend.entity.RelayChannelProvider;
 import com.qzcy.backend.entity.RelayGroup;
 import com.qzcy.backend.entity.RelayGroupModel;
 import com.qzcy.backend.entity.RelayModel;
@@ -35,6 +38,7 @@ import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayChannelMapper;
 import com.qzcy.backend.mapper.RelayChannelModelMapper;
+import com.qzcy.backend.mapper.RelayChannelProviderMapper;
 import com.qzcy.backend.mapper.RelayGroupMapper;
 import com.qzcy.backend.mapper.RelayGroupModelMapper;
 import com.qzcy.backend.mapper.RelayModelMapper;
@@ -43,6 +47,7 @@ import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.RelayService;
 import com.qzcy.backend.service.RelayModelStatusCache;
+import com.qzcy.backend.service.RelayProviderScheduler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -71,6 +76,8 @@ import java.util.stream.IntStream;
 public class RelayServiceImpl implements RelayService {
     private final RelayChannelMapper channelMapper;
     private final RelayChannelModelMapper channelModelMapper;
+    private final RelayChannelProviderMapper channelProviderMapper;
+    private final RelayProviderScheduler providerScheduler;
     private final RelayGroupMapper groupMapper;
     private final RelayGroupModelMapper groupModelMapper;
     private final RelayModelMapper modelMapper;
@@ -127,8 +134,10 @@ public class RelayServiceImpl implements RelayService {
         if (channel.getMaxConcurrency() == null) channel.setMaxConcurrency(0);
         if (channel.getPriceMultiplier() == null) channel.setPriceMultiplier(BigDecimal.ONE);
         if (channel.getEnabled() == null) channel.setEnabled(true);
+        if (isBlank(channel.getScheduleStrategy())) channel.setScheduleStrategy("weighted_random");
         channelMapper.insert(channel);
         replaceChannelModels(channel.getId(), dto.getModels());
+        replaceChannelProviders(channel.getId(), dto.getProviders());
         return toChannelDto(channelMapper.selectById(channel.getId()));
     }
 
@@ -141,6 +150,9 @@ public class RelayServiceImpl implements RelayService {
         if (dto.getModels() != null) {
             replaceChannelModels(channel.getId(), dto.getModels());
         }
+        if (dto.getProviders() != null) {
+            replaceChannelProviders(channel.getId(), dto.getProviders());
+        }
         return toChannelDto(channelMapper.selectById(id));
     }
 
@@ -149,7 +161,73 @@ public class RelayServiceImpl implements RelayService {
         RelayChannel channel = channelMapper.selectById(id);
         if (channel == null) throw new BusinessException(404, "Relay channel not found");
         channelModelMapper.deleteByChannelId(id);
+        channelProviderMapper.delete(new QueryWrapper<RelayChannelProvider>().eq("channel_id", id));
+        providerScheduler.resetRoundRobin(id);
         channelMapper.deleteById(id);
+    }
+
+    /**
+     * 渠道内供应商全量同步：按 id 增量更新已有记录、插入新记录、删除缺失记录，
+     * 避免全删重建导致熔断/轮询状态错乱。apiKey 留空表示保留原值。
+     */
+    private void replaceChannelProviders(Long channelId, List<RelayProviderUpdateDto> providers) {
+        List<RelayProviderUpdateDto> items = providers == null ? List.of() : providers;
+        if (items.isEmpty()) {
+            // 兼容旧调用：未传供应商时从渠道自身字段派生一个；两者都没有则报错。
+            RelayChannel channel = channelMapper.selectById(channelId);
+            if (channel != null && !isBlank(channel.getApiBaseUrl()) && !isBlank(channel.getApiKey())) {
+                RelayProviderUpdateDto derived = new RelayProviderUpdateDto();
+                derived.setName(channel.getProvider());
+                derived.setApiBaseUrl(channel.getApiBaseUrl());
+                derived.setApiKey(channel.getApiKey());
+                derived.setChannelRule(channel.getChannelRule());
+                derived.setPriority(channel.getPriority());
+                derived.setWeight(channel.getWeight());
+                derived.setEnabled(true);
+                items = List.of(derived);
+            } else {
+                throw new BusinessException(400, "At least one provider with base URL and API key is required");
+            }
+        }
+        List<RelayChannelProvider> existing = channelProviderMapper.selectByChannelId(channelId);
+        Set<Long> keptIds = new HashSet<>();
+        for (RelayProviderUpdateDto item : items) {
+            if (item == null) continue;
+            RelayChannelProvider target = null;
+            if (item.getId() != null) {
+                target = existing.stream()
+                        .filter(candidate -> item.getId().equals(candidate.getId()))
+                        .findFirst()
+                        .orElse(null);
+            }
+            boolean creating = target == null;
+            if (creating) {
+                if (isBlank(item.getApiBaseUrl())) throw new BusinessException(400, "Provider base URL is required");
+                if (isBlank(item.getApiKey())) throw new BusinessException(400, "Provider API key is required");
+                target = new RelayChannelProvider();
+                target.setChannelId(channelId);
+                target.setStatus("unknown");
+            }
+            target.setName(isBlank(item.getName()) ? "" : item.getName().trim());
+            target.setApiBaseUrl(normalizeBaseUrl(item.getApiBaseUrl()));
+            if (!isBlank(item.getApiKey())) {
+                target.setApiKey(item.getApiKey().trim());
+            }
+            target.setChannelRule(normalizeChannelRule(item.getChannelRule()));
+            target.setPriority(item.getPriority() == null ? 10 : Math.max(0, item.getPriority()));
+            target.setWeight(item.getWeight() == null ? 10 : Math.max(0, item.getWeight()));
+            target.setEnabled(item.getEnabled() == null || item.getEnabled());
+            if (creating) {
+                channelProviderMapper.insert(target);
+            } else {
+                channelProviderMapper.updateById(target);
+            }
+            keptIds.add(target.getId());
+        }
+        existing.stream()
+                .filter(candidate -> !keptIds.contains(candidate.getId()))
+                .forEach(candidate -> channelProviderMapper.deleteById(candidate.getId()));
+        providerScheduler.resetRoundRobin(channelId);
     }
 
     @Override
@@ -249,36 +327,75 @@ public class RelayServiceImpl implements RelayService {
     public List<RelayUpstreamModelDto> fetchUpstreamModels(Long channelId) {
         RelayChannel channel = channelMapper.selectById(channelId);
         if (channel == null) throw new BusinessException(404, "Relay channel not found");
-        if (isBlank(channel.getApiBaseUrl())) throw new BusinessException(400, "Channel base URL is not configured");
-        if (isBlank(channel.getApiKey())) throw new BusinessException(400, "Channel API key is not configured");
+        List<RelayChannelProvider> allProviders = channelProviderMapper.selectByChannelId(channelId);
+        List<RelayChannelProvider> providers = allProviders.stream()
+                .filter(item -> item.getEnabled() == null || item.getEnabled())
+                .filter(item -> !isBlank(item.getApiBaseUrl()) && !isBlank(item.getApiKey()))
+                .toList();
+        if (providers.isEmpty()) {
+            // 与调度口径一致：渠道已有供应商记录（哪怕全被停用）时不再回退旧凭证。
+            if (!allProviders.isEmpty() || isBlank(channel.getApiBaseUrl()) || isBlank(channel.getApiKey())) {
+                throw new BusinessException(400, "No enabled provider with base URL and API key on this channel");
+            }
+            RelayChannelProvider legacy = new RelayChannelProvider();
+            legacy.setChannelId(channelId);
+            legacy.setName(channel.getProvider());
+            legacy.setApiBaseUrl(channel.getApiBaseUrl());
+            legacy.setApiKey(channel.getApiKey());
+            legacy.setChannelRule(channel.getChannelRule());
+            providers = List.of(legacy);
+        }
+        Set<String> configured = new HashSet<>(channelModelMapper.modelsForChannel(channelId).stream()
+                .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
+                .map(item -> isBlank(item.getUpstreamModel())
+                        ? (isBlank(item.getDisplayName()) ? item.getModel() : item.getDisplayName())
+                        : item.getUpstreamModel().trim())
+                .filter(value -> !isBlank(value))
+                .toList());
+        // 渠道下模型绑定是共享的，所以拉取各供应商的模型列表取并集。
+        Map<String, RelayUpstreamModelDto> merged = new LinkedHashMap<>();
+        List<String> errors = new ArrayList<>();
+        for (RelayChannelProvider provider : providers) {
+            String label = isBlank(provider.getName()) ? "provider#" + provider.getId() : provider.getName();
+            try {
+                for (RelayUpstreamModelDto item : fetchUpstreamModelsForEndpoint(provider.getApiBaseUrl(), provider.getApiKey(), provider.getChannelRule())) {
+                    merged.putIfAbsent(item.getId(), item);
+                }
+            } catch (Exception ex) {
+                errors.add(label + ": " + ex.getMessage());
+            }
+        }
+        if (merged.isEmpty() && !errors.isEmpty()) {
+            throw new BusinessException(500, "Upstream model query failed: " + String.join("; ", errors));
+        }
+        // 合并后按渠道已绑定模型重新标记，供前端勾选状态使用。
+        return merged.values().stream()
+                .map(item -> new RelayUpstreamModelDto(item.getId(), item.getOwnedBy(), configured.contains(item.getId())))
+                .toList();
+    }
+
+    private List<RelayUpstreamModelDto> fetchUpstreamModelsForEndpoint(String apiBaseUrl, String apiKey, String channelRule) {
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(channel.getApiBaseUrl(), "/v1/models")))
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(apiBaseUrl, "/v1/models")))
                     .timeout(Duration.ofSeconds(30))
                     .header("Accept", "application/json")
                     .GET();
-            applyRelayAuthHeaders(builder, channel);
+            applyRelayAuthHeaders(builder, apiKey, channelRule);
             HttpRequest request = builder.build();
             HttpResponse<String> response = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(10))
                     .build()
                     .send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new BusinessException(response.statusCode(), "Upstream model query failed: " + response.body());
+                throw new BusinessException(response.statusCode(), "HTTP " + response.statusCode() + ": " + response.body());
             }
             JsonNode data = objectMapper.readTree(response.body()).path("data");
-            Set<String> configured = new HashSet<>(channelModelMapper.modelsForChannel(channelId).stream()
-                    .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
-                    .map(item -> isBlank(item.getUpstreamModel())
-                            ? (isBlank(item.getDisplayName()) ? item.getModel() : item.getDisplayName())
-                            : item.getUpstreamModel().trim())
-                    .filter(value -> !isBlank(value))
-                    .toList());
             if (!data.isArray()) return List.of();
             return java.util.stream.StreamSupport.stream(data.spliterator(), false)
                     .map(item -> new RelayUpstreamModelDto(
                             item.path("id").asText(""),
                             item.path("owned_by").asText(""),
-                            configured.contains(item.path("id").asText(""))
+                            false
                     ))
                     .filter(item -> item.getId() != null && !item.getId().isBlank())
                     .toList();
@@ -715,6 +832,9 @@ public class RelayServiceImpl implements RelayService {
             channel.setPriceMultiplier(dto.getPriceMultiplier());
         }
         if (dto.getEnabled() != null) channel.setEnabled(dto.getEnabled());
+        if (dto.getScheduleStrategy() != null) {
+            channel.setScheduleStrategy(providerScheduler.normalizeStrategy(dto.getScheduleStrategy()));
+        }
     }
 
     private void apply(RelayModel model, RelayModelUpdateDto dto) {
@@ -892,9 +1012,19 @@ public class RelayServiceImpl implements RelayService {
     }
 
     private RelayChannelDto toChannelDto(RelayChannel channel) {
+        List<RelayProviderDto> providers = channelProviderMapper.selectByChannelId(channel.getId()).stream()
+                .map(this::toProviderDto)
+                .toList();
         return new RelayChannelDto(channel.getId(), channel.getName(), channel.getProvider(), channel.getChannelRule(), channel.getApiBaseUrl(),
                 mask(channel.getApiKey()), channel.getGroupNames(), channel.getRemark(), channel.getStatus(), channel.getPriority(), channel.getWeight(), channel.getRpmLimit(),
-                channel.getTpmLimit(), channel.getMaxConcurrency(), channel.getPriceMultiplier(), channel.getEnabled(), channelModelMapper.modelsForChannel(channel.getId()));
+                channel.getTpmLimit(), channel.getMaxConcurrency(), channel.getPriceMultiplier(), channel.getEnabled(), channel.getScheduleStrategy(),
+                providers, channelModelMapper.modelsForChannel(channel.getId()));
+    }
+
+    private RelayProviderDto toProviderDto(RelayChannelProvider provider) {
+        return new RelayProviderDto(provider.getId(), provider.getChannelId(), provider.getName(), provider.getApiBaseUrl(),
+                mask(provider.getApiKey()), provider.getChannelRule(), provider.getPriority(), provider.getWeight(),
+                provider.getStatus(), provider.getEnabled());
     }
 
     private RelayPublicChannelDto toPublicChannelDto(RelayChannel channel, int position) {
@@ -1062,24 +1192,13 @@ public class RelayServiceImpl implements RelayService {
         return baseUrl + path;
     }
 
-    private void applyRelayAuthHeaders(HttpRequest.Builder builder, RelayChannel channel) {
-        if (isAnthropicChannel(channel)) {
-            builder.header("x-api-key", channel.getApiKey())
+    private void applyRelayAuthHeaders(HttpRequest.Builder builder, String apiKey, String channelRule) {
+        if ("anthropic".equalsIgnoreCase(channelRule)) {
+            builder.header("x-api-key", apiKey)
                     .header("anthropic-version", "2023-06-01");
             return;
         }
-        builder.header("Authorization", "Bearer " + channel.getApiKey());
-    }
-
-    private boolean isAnthropicChannel(RelayChannel channel) {
-        String rule = channel == null || channel.getChannelRule() == null ? "" : channel.getChannelRule().toLowerCase();
-        if ("anthropic".equals(rule)) return true;
-        if ("openai".equals(rule)) return false;
-        String provider = channel == null || channel.getProvider() == null ? "" : channel.getProvider().toLowerCase();
-        String baseUrl = channel == null || channel.getApiBaseUrl() == null ? "" : channel.getApiBaseUrl().toLowerCase();
-        return provider.contains("anthropic")
-                || provider.contains("claude")
-                || baseUrl.contains("api.anthropic.com");
+        builder.header("Authorization", "Bearer " + apiKey);
     }
 
     private String createApiKeyValue() {
