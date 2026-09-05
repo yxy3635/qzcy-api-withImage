@@ -16,11 +16,14 @@ import com.qzcy.backend.dto.relay.RelayStreamDispatchResult;
 import com.qzcy.backend.entity.RelayGroup;
 import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayToken;
+import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayGroupMapper;
 import com.qzcy.backend.mapper.RelayGroupModelMapper;
 import com.qzcy.backend.mapper.RelayChannelModelMapper;
 import com.qzcy.backend.mapper.RelayModelMapper;
+import com.qzcy.backend.mapper.RelayUsageLogMapper;
+import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.RelayChannelStatusService;
 import com.qzcy.backend.service.RelayDispatchService;
 import com.qzcy.backend.service.RelayPolicyService;
@@ -47,6 +50,8 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Arrays;
@@ -74,6 +79,8 @@ public class RelayController {
     private final RelayGroupMapper groupMapper;
     private final RelayGroupModelMapper groupModelMapper;
     private final RelayChannelModelMapper channelModelMapper;
+    private final RelayUsageLogMapper usageLogMapper;
+    private final UserMapper userMapper;
     private final ObjectMapper objectMapper;
 
     @GetMapping("/relay/overview")
@@ -203,6 +210,46 @@ public class RelayController {
                 data.isEmpty() ? "" : data.get(0).path("id").asText(""),
                 data.isEmpty() ? "" : data.get(data.size() - 1).path("id").asText(""));
         return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body);
+    }
+
+    /**
+     * 余额查询（CC Switch 等客户端用量脚本使用）：用中转 API Key 认证，
+     * 返回密钥所属用户的余额与今日消耗。无关用户数据不暴露。
+     */
+    @GetMapping({"/v1/user/balance", "/v1/dashboard/billing/balance"})
+    public ResponseEntity<Map<String, Object>> userBalance(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+                                                           @RequestHeader(value = "x-api-key", required = false) String apiKeyHeader,
+                                                           @RequestParam(value = "key", required = false) String queryKey,
+                                                           HttpServletRequest request) {
+        RelayToken access;
+        try {
+            access = relayPolicyService.requireRelayToken(authorization, apiKeyHeader, queryKey);
+            relayPolicyService.enforceIpAccess(access, clientIp(request));
+        } catch (BusinessException ex) {
+            int status = ex.getCode() >= 400 && ex.getCode() < 600 ? ex.getCode() : 401;
+            return ResponseEntity.status(status)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("error", ex.getMessage() == null ? "unauthorized" : ex.getMessage()));
+        }
+        User user = userMapper.selectById(access.getUserId());
+        if (user == null) {
+            return ResponseEntity.status(404)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("error", "user not found"));
+        }
+        BigDecimal balance = user.getBalance() == null ? BigDecimal.ZERO : user.getBalance();
+        BigDecimal todayCost = usageLogMapper.userTodayCost(user.getId());
+        Long todayRequests = usageLogMapper.userTodayRequests(user.getId());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("balance", balance);
+        body.put("todayCost", todayCost == null ? BigDecimal.ZERO : todayCost);
+        body.put("todayRequests", todayRequests == null ? 0L : todayRequests);
+        body.put("unit", "USD");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, private, max-age=0")
+                .header(HttpHeaders.PRAGMA, "no-cache")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(body);
     }

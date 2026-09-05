@@ -65,8 +65,6 @@ const logPageSizeOptions = [10, 20, 50, 100]
 const expandedLogIds = ref<Set<number>>(new Set())
 const keyActionDialog = ref<{ action: 'toggle' | 'delete'; token: RelayToken } | null>(null)
 const keyActionLoading = ref(false)
-const ccSwitchImportDialog = ref<RelayToken | null>(null)
-const ccSwitchImportLoading = ref(false)
 const activePricingTooltip = ref<{
   model: RelayPublicChannelModel
   detail: RelayModel
@@ -1195,27 +1193,100 @@ function ccSwitchTargetForToken(token: RelayToken) {
     : { app: 'claude', label: 'Claude' }
 }
 
+const ccSwitchAppLabels: Record<string, string> = {
+  claude: 'Claude',
+  codex: 'Codex（OpenAI）',
+  gemini: 'Gemini CLI',
+  opencode: 'OpenCode',
+  openclaw: 'OpenClaw'
+}
+
+const ccSwitchAppOptions = Object.entries(ccSwitchAppLabels).map(([value, label]) => ({ value, label }))
+
+function ccSwitchIconForApp(app: string) {
+  if (app === 'claude') return 'anthropic'
+  if (app === 'codex') return 'openai'
+  if (app === 'gemini') return 'google'
+  return ''
+}
+
+// CC Switch 用量查询脚本（v3.9+）：客户端用中转密钥定时请求站点余额接口。
+const CC_SWITCH_USAGE_SCRIPT = `({
+  request: {
+    url: "{{baseUrl}}/api/v1/user/balance",
+    method: "GET",
+    headers: { "Authorization": "Bearer {{apiKey}}" }
+  },
+  extractor: function (response) {
+    const data = typeof response === "string" ? JSON.parse(response) : response;
+    return {
+      isValid: true,
+      remaining: data.balance ?? 0,
+      unit: "USD"
+    };
+  }
+})`
+
+const ccSwitchImportDialog = ref<RelayToken | null>(null)
+const ccSwitchImportLoading = ref(false)
+const ccSwitchForm = reactive({
+  name: '',
+  app: 'codex',
+  model: '',
+  haikuModel: '',
+  sonnetModel: '',
+  opusModel: '',
+  usageEnabled: true,
+  usageAutoInterval: 30
+})
+
+function defaultModelForToken(token: RelayToken) {
+  const tokenGroups = new Set(csvValues(token.groups).map((group) => group.toLowerCase()))
+  for (const channel of channels.value) {
+    if (!csvValues(channel.groupNames).some((group) => tokenGroups.has(group.toLowerCase()))) continue
+    const model = (channel.models || []).find((item) => item.enabled)
+    if (model) return model.displayName || model.model
+  }
+  return ''
+}
+
 async function importToCcSwitch(token: RelayToken) {
   tokenSecretActionId.value = token.id
   try {
     const { data } = await relayApi.revealToken(token.id)
-    const target = ccSwitchTargetForToken(token)
+    const app = ccSwitchForm.app
+    const appLabel = ccSwitchAppLabels[app] || app
     const params = new URLSearchParams({
       resource: 'provider',
-      app: target.app,
-      name: `${token.name} · imageCreater API`,
+      app,
+      name: ccSwitchForm.name.trim() || token.name,
       endpoint: apiBase.value,
       apiKey: data.data,
       homepage: siteOrigin.value,
-      notes: `由 imageCreater API 中转站安全导入 · ${target.label}`
+      enabled: 'false',
+      notes: `由 imageCreater API 中转站安全导入 · ${appLabel}`
     })
+    const icon = ccSwitchIconForApp(app)
+    if (icon) params.set('icon', icon)
+    if (ccSwitchForm.model.trim()) params.set('model', ccSwitchForm.model.trim())
+    if (app === 'claude') {
+      if (ccSwitchForm.haikuModel.trim()) params.set('haikuModel', ccSwitchForm.haikuModel.trim())
+      if (ccSwitchForm.sonnetModel.trim()) params.set('sonnetModel', ccSwitchForm.sonnetModel.trim())
+      if (ccSwitchForm.opusModel.trim()) params.set('opusModel', ccSwitchForm.opusModel.trim())
+    }
+    if (ccSwitchForm.usageEnabled) {
+      params.set('usageBaseUrl', siteOrigin.value)
+      params.set('usageEnabled', 'true')
+      params.set('usageAutoInterval', String(Math.max(0, Math.floor(Number(ccSwitchForm.usageAutoInterval) || 0))))
+      params.set('usageScript', CC_SWITCH_USAGE_SCRIPT)
+    }
     const link = document.createElement('a')
     link.href = `ccswitch://v1/import?${params.toString()}`
     link.style.display = 'none'
     document.body.appendChild(link)
     link.click()
     link.remove()
-    toast.success(`已唤起 CCSwitch，将导入到 ${target.label}`)
+    toast.success(`已唤起 CCSwitch，将导入到 ${appLabel}`)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : '唤起 CCSwitch 失败')
   } finally {
@@ -1224,6 +1295,15 @@ async function importToCcSwitch(token: RelayToken) {
 }
 
 function requestCcSwitchImport(token: RelayToken) {
+  const target = ccSwitchTargetForToken(token)
+  ccSwitchForm.name = token.name
+  ccSwitchForm.app = target.app
+  ccSwitchForm.model = defaultModelForToken(token)
+  ccSwitchForm.haikuModel = ''
+  ccSwitchForm.sonnetModel = ''
+  ccSwitchForm.opusModel = ''
+  ccSwitchForm.usageEnabled = true
+  ccSwitchForm.usageAutoInterval = 30
   ccSwitchImportDialog.value = token
 }
 
@@ -2606,18 +2686,73 @@ onMounted(async () => {
       @confirm="confirmKeyAction"
     />
 
-    <AppConfirmDialog
-      :open="Boolean(ccSwitchImportDialog)"
-      title="导入到 CCSwitch？"
-      :description="ccSwitchImportDialog ? `将为「${ccSwitchImportDialog.name}」创建 ${ccSwitchTargetForToken(ccSwitchImportDialog).label} 配置。点击后会打开 CCSwitch，应用内仍需完成一次导入确认。` : ''"
-      confirm-label="打开 CCSwitch"
-      cancel-label="暂不导入"
-      :subject="ccSwitchImportDialog ? `${ccSwitchImportDialog.tokenPreview} → ${ccSwitchTargetForToken(ccSwitchImportDialog).label}` : ''"
-      tone="success"
-      :loading="ccSwitchImportLoading"
-      @cancel="closeCcSwitchImport"
-      @confirm="confirmCcSwitchImport"
-    />
+    <div v-if="ccSwitchImportDialog" class="fixed inset-0 z-[80] flex items-center justify-center p-4">
+      <div class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" @click="closeCcSwitchImport"></div>
+      <div class="relative max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <h3 class="text-base font-black text-slate-950">导入到 CCSwitch</h3>
+            <p class="mt-1 text-xs font-semibold text-slate-500">
+              为密钥 {{ ccSwitchImportDialog.tokenPreview }} 生成供应商配置，打开 CCSwitch 后仍需确认一次。
+            </p>
+          </div>
+          <button class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" type="button" aria-label="关闭" @click="closeCcSwitchImport">
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div class="mt-4 space-y-3">
+          <label class="block">
+            <span class="text-xs font-black text-slate-600">供应商名称</span>
+            <input v-model="ccSwitchForm.name" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100" placeholder="显示在 CCSwitch 里的名称" />
+          </label>
+          <label class="block">
+            <span class="text-xs font-black text-slate-600">目标应用</span>
+            <select v-model="ccSwitchForm.app" class="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100">
+              <option v-for="option in ccSwitchAppOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+            <span class="mt-1 block text-[11px] font-semibold text-slate-400">已按密钥分组自动推荐，可手动更改。</span>
+          </label>
+          <label class="block">
+            <span class="text-xs font-black text-slate-600">默认模型（可选）</span>
+            <input v-model="ccSwitchForm.model" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100" placeholder="留空则使用 CCSwitch 默认" />
+          </label>
+          <div v-if="ccSwitchForm.app === 'claude'" class="grid grid-cols-3 gap-2">
+            <label class="block">
+              <span class="text-xs font-black text-slate-600">Haiku 模型</span>
+              <input v-model="ccSwitchForm.haikuModel" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-800 outline-none transition focus:border-sky-300" placeholder="可留空" />
+            </label>
+            <label class="block">
+              <span class="text-xs font-black text-slate-600">Sonnet 模型</span>
+              <input v-model="ccSwitchForm.sonnetModel" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-800 outline-none transition focus:border-sky-300" placeholder="可留空" />
+            </label>
+            <label class="block">
+              <span class="text-xs font-black text-slate-600">Opus 模型</span>
+              <input v-model="ccSwitchForm.opusModel" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-800 outline-none transition focus:border-sky-300" placeholder="可留空" />
+            </label>
+          </div>
+
+          <div class="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+            <label class="flex items-center gap-2 text-sm font-black text-slate-800">
+              <input v-model="ccSwitchForm.usageEnabled" class="h-4 w-4 accent-emerald-600" type="checkbox" />
+              在 CCSwitch 中启用余额查询
+            </label>
+            <p class="mt-1 text-[11px] font-semibold text-slate-500">CC Switch（v3.9+）将使用该密钥定时请求站点余额接口，显示剩余额度。</p>
+            <label v-if="ccSwitchForm.usageEnabled" class="mt-2 block">
+              <span class="text-xs font-black text-slate-600">自动查询间隔（分钟，0 为手动）</span>
+              <input v-model.number="ccSwitchForm.usageAutoInterval" class="mt-1 h-9 w-28 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-300" type="number" min="0" step="5" />
+            </label>
+          </div>
+        </div>
+
+        <div class="mt-5 flex items-center justify-end gap-2">
+          <button class="h-10 rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-600 transition hover:bg-slate-50 disabled:opacity-60" type="button" :disabled="ccSwitchImportLoading" @click="closeCcSwitchImport">取消</button>
+          <button class="h-10 rounded-xl bg-slate-950 px-5 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" type="button" :disabled="ccSwitchImportLoading || !ccSwitchForm.name.trim()" @click="confirmCcSwitchImport">
+            {{ ccSwitchImportLoading ? '唤起中…' : '打开 CCSwitch 导入' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <Teleport to="body">
       <div
