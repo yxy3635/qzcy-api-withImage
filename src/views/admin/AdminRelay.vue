@@ -4,84 +4,19 @@ import { useRouter } from 'vue-router'
 import RelayModal from '@/components/RelayModal.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import RelayDashboardPanel from '@/components/admin/RelayDashboardPanel.vue'
+import RelayChannelDrawer from '@/components/admin/RelayChannelDrawer.vue'
+import RelayModelDrawer from '@/components/admin/RelayModelDrawer.vue'
+import RelayGroupDrawer from '@/components/admin/RelayGroupDrawer.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/store/authStore'
 import type { RelayAdminOverview, RelayChannel, RelayDashboard, RelayGroup, RelayModel, RelayUpstreamModel } from '@/types'
+import type { ChannelDraft, GroupDraft, ModelDraft, ProviderDraft } from '@/types/relayAdmin'
 
 const toast = useToast()
 const auth = useAuthStore()
 const router = useRouter()
 type Tab = 'overview' | 'channels' | 'tokens' | 'models' | 'usage' | 'policy'
-
-interface ProviderDraft {
-  id: number | null
-  name: string
-  apiBaseUrl: string
-  keyValue: string
-  apiKeyMasked: string
-  channelRule: string
-  priority: number
-  weight: number
-  status: string
-  enabled: boolean
-}
-
-interface ChannelDraft {
-  name: string
-  provider: string
-  channelRule: string
-  apiBaseUrl: string
-  keyValue: string
-  groupNames: string
-  remark: string
-  priority: number
-  weight: number
-  rpmLimit: number
-  tpmLimit: number
-  maxConcurrency: number
-  priceMultiplier: number
-  enabled: boolean
-  scheduleStrategy: string
-  providers: ProviderDraft[]
-  models: ChannelModelDraft[]
-}
-
-interface ChannelModelDraft {
-  modelId: number
-  upstreamModel: string
-  enabled: boolean
-}
-
-interface ModelDraft {
-  model: string
-  displayName: string
-  modelType: string
-  inputPrice: number
-  outputPrice: number
-  cachedInputPrice: number
-  cacheCreationPrice: number
-  requestPrice: number
-  fixedRequestBilling: boolean
-  longContextThreshold: number
-  longContextBillingMode: 'price' | 'multiplier'
-  longContextMultiplier: number | null
-  longContextInputPrice: number | null
-  longContextOutputPrice: number | null
-  longContextCachedInputPrice: number | null
-  longContextCacheCreationPrice: number | null
-  status: string
-  enabled: boolean
-  sortOrder: number
-}
-
-interface GroupDraft {
-  code: string
-  name: string
-  ratio: number
-  enabled: boolean
-  modelIds: number[]
-}
 
 const overview = ref<RelayAdminOverview | null>(null)
 const dashboard = ref<RelayDashboard | null>(null)
@@ -225,6 +160,69 @@ const editingModel = computed(() => {
   if (typeof editingModelId.value !== 'number') return null
   return models.value.find((model) => model.id === editingModelId.value) || null
 })
+const activeChannel = computed(() => typeof editingChannelId.value === 'number'
+  ? channels.value.find((channel) => channel.id === editingChannelId.value) || null
+  : null)
+const activeChannelDraft = computed<ChannelDraft | null>(() => {
+  if (editingChannelId.value === 'new') return newChannel
+  return activeChannel.value ? channelDraftOf(activeChannel.value) : null
+})
+const activeModelDraft = computed<ModelDraft | null>(() => {
+  if (editingModelId.value === 'new') return newModel
+  return editingModel.value ? modelDraftOf(editingModel.value) : null
+})
+const activeGroup = computed(() => typeof editingGroupId.value === 'number'
+  ? groups.value.find((group) => group.id === editingGroupId.value) || null
+  : null)
+const activeGroupDraft = computed<GroupDraft | null>(() => {
+  if (editingGroupId.value === 'new') return newGroup
+  return activeGroup.value ? groupDraftOf(activeGroup.value) : null
+})
+
+function saveActiveChannel() {
+  if (editingChannelId.value === 'new') void createChannel()
+  else if (activeChannel.value) void saveChannel(activeChannel.value)
+}
+
+function deleteActiveChannel() {
+  if (activeChannel.value) deleteChannel(activeChannel.value)
+}
+
+function saveActiveModel() {
+  if (editingModelId.value === 'new') void createModel()
+  else if (editingModel.value) void saveModel(editingModel.value)
+}
+
+function deleteActiveModel() {
+  if (editingModel.value) deleteModel(editingModel.value)
+}
+
+function saveActiveGroup() {
+  if (editingGroupId.value === 'new') void createGroup()
+  else if (activeGroup.value) void saveGroup(activeGroup.value)
+}
+
+function deleteActiveGroup() {
+  if (activeGroup.value) deleteGroup(activeGroup.value)
+}
+
+async function toggleModelEnabled(model: RelayModel, enabled: boolean) {
+  const draft = modelDraftOf(model)
+  const previous = draft.enabled
+  draft.enabled = enabled
+  model.enabled = enabled
+  saving.value = `model-toggle-${model.id}`
+  try {
+    await adminApi.updateRelayModel(model.id, { enabled })
+    toast.success(`${draft.displayName || draft.model} 已${enabled ? '启用' : '停用'}`)
+  } catch (err) {
+    draft.enabled = previous
+    model.enabled = previous
+    toast.error(err instanceof Error ? err.message : '更新模型状态失败')
+  } finally {
+    saving.value = null
+  }
+}
 
 function compactToken(value?: number) {
   const amount = Number(value || 0)
@@ -385,33 +383,8 @@ function selectedGroupModelCount(draft: GroupDraft) {
   return draft.modelIds.length
 }
 
-function isGroupModelSelected(draft: GroupDraft, modelId: number) {
-  return draft.modelIds.includes(modelId)
-}
-
-function toggleGroupModel(draft: GroupDraft, modelId: number) {
-  if (draft.modelIds.includes(modelId)) {
-    draft.modelIds = draft.modelIds.filter((id) => id !== modelId)
-  } else {
-    draft.modelIds = [...draft.modelIds, modelId]
-  }
-}
-
 function selectAllGroupModels(draft: GroupDraft) {
   draft.modelIds = models.value.map((model) => model.id)
-}
-
-function clearGroupModels(draft: GroupDraft) {
-  draft.modelIds = []
-}
-
-function modelOptionLabel(model: RelayModel) {
-  const duplicate = models.value.some((item) => item.id !== model.id && item.model === model.model)
-  if (!duplicate) return model.model
-  const displayName = (model.displayName || '').trim()
-  return displayName && displayName !== model.model
-    ? `${model.model} · ${displayName} · #${model.id}`
-    : `${model.model} · #${model.id}`
 }
 
 function channelModelDraft(draft: ChannelDraft, model: RelayModel) {
@@ -457,22 +430,6 @@ function selectAllChannelModels(draft: ChannelDraft) {
   }))
 }
 
-function clearChannelModels(draft: ChannelDraft) {
-  draft.models = models.value.map((model) => ({
-    modelId: model.id,
-    upstreamModel: channelModelDraft(draft, model).upstreamModel || '',
-    enabled: false
-  }))
-}
-
-function enableChannelModelsByType(draft: ChannelDraft, type: string) {
-  draft.models = models.value.map((model) => ({
-    modelId: model.id,
-    upstreamModel: channelModelDraft(draft, model).upstreamModel || '',
-    enabled: type === 'all' || model.modelType === type
-  }))
-}
-
 function providerBadgeClass() {
   return 'bg-slate-100 text-slate-700 ring-slate-200'
 }
@@ -490,17 +447,6 @@ function newProviderDraft(): ProviderDraft {
     status: 'unknown',
     enabled: true
   }
-}
-
-function addProviderDraft(draft: ChannelDraft) {
-  const last = draft.providers[draft.providers.length - 1]
-  const fresh = newProviderDraft()
-  fresh.channelRule = last?.channelRule || 'openai'
-  draft.providers.push(fresh)
-}
-
-function removeProviderDraft(draft: ChannelDraft, index: number) {
-  draft.providers.splice(index, 1)
 }
 
 function providerDraftError(draft: ChannelDraft) {
@@ -1018,150 +964,6 @@ async function enableSelectedUpstreamModels() {
           <span class="shrink-0 rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white">打开编辑器</span>
         </button>
 
-        <RelayModal
-          :open="editingChannelId === 'new'"
-          eyebrow="Channel setup"
-          title="新增渠道"
-          :subtitle="`${newChannel.name} · ${newChannel.provider}`"
-          @close="editingChannelId = null"
-        >
-          <div class="p-5">
-          <div class="space-y-4">
-            <label class="block">
-              <span class="text-sm font-black text-slate-800">渠道名称</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">后台识别用的名称，例如 OpenAI 官方、Azure 主渠道、备用渠道。</span>
-              <input v-model="newChannel.name" class="input mt-2 h-12 rounded-2xl" placeholder="渠道名称" />
-            </label>
-            <label class="block">
-              <span class="text-sm font-black text-slate-800">调度策略</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">渠道内多个供应商之间如何分流；请求失败会按候选顺序自动故障转移。</span>
-              <select v-model="newChannel.scheduleStrategy" class="input mt-2 h-12 rounded-2xl">
-                <option value="weighted_random">加权随机（默认）</option>
-                <option value="smooth_rr">平滑加权轮询</option>
-                <option value="least_conn">最小并发</option>
-                <option value="priority">严格优先级</option>
-              </select>
-            </label>
-            <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-              <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p class="text-sm font-black text-slate-800">上游供应商（{{ newChannel.providers.length }}）</p>
-                  <p class="mt-1 text-xs font-semibold text-slate-500">一个渠道可配置多个供应商；优先级数字越小越先，权重控制分流比例。</p>
-                </div>
-                <button class="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-black text-sky-700 transition hover:bg-sky-50" type="button" @click="addProviderDraft(newChannel)">添加供应商</button>
-              </div>
-              <div class="space-y-3">
-                <div v-for="(provider, index) in newChannel.providers" :key="`new-provider-${index}`" class="rounded-xl border border-slate-200 bg-white p-3">
-                  <div class="grid gap-2 sm:grid-cols-2">
-                    <label class="block">
-                      <span class="text-xs font-black text-slate-600">名称</span>
-                      <input v-model="provider.name" class="input mt-1 h-10 rounded-lg text-sm" placeholder="例如 OpenAI 官方" />
-                    </label>
-                    <label class="block">
-                      <span class="text-xs font-black text-slate-600">规则</span>
-                      <select v-model="provider.channelRule" class="input mt-1 h-10 rounded-lg text-sm">
-                        <option value="openai">OpenAI 兼容</option>
-                        <option value="anthropic">Anthropic</option>
-                      </select>
-                    </label>
-                    <label class="block sm:col-span-2">
-                      <span class="text-xs font-black text-slate-600">Base URL</span>
-                      <input v-model="provider.apiBaseUrl" class="input mt-1 h-10 rounded-lg text-sm" placeholder="https://api.openai.com" />
-                    </label>
-                    <label class="block sm:col-span-2">
-                      <span class="text-xs font-black text-slate-600">API Key</span>
-                      <input v-model="provider.keyValue" class="input mt-1 h-10 rounded-lg text-sm" type="password" placeholder="上游 API Key" />
-                    </label>
-                    <label class="block">
-                      <span class="text-xs font-black text-slate-600">优先级</span>
-                      <input v-model.number="provider.priority" class="input mt-1 h-10 rounded-lg text-sm" type="number" placeholder="10" />
-                    </label>
-                    <label class="block">
-                      <span class="text-xs font-black text-slate-600">权重</span>
-                      <input v-model.number="provider.weight" class="input mt-1 h-10 rounded-lg text-sm" type="number" placeholder="10" />
-                    </label>
-                  </div>
-                  <div class="mt-2 flex items-center justify-between">
-                    <label class="flex items-center gap-2 text-xs font-black text-slate-600">
-                      <input v-model="provider.enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                      启用
-                    </label>
-                    <button v-if="newChannel.providers.length > 1" class="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-black text-red-600 transition hover:bg-red-100" type="button" @click="removeProviderDraft(newChannel, index)">移除</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <label class="block">
-              <span class="text-sm font-black text-slate-800">可用分组</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">逗号分隔，例如 default,vip；只有这些分组的令牌会路由到该渠道。</span>
-              <input v-model="newChannel.groupNames" class="input mt-2 h-12 rounded-2xl" placeholder="default,vip" />
-            </label>
-            <label class="block">
-              <span class="text-sm font-black text-slate-800">用户备注</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">展示给用户看的注意事项，不会影响实际转发。</span>
-              <textarea v-model="newChannel.remark" class="input mt-2 min-h-24 rounded-2xl py-3" placeholder="例如：该渠道仅支持图片模型，请勿用于聊天请求。"></textarea>
-            </label>
-            <div v-if="models.length" class="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-              <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <span class="text-sm font-black text-slate-800">绑定模型</span>
-                <div class="flex flex-wrap gap-2">
-                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="enableChannelModelsByType(newChannel, 'chat')">聊天</button>
-                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="selectAllChannelModels(newChannel)">全选</button>
-                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-red-200 hover:text-red-600" type="button" @click="clearChannelModels(newChannel)">清空</button>
-                </div>
-              </div>
-              <div class="grid max-h-56 gap-2 overflow-y-auto">
-                <label v-for="model in models" :key="model.id" class="grid gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">
-                  <span class="flex items-center gap-2">
-                    <input v-model="channelModelDraft(newChannel, model).enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                    <span>{{ modelOptionLabel(model) }}</span>
-                  </span>
-                  <input v-model="channelModelDraft(newChannel, model).upstreamModel" class="input h-9 rounded-md text-xs" placeholder="留空：原样转发模型 ID" />
-                </label>
-              </div>
-            </div>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">优先级</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">数字越小越先被选择。</span>
-                <input v-model.number="newChannel.priority" class="input mt-2 h-12 rounded-2xl" type="number" placeholder="10" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">权重</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">同优先级下的分流权重。</span>
-                <input v-model.number="newChannel.weight" class="input mt-2 h-12 rounded-2xl" type="number" placeholder="10" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">RPM 限制</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">每分钟请求数上限，0 表示不限制。</span>
-                <input v-model.number="newChannel.rpmLimit" class="input mt-2 h-12 rounded-2xl" type="number" placeholder="0" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">TPM 限制</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">每分钟 Token 上限，0 表示不限制。</span>
-                <input v-model.number="newChannel.tpmLimit" class="input mt-2 h-12 rounded-2xl" type="number" placeholder="0" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">流式并发上限</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">该渠道同时向上游发起的流式请求数，0 表示不限制；仅在需要保护特定上游时填写正数。</span>
-                <input v-model.number="newChannel.maxConcurrency" class="input mt-2 h-12 rounded-2xl" type="number" min="0" placeholder="0" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">渠道成本倍率</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">用于标记渠道成本和日志分析，不参与用户扣费。</span>
-                <input v-model.number="newChannel.priceMultiplier" class="input mt-2 h-12 rounded-2xl" type="number" step="0.0001" placeholder="1" />
-              </label>
-              <label class="flex min-h-[76px] items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700">
-                <input v-model="newChannel.enabled" class="h-5 w-5 accent-sky-600" type="checkbox" />
-                创建后立即启用
-              </label>
-            </div>
-            <button class="btn-primary h-12 w-full rounded-2xl" :disabled="saving === 'channel-new'" @click="createChannel">
-              {{ saving === 'channel-new' ? '创建中' : '创建渠道' }}
-            </button>
-          </div>
-          </div>
-        </RelayModal>
 
         <div class="space-y-4">
           <div class="panel p-4">
@@ -1199,157 +1001,20 @@ async function enableSelectedUpstreamModels() {
                 <input v-model="channelDraftOf(channel).enabled" class="h-5 w-5 accent-sky-600" type="checkbox" />
                 启用
               </label>
-              <button class="h-10 rounded-lg bg-sky-50 px-3 text-xs font-black text-sky-700 transition hover:bg-sky-100" type="button" @click="editChannel(channel)">
-                编辑
-              </button>
+              <div class="flex flex-col gap-2">
+                <button class="h-10 rounded-lg bg-sky-50 px-3 text-xs font-black text-sky-700 transition hover:bg-sky-100" type="button" @click="editChannel(channel)">
+                  编辑
+                </button>
+                <button
+                  class="h-9 rounded-lg bg-slate-50 px-3 text-xs font-black text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
+                  type="button"
+                  :disabled="dashboardTestingId === channel.id"
+                  @click="testChannelFromDashboard(channel.id)"
+                >
+                  {{ dashboardTestingId === channel.id ? '检测中…' : '检测' }}
+                </button>
+              </div>
             </article>
-            <RelayModal
-              :open="editingChannelId === channel.id"
-              eyebrow="Channel setup"
-              title="编辑渠道"
-              :subtitle="`${channelDraftOf(channel).name} · ${channelDraftOf(channel).provider}`"
-              @close="editingChannelId = null"
-            >
-            <div class="p-5">
-            <div class="grid gap-3 lg:grid-cols-2">
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">渠道名称</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">自由填写，用于后台识别。</span>
-                <input v-model="channelDraftOf(channel).name" class="input mt-2 h-12 rounded-2xl" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">调度策略</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">渠道内多个供应商之间的分流方式，失败自动切换下一个。</span>
-                <select v-model="channelDraftOf(channel).scheduleStrategy" class="input mt-2 h-12 rounded-2xl">
-                  <option value="weighted_random">加权随机（默认）</option>
-                  <option value="smooth_rr">平滑加权轮询</option>
-                  <option value="least_conn">最小并发</option>
-                  <option value="priority">严格优先级</option>
-                </select>
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">可用分组</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">逗号分隔，例如 default,vip；不匹配的分组不会选中该渠道。</span>
-                <input v-model="channelDraftOf(channel).groupNames" class="input mt-2 h-12 rounded-2xl" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">用户备注</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">展示给用户看的注意事项，不会影响实际转发。</span>
-                <textarea v-model="channelDraftOf(channel).remark" class="input mt-2 min-h-24 rounded-2xl py-3" placeholder="例如：该渠道仅支持图片模型，请勿用于聊天请求。"></textarea>
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">优先级</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">数字越小越优先。</span>
-                <input v-model.number="channelDraftOf(channel).priority" class="input mt-2 h-12 rounded-2xl" type="number" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">权重</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">同优先级渠道之间的分流比例。</span>
-                <input v-model.number="channelDraftOf(channel).weight" class="input mt-2 h-12 rounded-2xl" type="number" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">RPM 限制</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">每分钟最大请求数，0 表示不限制。</span>
-                <input v-model.number="channelDraftOf(channel).rpmLimit" class="input mt-2 h-12 rounded-2xl" type="number" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">TPM 限制</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">每分钟最大 Token 数，0 表示不限制。</span>
-                <input v-model.number="channelDraftOf(channel).tpmLimit" class="input mt-2 h-12 rounded-2xl" type="number" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">流式并发上限</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">该渠道同时向上游发起的流式请求数，0 表示不限制；仅在需要保护特定上游时填写正数。</span>
-                <input v-model.number="channelDraftOf(channel).maxConcurrency" class="input mt-2 h-12 rounded-2xl" type="number" min="0" placeholder="0" />
-              </label>
-              <label class="block">
-                <span class="text-sm font-black text-slate-800">渠道成本倍率</span>
-                <span class="mt-1 block text-xs font-semibold text-slate-500">用于记录渠道成本差异，不参与用户扣费。</span>
-                <input v-model.number="channelDraftOf(channel).priceMultiplier" class="input mt-2 h-12 rounded-2xl" type="number" step="0.0001" />
-              </label>
-            </div>
-            <div class="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-              <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p class="text-sm font-black text-slate-800">上游供应商（{{ channelDraftOf(channel).providers.length }}）</p>
-                  <p class="mt-1 text-xs font-semibold text-slate-500">按「{{ strategyLabel(channelDraftOf(channel).scheduleStrategy) }}」策略分流；API Key 留空表示保持当前密钥不变。</p>
-                </div>
-                <button class="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-black text-sky-700 transition hover:bg-sky-50" type="button" @click="addProviderDraft(channelDraftOf(channel))">添加供应商</button>
-              </div>
-              <div class="space-y-3">
-                <div v-for="(provider, index) in channelDraftOf(channel).providers" :key="provider.id ?? `editing-provider-${index}`" class="rounded-xl border border-slate-200 bg-white p-3">
-                  <div class="grid gap-2 sm:grid-cols-2">
-                    <label class="block">
-                      <span class="text-xs font-black text-slate-600">名称</span>
-                      <input v-model="provider.name" class="input mt-1 h-10 rounded-lg text-sm" placeholder="例如 OpenAI 官方" />
-                    </label>
-                    <label class="block">
-                      <span class="text-xs font-black text-slate-600">规则</span>
-                      <select v-model="provider.channelRule" class="input mt-1 h-10 rounded-lg text-sm">
-                        <option value="openai">OpenAI 兼容</option>
-                        <option value="anthropic">Anthropic</option>
-                      </select>
-                    </label>
-                    <label class="block sm:col-span-2">
-                      <span class="text-xs font-black text-slate-600">Base URL</span>
-                      <input v-model="provider.apiBaseUrl" class="input mt-1 h-10 rounded-lg text-sm" placeholder="https://api.openai.com" />
-                    </label>
-                    <label class="block sm:col-span-2">
-                      <span class="text-xs font-black text-slate-600">API Key</span>
-                      <input v-model="provider.keyValue" class="input mt-1 h-10 rounded-lg text-sm" type="password" :placeholder="provider.id != null && provider.apiKeyMasked ? `留空保持 ${provider.apiKeyMasked} 不变` : '上游 API Key'" />
-                    </label>
-                    <label class="block">
-                      <span class="text-xs font-black text-slate-600">优先级</span>
-                      <input v-model.number="provider.priority" class="input mt-1 h-10 rounded-lg text-sm" type="number" placeholder="10" />
-                    </label>
-                    <label class="block">
-                      <span class="text-xs font-black text-slate-600">权重</span>
-                      <input v-model.number="provider.weight" class="input mt-1 h-10 rounded-lg text-sm" type="number" placeholder="10" />
-                    </label>
-                  </div>
-                  <div class="mt-2 flex items-center justify-between">
-                    <label class="flex items-center gap-2 text-xs font-black text-slate-600">
-                      <input v-model="provider.enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                      启用
-                    </label>
-                    <button v-if="channelDraftOf(channel).providers.length > 1" class="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-black text-red-600 transition hover:bg-red-100" type="button" @click="removeProviderDraft(channelDraftOf(channel), index)">移除</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-              <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p class="text-sm font-black text-slate-800">渠道模型绑定</p>
-                  <p class="mt-1 text-xs font-semibold text-slate-500">已启用 {{ enabledChannelModelCount(channel) }} / {{ models.length }}，上游模型 ID 可与对外模型不同。</p>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="enableChannelModelsByType(channelDraftOf(channel), 'chat')">聊天</button>
-                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="enableChannelModelsByType(channelDraftOf(channel), 'image')">图片</button>
-                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="selectAllChannelModels(channelDraftOf(channel))">全选</button>
-                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-red-200 hover:text-red-600" type="button" @click="clearChannelModels(channelDraftOf(channel))">清空</button>
-                </div>
-              </div>
-              <div class="grid max-h-72 gap-2 overflow-y-auto lg:grid-cols-2">
-                <label v-for="model in models" :key="model.id" class="grid gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">
-                  <span class="flex min-w-0 items-center gap-2">
-                    <input v-model="channelModelDraft(channelDraftOf(channel), model).enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                    <span class="truncate">{{ modelOptionLabel(model) }}</span>
-                  </span>
-                  <input v-model="channelModelDraft(channelDraftOf(channel), model).upstreamModel" class="input h-9 rounded-md text-xs" placeholder="留空：原样转发模型 ID" />
-                </label>
-              </div>
-            </div>
-            <div class="mt-4 flex flex-wrap justify-end gap-3">
-              <button class="h-12 rounded-2xl border border-red-200 bg-red-50 px-5 text-sm font-black text-red-600 transition hover:bg-red-100 disabled:opacity-60" :disabled="saving === `channel-delete-${channel.id}`" @click="deleteChannel(channel)">
-                {{ saving === `channel-delete-${channel.id}` ? '删除中' : '删除渠道' }}
-              </button>
-              <button class="h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="saving === `channel-${channel.id}`" @click="saveChannel(channel)">
-                {{ saving === `channel-${channel.id}` ? '保存中' : '保存渠道' }}
-              </button>
-            </div>
-            </div>
-            </RelayModal>
           </div>
           <div v-if="!filteredChannels.length" class="panel p-10 text-center text-sm font-black text-slate-500">没有匹配的渠道</div>
         </div>
@@ -1398,11 +1063,11 @@ async function enableSelectedUpstreamModels() {
                 {{ saving === 'model-import' ? '导入中' : `导入所选 ${selectedUpstreamIds.length}` }}
               </button>
             </div>
-          <div class="mt-4 flex gap-2 overflow-x-auto pb-1">
+          <div class="mt-4 flex flex-wrap gap-2">
             <button
               v-for="channel in channels"
               :key="channel.id"
-              class="min-w-[190px] rounded-lg border px-3 py-2 text-left text-sm font-black transition"
+              class="min-w-[180px] flex-1 rounded-lg border px-3 py-2 text-left text-sm font-black transition sm:flex-none"
               :class="syncingChannelId === channel.id ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-700 hover:border-sky-200 hover:bg-sky-50'"
               :disabled="syncingChannelId === channel.id"
               @click="syncModels(channel)"
@@ -1411,12 +1076,17 @@ async function enableSelectedUpstreamModels() {
               <span class="mt-1 block truncate text-xs font-semibold text-slate-500">{{ syncingChannelId === channel.id ? '同步中' : channel.apiBaseUrl }}</span>
             </button>
           </div>
-          <div v-if="upstreamModels.length" class="mt-4 flex gap-2 overflow-x-auto pb-1">
-            <label v-for="item in upstreamModels" :key="item.id" class="flex min-w-[220px] items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <input v-model="selectedUpstreamIds" class="h-4 w-4 accent-sky-600" type="checkbox" :value="item.id" :disabled="item.configured" />
+          <div v-if="upstreamModels.length" class="mt-4 grid max-h-[50vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
+            <label
+              v-for="item in upstreamModels"
+              :key="item.id"
+              class="flex min-w-0 items-center gap-3 rounded-lg border px-3 py-2"
+              :class="item.configured ? 'border-emerald-100 bg-emerald-50/40' : 'border-slate-200 bg-white'"
+            >
+              <input v-model="selectedUpstreamIds" class="h-4 w-4 shrink-0 accent-sky-600" type="checkbox" :value="item.id" :disabled="item.configured" />
               <button class="min-w-0 flex-1 text-left" type="button" @click="pickUpstreamModel(item)">
                 <span class="block truncate text-sm font-black text-slate-800">{{ item.id }}</span>
-                <span class="mt-1 block text-xs font-semibold" :class="item.configured ? 'text-emerald-600' : 'text-slate-500'">{{ item.configured ? '已配置' : (item.ownedBy || '未标记供应商') }}</span>
+                <span class="mt-1 block truncate text-xs font-semibold" :class="item.configured ? 'text-emerald-600' : 'text-slate-500'">{{ item.configured ? '已配置' : (item.ownedBy || '未标记供应商') }}</span>
               </button>
             </label>
           </div>
@@ -1481,9 +1151,16 @@ async function enableSelectedUpstreamModels() {
                     <td class="px-4 py-3 font-black text-slate-700">{{ modelDraftOf(model).sortOrder }}</td>
                     <td class="px-4 py-3">
                       <div class="flex flex-wrap items-center gap-2">
-                        <span class="rounded-md px-2 py-1 text-xs font-black" :class="modelDraftOf(model).enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'">
+                        <label class="inline-flex items-center gap-2 text-xs font-black text-slate-600" @click.stop>
+                          <input
+                            class="h-4 w-4 accent-sky-600"
+                            type="checkbox"
+                            :checked="modelDraftOf(model).enabled"
+                            :disabled="saving === `model-toggle-${model.id}`"
+                            @change="toggleModelEnabled(model, ($event.target as HTMLInputElement).checked)"
+                          />
                           {{ modelDraftOf(model).enabled ? '启用' : '停用' }}
-                        </span>
+                        </label>
                         <span class="rounded-md bg-white px-2 py-1 text-xs font-black text-slate-500 ring-1 ring-slate-200">{{ modelDraftOf(model).status }}</span>
                       </div>
                     </td>
@@ -1498,229 +1175,6 @@ async function enableSelectedUpstreamModels() {
             </div>
             <div v-if="!filteredModels.length" class="border-t border-slate-100 p-10 text-center text-sm font-black text-slate-500">没有匹配的模型</div>
           </div>
-
-          <RelayModal
-            :open="editingModelId !== null"
-            eyebrow="Model configuration"
-            :title="editingModelId === 'new' ? '新增模型' : '编辑模型'"
-            :subtitle="editingModelId === 'new' ? `${newModel.model} · ${newModel.modelType}` : (editingModel ? `${modelDraftOf(editingModel).model} · ${modelDraftOf(editingModel).modelType}` : '')"
-            @close="editingModelId = null"
-          >
-            <div class="p-5">
-            <template v-if="editingModelId === 'new'">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <p class="text-xs font-black uppercase tracking-[0.18em] text-sky-600">New</p>
-                  <h2 class="mt-1 text-xl font-black text-slate-950">新增模型</h2>
-                </div>
-                <label class="flex items-center gap-2 text-sm font-black text-slate-600">
-                  <input v-model="newModel.enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                  启用
-                </label>
-              </div>
-              <div class="mt-5 space-y-4">
-                <label class="block">
-                  <span class="text-xs font-black text-slate-700">模型 ID（发送给上游）</span>
-                  <input v-model="newModel.model" class="input mt-2 h-10 rounded-lg" placeholder="gpt-4o" />
-                </label>
-                <label class="block">
-                  <span class="text-xs font-black text-slate-700">显示名称（对外模型名）</span>
-                  <input v-model="newModel.displayName" class="input mt-2 h-10 rounded-lg" placeholder="GPT-4o" />
-                </label>
-                <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">类型</span>
-                    <input v-model="newModel.modelType" class="input mt-2 h-10 rounded-lg" placeholder="chat" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">状态</span>
-                    <input v-model="newModel.status" class="input mt-2 h-10 rounded-lg" placeholder="available" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">输入价格</span>
-                    <input v-model.number="newModel.inputPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">输出价格</span>
-                    <input v-model.number="newModel.outputPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">缓存读入</span>
-                    <input v-model.number="newModel.cachedInputPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">缓存创建</span>
-                    <input v-model.number="newModel.cacheCreationPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">每请求价格</span>
-                    <input v-model.number="newModel.requestPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="flex min-h-[66px] items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">
-                    <input v-model="newModel.fixedRequestBilling" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                    <span>
-                      <span class="block">一次性扣费</span>
-                      <span class="mt-1 block font-semibold text-slate-500">开启后每请求价格为最终扣费</span>
-                    </span>
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文起算 Token</span>
-                    <input v-model.number="newModel.longContextThreshold" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="1" placeholder="例如 272000；0 表示关闭" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文计费方式</span>
-                    <select v-model="newModel.longContextBillingMode" class="input mt-2 h-10 rounded-lg">
-                      <option value="price">单独设置价格</option>
-                      <option value="multiplier">按普通价格倍数</option>
-                    </select>
-                  </label>
-                  <p class="text-[11px] font-semibold text-slate-400 sm:col-span-2">输入 Token 达到此值后切换长上下文计费；价格均按每 1M Token 填写。</p>
-                  <label v-if="newModel.longContextBillingMode === 'multiplier'" class="block sm:col-span-2">
-                    <span class="text-xs font-black text-slate-700">长上下文价格倍数</span>
-                    <input v-model.number="newModel.longContextMultiplier" class="input mt-2 h-10 rounded-lg" type="number" min="0.000001" step="0.1" placeholder="例如 2，表示普通价格 × 2" />
-                    <span class="mt-1 block text-[11px] font-semibold text-slate-400">长上下文输入、输出、缓存读写均按普通价格乘以此倍数。</span>
-                  </label>
-                  <label v-if="newModel.longContextBillingMode !== 'multiplier'" class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文输入 / 1M</span>
-                    <input v-model.number="newModel.longContextInputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通输入价" />
-                  </label>
-                  <label v-if="newModel.longContextBillingMode !== 'multiplier'" class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文输出 / 1M</span>
-                    <input v-model.number="newModel.longContextOutputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通输出价" />
-                  </label>
-                  <label v-if="newModel.longContextBillingMode !== 'multiplier'" class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文缓存读 / 1M</span>
-                    <input v-model.number="newModel.longContextCachedInputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存读价" />
-                  </label>
-                  <label v-if="newModel.longContextBillingMode !== 'multiplier'" class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文缓存写 / 1M</span>
-                    <input v-model.number="newModel.longContextCacheCreationPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存写价" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">排序</span>
-                    <input v-model.number="newModel.sortOrder" class="input mt-2 h-10 rounded-lg" type="number" />
-                  </label>
-                </div>
-                <button class="btn-primary h-11 w-full rounded-lg" :disabled="saving === 'model-new'" @click="createModel">
-                  {{ saving === 'model-new' ? '创建中' : '创建模型' }}
-                </button>
-              </div>
-            </template>
-
-            <template v-else-if="editingModel">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <p class="text-xs font-black uppercase tracking-[0.18em] text-sky-600">{{ modelDraftOf(editingModel).modelType }}</p>
-                  <h2 class="mt-1 truncate text-xl font-black text-slate-950">{{ modelDraftOf(editingModel).displayName || modelDraftOf(editingModel).model }}</h2>
-                  <p class="mt-1 truncate font-mono text-xs font-semibold text-slate-500">{{ modelDraftOf(editingModel).model }}</p>
-                </div>
-                <label class="flex items-center gap-2 text-sm font-black text-slate-600">
-                  <input v-model="modelDraftOf(editingModel).enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                  启用
-                </label>
-              </div>
-              <div class="mt-5 space-y-4">
-                <label class="block">
-                  <span class="text-xs font-black text-slate-700">模型 ID（发送给上游）</span>
-                  <input v-model="modelDraftOf(editingModel).model" class="input mt-2 h-10 rounded-lg" />
-                </label>
-                <label class="block">
-                  <span class="text-xs font-black text-slate-700">显示名称（对外模型名）</span>
-                  <input v-model="modelDraftOf(editingModel).displayName" class="input mt-2 h-10 rounded-lg" />
-                </label>
-                <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">类型</span>
-                    <input v-model="modelDraftOf(editingModel).modelType" class="input mt-2 h-10 rounded-lg" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">状态</span>
-                    <input v-model="modelDraftOf(editingModel).status" class="input mt-2 h-10 rounded-lg" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">输入价格</span>
-                    <input v-model.number="modelDraftOf(editingModel).inputPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">输出价格</span>
-                    <input v-model.number="modelDraftOf(editingModel).outputPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">缓存读入</span>
-                    <input v-model.number="modelDraftOf(editingModel).cachedInputPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">缓存创建</span>
-                    <input v-model.number="modelDraftOf(editingModel).cacheCreationPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">每请求价格</span>
-                    <input v-model.number="modelDraftOf(editingModel).requestPrice" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-                  </label>
-                  <label class="flex min-h-[66px] items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">
-                    <input v-model="modelDraftOf(editingModel).fixedRequestBilling" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                    <span>
-                      <span class="block">一次性扣费</span>
-                      <span class="mt-1 block font-semibold text-slate-500">开启后每请求价格为最终扣费</span>
-                    </span>
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文起算 Token</span>
-                    <input v-model.number="modelDraftOf(editingModel).longContextThreshold" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="1" placeholder="例如 272000；0 表示关闭" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文计费方式</span>
-                    <select v-model="modelDraftOf(editingModel).longContextBillingMode" class="input mt-2 h-10 rounded-lg">
-                      <option value="price">单独设置价格</option>
-                      <option value="multiplier">按普通价格倍数</option>
-                    </select>
-                  </label>
-                  <p class="text-[11px] font-semibold text-slate-400 sm:col-span-2">输入 Token 达到此值后切换长上下文计费；价格均按每 1M Token 填写。</p>
-                  <label v-if="modelDraftOf(editingModel).longContextBillingMode === 'multiplier'" class="block sm:col-span-2">
-                    <span class="text-xs font-black text-slate-700">长上下文价格倍数</span>
-                    <input v-model.number="modelDraftOf(editingModel).longContextMultiplier" class="input mt-2 h-10 rounded-lg" type="number" min="0.000001" step="0.1" placeholder="例如 2，表示普通价格 × 2" />
-                    <span class="mt-1 block text-[11px] font-semibold text-slate-400">长上下文输入、输出、缓存读写均按普通价格乘以此倍数。</span>
-                  </label>
-                  <label v-if="modelDraftOf(editingModel).longContextBillingMode !== 'multiplier'" class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文输入 / 1M</span>
-                    <input v-model.number="modelDraftOf(editingModel).longContextInputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通输入价" />
-                  </label>
-                  <label v-if="modelDraftOf(editingModel).longContextBillingMode !== 'multiplier'" class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文输出 / 1M</span>
-                    <input v-model.number="modelDraftOf(editingModel).longContextOutputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通输出价" />
-                  </label>
-                  <label v-if="modelDraftOf(editingModel).longContextBillingMode !== 'multiplier'" class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文缓存读 / 1M</span>
-                    <input v-model.number="modelDraftOf(editingModel).longContextCachedInputPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存读价" />
-                  </label>
-                  <label v-if="modelDraftOf(editingModel).longContextBillingMode !== 'multiplier'" class="block">
-                    <span class="text-xs font-black text-slate-700">长上下文缓存写 / 1M</span>
-                    <input v-model.number="modelDraftOf(editingModel).longContextCacheCreationPrice" class="input mt-2 h-10 rounded-lg" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存写价" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-black text-slate-700">排序</span>
-                    <input v-model.number="modelDraftOf(editingModel).sortOrder" class="input mt-2 h-10 rounded-lg" type="number" />
-                  </label>
-                </div>
-                <div class="grid gap-3 sm:grid-cols-2">
-                  <button class="h-11 rounded-lg bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="saving === `model-${editingModel.id}`" @click="saveModel(editingModel)">
-                    {{ saving === `model-${editingModel.id}` ? '保存中' : '保存模型' }}
-                  </button>
-                  <button class="h-11 rounded-lg border border-red-200 bg-red-50 px-4 text-xs font-black text-red-600 transition hover:bg-red-100 disabled:opacity-60" :disabled="saving === `model-delete-${editingModel.id}`" @click="deleteModel(editingModel)">
-                    {{ saving === `model-delete-${editingModel.id}` ? '删除中' : '删除模型' }}
-                  </button>
-                </div>
-              </div>
-            </template>
-
-            <div v-else class="py-12 text-center">
-              <p class="text-base font-black text-slate-700">选择模型开始编辑</p>
-              <button class="mt-4 h-10 rounded-lg bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-sky-600" @click="newModelEditor">
-                新增模型
-              </button>
-            </div>
-            </div>
-          </RelayModal>
         </div>
       </section>
 
@@ -1754,58 +1208,6 @@ async function enableSelectedUpstreamModels() {
           <span class="shrink-0 rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white">打开编辑器</span>
         </button>
 
-        <RelayModal
-          :open="editingGroupId === 'new'"
-          eyebrow="Group policy"
-          title="新增分组"
-          :subtitle="`${newGroup.code} · ${newGroup.name}`"
-          @close="editingGroupId = null"
-        >
-          <div class="p-5">
-            <div class="grid gap-3 md:grid-cols-3">
-              <label class="block">
-                <span class="text-xs font-black text-slate-700">代码</span>
-                <input v-model="newGroup.code" class="input mt-2 h-10 rounded-lg" placeholder="vip" />
-              </label>
-              <label class="block">
-                <span class="text-xs font-black text-slate-700">名称</span>
-                <input v-model="newGroup.name" class="input mt-2 h-10 rounded-lg" placeholder="VIP 分组" />
-              </label>
-              <label class="block">
-                <span class="text-xs font-black text-slate-700">倍率</span>
-                <input v-model.number="newGroup.ratio" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-              </label>
-              <label class="flex items-center gap-2 text-sm font-black text-slate-600">
-                <input v-model="newGroup.enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                创建后启用
-              </label>
-            </div>
-              <div>
-                <div class="mb-2 mt-4 flex items-center justify-between gap-3">
-                  <span class="text-xs font-black text-slate-700">模型范围 {{ selectedGroupModelCount(newGroup) }} / {{ models.length }}</span>
-                  <div class="flex gap-2">
-                    <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="selectAllGroupModels(newGroup)">全选</button>
-                    <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-red-200 hover:text-red-600" type="button" @click="clearGroupModels(newGroup)">清空</button>
-                  </div>
-                </div>
-                <div class="flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-2">
-                  <button
-                    v-for="model in models"
-                    :key="model.id"
-                    class="rounded-md px-2 py-1 text-xs font-black transition"
-                    :class="isGroupModelSelected(newGroup, model.id) ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:text-sky-700'"
-                    type="button"
-                    @click="toggleGroupModel(newGroup, model.id)"
-                  >
-                    {{ modelOptionLabel(model) }}
-                  </button>
-                </div>
-              </div>
-              <button class="btn-primary h-11 w-full rounded-lg" :disabled="saving === 'group-new'" @click="createGroup">
-                {{ saving === 'group-new' ? '创建中' : '创建分组' }}
-              </button>
-          </div>
-        </RelayModal>
 
         <div v-for="group in groups" :key="group.id" class="space-y-3">
           <article class="panel grid gap-3 p-4 transition hover:border-sky-200 md:grid-cols-[1fr_120px_120px_120px_88px] md:items-center">
@@ -1817,63 +1219,6 @@ async function enableSelectedUpstreamModels() {
             <span class="rounded-md px-2 py-1 text-center text-xs font-black" :class="groupDraftOf(group).enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'">{{ groupDraftOf(group).enabled ? '启用' : '停用' }}</span>
             <button class="h-10 rounded-lg bg-sky-50 px-3 text-xs font-black text-sky-700 transition hover:bg-sky-100" type="button" @click="editGroup(group)">编辑</button>
           </article>
-          <RelayModal
-            :open="editingGroupId === group.id"
-            eyebrow="Group policy"
-            title="编辑分组"
-            :subtitle="`${groupDraftOf(group).code} · ${groupDraftOf(group).name}`"
-            @close="editingGroupId = null"
-          >
-          <div class="p-5">
-            <div class="grid gap-3 md:grid-cols-4">
-              <label class="block">
-                <span class="text-xs font-black text-slate-700">代码</span>
-                <input v-model="groupDraftOf(group).code" class="input mt-2 h-10 rounded-lg" />
-              </label>
-              <label class="block">
-                <span class="text-xs font-black text-slate-700">名称</span>
-                <input v-model="groupDraftOf(group).name" class="input mt-2 h-10 rounded-lg" />
-              </label>
-              <label class="block">
-                <span class="text-xs font-black text-slate-700">倍率</span>
-                <input v-model.number="groupDraftOf(group).ratio" class="input mt-2 h-10 rounded-lg" type="number" step="0.0001" />
-              </label>
-              <label class="flex items-end gap-2 pb-2 text-sm font-black text-slate-600">
-                <input v-model="groupDraftOf(group).enabled" class="h-4 w-4 accent-sky-600" type="checkbox" />
-                启用
-              </label>
-            </div>
-            <div class="mt-4">
-              <div class="mb-2 flex items-center justify-between gap-3">
-                <span class="text-xs font-black text-slate-500">模型范围 {{ selectedGroupModelCount(groupDraftOf(group)) }} / {{ models.length }}</span>
-                <div class="flex gap-2">
-                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-sky-200 hover:text-sky-700" type="button" @click="selectAllGroupModels(groupDraftOf(group))">全选</button>
-                  <button class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 transition hover:border-red-200 hover:text-red-600" type="button" @click="clearGroupModels(groupDraftOf(group))">清空</button>
-                </div>
-              </div>
-              <div class="flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-2">
-                <button
-                  v-for="model in models"
-                  :key="model.id"
-                  class="rounded-md px-2 py-1 text-xs font-black transition"
-                  :class="isGroupModelSelected(groupDraftOf(group), model.id) ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:text-sky-700'"
-                  type="button"
-                  @click="toggleGroupModel(groupDraftOf(group), model.id)"
-                >
-                  {{ modelOptionLabel(model) }}
-                </button>
-              </div>
-            </div>
-            <div class="mt-4 flex justify-end gap-2">
-              <button class="rounded-lg bg-slate-950 px-3 py-2 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" :disabled="saving === `group-${group.id}`" @click="saveGroup(group)">
-                {{ saving === `group-${group.id}` ? '保存中' : '保存' }}
-              </button>
-              <button class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-600 transition hover:bg-red-100 disabled:opacity-60" :disabled="group.code === 'default' || saving === `group-delete-${group.id}`" @click="deleteGroup(group)">
-                删除
-              </button>
-            </div>
-          </div>
-          </RelayModal>
         </div>
 
           <div class="panel p-4">
@@ -1886,6 +1231,42 @@ async function enableSelectedUpstreamModels() {
           </div>
       </section>
       </Transition>
+
+      <RelayChannelDrawer
+        v-if="activeChannelDraft"
+        :is-new="editingChannelId === 'new'"
+        :draft="activeChannelDraft"
+        :models="models"
+        :saving="saving === 'channel-new' || (!!activeChannel && saving === `channel-${activeChannel.id}`)"
+        :deleting="!!activeChannel && saving === `channel-delete-${activeChannel.id}`"
+        :can-delete="editingChannelId !== 'new'"
+        @save="saveActiveChannel"
+        @cancel="editingChannelId = null"
+        @delete="deleteActiveChannel"
+      />
+      <RelayModelDrawer
+        v-if="activeModelDraft"
+        :is-new="editingModelId === 'new'"
+        :draft="activeModelDraft"
+        :saving="saving === 'model-new' || (!!editingModel && saving === `model-${editingModel.id}`)"
+        :deleting="!!editingModel && saving === `model-delete-${editingModel.id}`"
+        :can-delete="editingModelId !== 'new'"
+        @save="saveActiveModel"
+        @cancel="editingModelId = null"
+        @delete="deleteActiveModel"
+      />
+      <RelayGroupDrawer
+        v-if="activeGroupDraft"
+        :is-new="editingGroupId === 'new'"
+        :draft="activeGroupDraft"
+        :models="models"
+        :saving="saving === 'group-new' || (!!activeGroup && saving === `group-${activeGroup.id}`)"
+        :deleting="!!activeGroup && saving === `group-delete-${activeGroup.id}`"
+        :can-delete="editingGroupId !== 'new' && activeGroupDraft.code !== 'default'"
+        @save="saveActiveGroup"
+        @cancel="editingGroupId = null"
+        @delete="deleteActiveGroup"
+      />
         </div>
       </main>
     </div>
