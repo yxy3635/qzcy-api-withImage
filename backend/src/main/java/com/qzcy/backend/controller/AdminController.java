@@ -27,6 +27,7 @@ import com.qzcy.backend.dto.RechargeCouponUpdateDto;
 import com.qzcy.backend.dto.RelayAdminOverviewDto;
 import com.qzcy.backend.dto.RelayChannelDto;
 import com.qzcy.backend.dto.RelayChannelUpdateDto;
+import com.qzcy.backend.dto.RelayDashboardDto;
 import com.qzcy.backend.dto.RelayGroupDto;
 import com.qzcy.backend.dto.RelayGroupUpdateDto;
 import com.qzcy.backend.dto.RelayModelDto;
@@ -44,6 +45,7 @@ import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.ReferralService;
 import com.qzcy.backend.service.RechargeCouponService;
 import com.qzcy.backend.service.RelayChannelStatusService;
+import com.qzcy.backend.service.RelayDashboardService;
 import com.qzcy.backend.service.RelayService;
 import com.qzcy.backend.util.SecurityUtil;
 import lombok.RequiredArgsConstructor;
@@ -71,6 +73,7 @@ public class AdminController {
     private final RechargeCouponService rechargeCouponService;
     private final RelayService relayService;
     private final RelayChannelStatusService relayChannelStatusService;
+    private final RelayDashboardService relayDashboardService;
 
     @GetMapping("/dashboard")
     public ApiResponse<DashboardStats> dashboard() {
@@ -228,6 +231,16 @@ public class AdminController {
     public ApiResponse<Void> syncRelayChannelStatus() {
         relayChannelStatusService.syncAll();
         return ApiResponse.success(null);
+    }
+
+    @GetMapping("/relay/dashboard")
+    public ApiResponse<RelayDashboardDto> relayDashboard() {
+        return ApiResponse.success(relayDashboardService.dashboard());
+    }
+
+    @PostMapping("/relay/channels/{id}/status/sync")
+    public ApiResponse<String> syncRelayChannelStatusById(@PathVariable Long id) {
+        return ApiResponse.success(relayChannelStatusService.syncOne(id));
     }
 
     @GetMapping("/mail-config")

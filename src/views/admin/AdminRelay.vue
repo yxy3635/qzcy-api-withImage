@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import RelayModal from '@/components/RelayModal.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
+import RelayDashboardPanel from '@/components/admin/RelayDashboardPanel.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/store/authStore'
-import type { RelayAdminOverview, RelayChannel, RelayGroup, RelayModel, RelayUpstreamModel } from '@/types'
+import type { RelayAdminOverview, RelayChannel, RelayDashboard, RelayGroup, RelayModel, RelayUpstreamModel } from '@/types'
 
 const toast = useToast()
 const auth = useAuthStore()
@@ -83,6 +84,10 @@ interface GroupDraft {
 }
 
 const overview = ref<RelayAdminOverview | null>(null)
+const dashboard = ref<RelayDashboard | null>(null)
+const dashboardLoading = ref(false)
+const dashboardTestingId = ref<number | null>(null)
+let dashboardTimer: number | null = null
 const activeTab = ref<Tab>('overview')
 const sidebarCollapsed = ref(false)
 const loading = ref(false)
@@ -572,6 +577,50 @@ async function load() {
   }
 }
 
+async function loadDashboard(silent = false) {
+  if (!silent) dashboardLoading.value = true
+  try {
+    const { data } = await adminApi.relayDashboard()
+    dashboard.value = data.data
+  } catch {
+    // 仪表盘 30 秒轮询失败时保留旧数据，不打断页面
+  } finally {
+    dashboardLoading.value = false
+  }
+}
+
+async function testChannelFromDashboard(channelId: number) {
+  dashboardTestingId.value = channelId
+  try {
+    const { data } = await adminApi.syncRelayChannelStatusById(channelId)
+    toast.success(`渠道检测完成：${data.data || 'unknown'}`)
+    await loadDashboard(true)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : '检测渠道失败')
+  } finally {
+    dashboardTestingId.value = null
+  }
+}
+
+function editChannelFromDashboard(channelId: number) {
+  const channel = channels.value.find((item) => item.id === channelId)
+  if (!channel) return
+  activeTab.value = 'channels'
+  editChannel(channel)
+}
+
+onMounted(() => {
+  void load()
+  void loadDashboard()
+  dashboardTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') void loadDashboard(true)
+  }, 30_000)
+})
+
+onBeforeUnmount(() => {
+  if (dashboardTimer !== null) window.clearInterval(dashboardTimer)
+})
+
 async function createGroup() {
   saving.value = 'group-new'
   error.value = ''
@@ -879,8 +928,6 @@ async function enableSelectedUpstreamModels() {
     saving.value = null
   }
 }
-
-onMounted(load)
 </script>
 
 <template>
@@ -950,11 +997,15 @@ onMounted(load)
       <p v-if="error" class="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{{ error }}</p>
 
       <Transition name="relay-view" mode="out-in">
-      <section v-if="activeTab === 'overview'" key="overview" class="relay-metrics">
-        <div class="panel relay-metric"><p class="text-sm font-bold text-slate-500">启用渠道</p><p class="mt-2 text-3xl font-black">{{ stats?.activeChannels || 0 }}/{{ stats?.totalChannels || 0 }}</p><span>可用上游服务</span></div>
-        <div class="panel relay-metric"><p class="text-sm font-bold text-slate-500">启用令牌</p><p class="mt-2 text-3xl font-black">{{ stats?.activeTokens || 0 }}/{{ stats?.totalTokens || 0 }}</p><span>已授权访问密钥</span></div>
-        <div class="panel relay-metric"><p class="text-sm font-bold text-slate-500">总请求数</p><p class="mt-2 text-3xl font-black">{{ stats?.totalRequests || 0 }}</p><span>累计 API 调用</span></div>
-        <div class="panel relay-metric relay-metric-accent"><p class="text-sm font-bold text-slate-500">总 Token</p><p class="mt-2 text-3xl font-black text-sky-600">{{ compactToken(stats?.totalTokensUsed) }}</p><span>累计用量</span></div>
+      <section v-if="activeTab === 'overview'" key="overview">
+        <RelayDashboardPanel
+          :data="dashboard"
+          :loading="dashboardLoading"
+          :testing-channel-id="dashboardTestingId"
+          @refresh="loadDashboard()"
+          @test-channel="testChannelFromDashboard"
+          @edit-channel="editChannelFromDashboard"
+        />
       </section>
 
       <section v-else-if="activeTab === 'channels'" key="channels" class="mt-6 space-y-3">

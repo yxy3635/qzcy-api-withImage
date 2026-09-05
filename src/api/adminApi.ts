@@ -1,5 +1,5 @@
 import http from './http'
-import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayChannelProvider, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
+import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayChannelProvider, RelayDashboard, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
 /** 渠道保存 payload：供应商 apiKey 留空表示保留原值，id 为空表示新增。 */
 export type RelayChannelPayload = Partial<Omit<RelayChannel, 'id' | 'apiKeyMasked' | 'status'>> & {
@@ -61,6 +61,12 @@ export const adminApi = {
   },
   relayOverview() {
     return http.get<ApiResponse<RelayAdminOverview>>('/admin/relay')
+  },
+  relayDashboard() {
+    return http.get<ApiResponse<RelayDashboard>>('/admin/relay/dashboard')
+  },
+  syncRelayChannelStatusById(id: number) {
+    return http.post<ApiResponse<string>>(`/admin/relay/channels/${id}/status/sync`)
   },
   createRelayChannel(payload: RelayChannelPayload) {
     return http.post<ApiResponse<RelayChannel>>('/admin/relay/channels', payload)

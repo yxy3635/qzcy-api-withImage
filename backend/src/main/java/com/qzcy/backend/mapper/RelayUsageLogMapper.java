@@ -6,6 +6,10 @@ import com.qzcy.backend.dto.AdminRelayUsageLogDto;
 import com.qzcy.backend.dto.AdminUserRankingDto;
 import com.qzcy.backend.dto.AdminUserUsageDto;
 import com.qzcy.backend.dto.RelayChannelProfitDto;
+import com.qzcy.backend.dto.RelayDashboardChannelStatsDto;
+import com.qzcy.backend.dto.RelayDashboardErrorDto;
+import com.qzcy.backend.dto.RelayDashboardLastErrorDto;
+import com.qzcy.backend.dto.RelayDashboardTrendPointDto;
 import com.qzcy.backend.dto.RelayModelUsageDto;
 import com.qzcy.backend.dto.RelayModelRecentCallDto;
 import com.qzcy.backend.dto.RelayTrendDto;
@@ -346,4 +350,86 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
     Page<AdminRelayUsageLogDto> adminUsageLogs(Page<AdminRelayUsageLogDto> page,
                                                @Param("keyword") String keyword,
                                                @Param("status") String status);
+
+    // ---------- 管理端仪表盘聚合（均命中 created_at / channel_id+created_at 索引） ----------
+
+    /** 失败口径与 adminUsageLogs 的 'error' 过滤保持一致：status='failed' OR status_code>=400。 */
+    @Select("""
+            SELECT channel_id AS channelId,
+                   COUNT(*) AS requests,
+                   COALESCE(SUM(CASE WHEN status = 'failed' OR status_code >= 400 THEN 1 ELSE 0 END), 0) AS errors,
+                   COALESCE(AVG(duration_ms), 0) AS avgDurationMs,
+                   COALESCE(AVG(first_token_ms), 0) AS avgFirstTokenMs,
+                   COALESCE(SUM(total_tokens), 0) AS totalTokens,
+                   COALESCE(SUM(cost), 0) AS cost
+            FROM relay_usage_log
+            WHERE created_at >= #{since}
+            GROUP BY channel_id
+            """)
+    List<RelayDashboardChannelStatsDto> dashboardChannelStats(@Param("since") LocalDateTime since);
+
+    @Select("""
+            SELECT l.channel_id AS channelId,
+                   l.created_at AS lastErrorAt,
+                   l.status_code AS lastErrorCode
+            FROM relay_usage_log l
+            INNER JOIN (
+                SELECT channel_id, MAX(created_at) AS maxCreated
+                FROM relay_usage_log
+                WHERE created_at >= #{since}
+                  AND (status = 'failed' OR status_code >= 400)
+                GROUP BY channel_id
+            ) m ON m.channel_id = l.channel_id AND m.maxCreated = l.created_at
+            WHERE l.created_at >= #{since}
+              AND (l.status = 'failed' OR l.status_code >= 400)
+            ORDER BY l.created_at DESC
+            """)
+    List<RelayDashboardLastErrorDto> dashboardLastErrors(@Param("since") LocalDateTime since);
+
+    @Select("""
+            SELECT DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00') AS hour,
+                   COUNT(*) AS requests,
+                   COALESCE(SUM(CASE WHEN status = 'failed' OR status_code >= 400 THEN 1 ELSE 0 END), 0) AS errors,
+                   COALESCE(SUM(total_tokens), 0) AS totalTokens,
+                   COALESCE(SUM(cost), 0) AS cost
+            FROM relay_usage_log
+            WHERE created_at >= #{since}
+            GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00')
+            ORDER BY hour
+            """)
+    List<RelayDashboardTrendPointDto> dashboardHourlyTrend(@Param("since") LocalDateTime since);
+
+    @Select("""
+            SELECT id,
+                   channel_name AS channelName,
+                   model,
+                   status_code AS statusCode,
+                   duration_ms AS durationMs,
+                   message,
+                   created_at AS createdAt
+            FROM relay_usage_log
+            WHERE status = 'failed' OR status_code >= 400
+            ORDER BY created_at DESC, id DESC
+            LIMIT #{limit}
+            """)
+    List<RelayDashboardErrorDto> dashboardRecentErrors(@Param("limit") long limit);
+
+    @Select("""
+            SELECT model AS model,
+                   COUNT(*) AS requests,
+                   COALESCE(SUM(total_tokens), 0) AS totalTokens,
+                   COALESCE(SUM(cost), 0) AS cost
+            FROM relay_usage_log
+            WHERE created_at >= CURDATE()
+            GROUP BY model
+            ORDER BY requests DESC
+            LIMIT #{limit}
+            """)
+    List<RelayModelUsageDto> dashboardModelTop(@Param("limit") long limit);
+
+    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE created_at >= CURDATE() AND (status = 'failed' OR status_code >= 400)")
+    Long todayErrors();
+
+    @Select("SELECT COUNT(*) FROM relay_usage_log WHERE created_at >= #{since}")
+    Long requestsSince(@Param("since") LocalDateTime since);
 }

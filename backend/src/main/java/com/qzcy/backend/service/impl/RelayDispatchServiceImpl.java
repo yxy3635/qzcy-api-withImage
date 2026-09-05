@@ -156,6 +156,18 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             .build();
 
     @Override
+    public java.util.Set<String> openCircuitScopes() {
+        long now = System.currentTimeMillis();
+        java.util.Set<String> open = new java.util.HashSet<>();
+        CHANNEL_CIRCUITS.forEach((scope, state) -> {
+            if (state.isOpen(now)) {
+                open.add(scope);
+            }
+        });
+        return open;
+    }
+
+    @Override
     public RelayDispatchResult dispatch(RelayDispatchRequest request) throws Exception {
         String model = request.body().path("model").asText("");
         String thinkingEffort = extractThinkingEffort(request.body());

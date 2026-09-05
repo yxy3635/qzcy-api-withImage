@@ -320,6 +320,75 @@ export interface RelayChannelProvider {
   enabled: boolean
 }
 
+export interface RelayDashboardSummary {
+  channelsTotal: number
+  channelsAvailable: number
+  providersTotal: number
+  providersAvailable: number
+  todayRequests: number
+  todayErrors: number
+  errorRate: number
+  todayTokens: number
+  todayCost: number
+  currentRpm: number
+}
+
+export interface RelayDashboardTrendPoint {
+  hour: string
+  requests: number
+  errors: number
+  totalTokens: number
+  cost: number
+}
+
+export interface RelayDashboardProvider {
+  id: number
+  name: string
+  channelRule: string
+  status: string
+  enabled: boolean
+  circuitOpen: boolean
+}
+
+export interface RelayDashboardChannel {
+  id: number
+  name: string
+  status: string
+  enabled: boolean
+  priority: number
+  weight: number
+  scheduleStrategy?: string
+  groupNames: string
+  health: 'ok' | 'degraded' | 'down' | 'disabled' | string
+  providers: RelayDashboardProvider[]
+  requests24h: number
+  errors24h: number
+  avgDurationMs: number
+  avgFirstTokenMs: number
+  tokens24h: number
+  cost24h: number
+  lastErrorAt?: string | null
+  lastErrorCode?: number | null
+}
+
+export interface RelayDashboardError {
+  id: number
+  channelName: string
+  model: string
+  statusCode?: number | null
+  durationMs?: number | null
+  message?: string | null
+  createdAt: string
+}
+
+export interface RelayDashboard {
+  summary: RelayDashboardSummary
+  trend: RelayDashboardTrendPoint[]
+  channels: RelayDashboardChannel[]
+  recentErrors: RelayDashboardError[]
+  topModels: RelayModelUsage[]
+}
+
 export interface RelayChannelModel {
   id: number
   channelId: number
