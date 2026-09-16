@@ -30,6 +30,9 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         normalizeImplicitChannelUpstreamModels();
         ensureRelayPrecision();
         ensureRelayTokenIndexes();
+        if (tableExists("relay_token")) {
+            addColumnIfMissing("relay_token", "deleted", "TINYINT(1) NOT NULL DEFAULT 0");
+        }
         ensureGptImage2Model();
         ensureEmptyGroupsHaveModels();
         ensureChannelsHaveModels();
@@ -80,6 +83,8 @@ public class RelaySchemaInitializer implements CommandLineRunner {
                 )
                 """);
         addColumnIfMissing("relay_channel_provider", "channel_rule", "VARCHAR(40) NOT NULL DEFAULT 'openai'");
+        addColumnIfMissing("relay_channel_provider", "openai_base_url", "VARCHAR(255) NULL");
+        addColumnIfMissing("relay_channel_provider", "anthropic_base_url", "VARCHAR(255) NULL");
         addColumnIfMissing("relay_channel_provider", "priority", "INT NOT NULL DEFAULT 10");
         addColumnIfMissing("relay_channel_provider", "weight", "INT NOT NULL DEFAULT 10");
         addColumnIfMissing("relay_channel_provider", "status", "VARCHAR(20) NOT NULL DEFAULT 'unknown'");

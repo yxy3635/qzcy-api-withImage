@@ -125,7 +125,7 @@ const filteredChannels = computed(() => {
       draft.name,
       draft.provider,
       draft.groupNames,
-      ...draft.providers.map((provider) => `${provider.name} ${provider.apiBaseUrl}`)
+      ...draft.providers.map((provider) => `${provider.name} ${provider.openaiBaseUrl} ${provider.anthropicBaseUrl}`)
     ].join(' ').toLowerCase()
     const matchesKeyword = !keyword || haystack.includes(keyword)
     const matchesState = channelStateFilter.value === 'all'
@@ -240,6 +240,8 @@ function setChannelDraft(channel: RelayChannel) {
         id: provider.id,
         name: provider.name || '',
         apiBaseUrl: provider.apiBaseUrl || '',
+        openaiBaseUrl: provider.openaiBaseUrl ?? (provider.anthropicBaseUrl == null && provider.channelRule !== 'anthropic' ? provider.apiBaseUrl : '') ?? '',
+        anthropicBaseUrl: provider.anthropicBaseUrl ?? (provider.openaiBaseUrl == null && provider.channelRule === 'anthropic' ? provider.apiBaseUrl : '') ?? '',
         keyValue: '',
         apiKeyMasked: provider.apiKeyMasked || '',
         channelRule: provider.channelRule || 'openai',
@@ -251,6 +253,8 @@ function setChannelDraft(channel: RelayChannel) {
     : [Object.assign(newProviderDraft(), {
         name: channel.provider || '',
         apiBaseUrl: channel.apiBaseUrl || '',
+        openaiBaseUrl: channel.channelRule !== 'anthropic' ? channel.apiBaseUrl || '' : '',
+        anthropicBaseUrl: channel.channelRule === 'anthropic' ? channel.apiBaseUrl || '' : '',
         apiKeyMasked: channel.apiKeyMasked || '',
         channelRule: channel.channelRule || inferChannelRule(channel),
         priority: Number(channel.priority || 10),
@@ -338,8 +342,8 @@ function channelPayload(draft: ChannelDraft) {
   const payload: Record<string, unknown> = {
     name: draft.name,
     provider: draft.provider,
-    channelRule: firstProvider?.channelRule || draft.channelRule,
-    apiBaseUrl: firstProvider?.apiBaseUrl || draft.apiBaseUrl,
+    channelRule: firstProvider ? (firstProvider.openaiBaseUrl.trim() ? 'openai' : 'anthropic') : draft.channelRule,
+    apiBaseUrl: firstProvider ? firstProvider.openaiBaseUrl.trim() || firstProvider.anthropicBaseUrl.trim() : draft.apiBaseUrl,
     groupNames: draft.groupNames,
     remark: draft.remark,
     priority: draft.priority,
@@ -353,8 +357,10 @@ function channelPayload(draft: ChannelDraft) {
     providers: draft.providers.map((provider) => {
       const item: Record<string, unknown> = {
         name: provider.name,
-        apiBaseUrl: provider.apiBaseUrl.trim(),
-        channelRule: provider.channelRule,
+        apiBaseUrl: provider.openaiBaseUrl.trim() || provider.anthropicBaseUrl.trim(),
+        openaiBaseUrl: provider.openaiBaseUrl.trim(),
+        anthropicBaseUrl: provider.anthropicBaseUrl.trim(),
+        channelRule: provider.openaiBaseUrl.trim() ? 'openai' : 'anthropic',
         priority: provider.priority,
         weight: provider.weight,
         enabled: provider.enabled
@@ -441,6 +447,8 @@ function newProviderDraft(): ProviderDraft {
     id: null,
     name: '',
     apiBaseUrl: '',
+    openaiBaseUrl: '',
+    anthropicBaseUrl: '',
     keyValue: '',
     apiKeyMasked: '',
     channelRule: 'openai',
@@ -455,7 +463,13 @@ function providerDraftError(draft: ChannelDraft) {
   if (!draft.providers.length) return '请至少添加一个上游供应商'
   for (const [index, provider] of draft.providers.entries()) {
     const label = provider.name.trim() || `供应商 ${index + 1}`
-    if (!provider.apiBaseUrl.trim()) return `${label} 缺少 Base URL`
+    if (!provider.openaiBaseUrl.trim() && !provider.anthropicBaseUrl.trim()) return `${label} 请至少填写一种格式的 Base URL`
+    for (const value of [provider.openaiBaseUrl, provider.anthropicBaseUrl].filter(value => value.trim())) {
+      try {
+        const url = new URL(value.trim())
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || value.trim().length > 255) throw new Error()
+      } catch { return `${label} 请填写有效的 HTTP(S) Base URL，不含凭证、查询参数或片段` }
+    }
     if (provider.id == null && !provider.keyValue.trim()) return `${label} 缺少 API Key`
   }
   return ''
@@ -479,9 +493,13 @@ function providerDotClass(provider: ProviderDraft) {
 }
 
 function providerSummary(draft: ChannelDraft) {
-  const urls = draft.providers.map((provider) => provider.apiBaseUrl).filter(Boolean)
+  const urls = draft.providers.map((provider) => provider.openaiBaseUrl || provider.anthropicBaseUrl).filter(Boolean)
   if (!urls.length) return draft.apiBaseUrl || '尚未配置上游地址'
   return urls.length === 1 ? urls[0] : `${urls[0]} 等 ${urls.length} 个供应商`
+}
+
+function draftFormats(draft: ChannelDraft) {
+  return ['openai', 'anthropic'].filter(format => draft.providers.some(p => p.enabled && (format === 'openai' ? p.openaiBaseUrl.trim() : p.anthropicBaseUrl.trim())))
 }
 
 function ruleLabel(rule: string) {
@@ -984,7 +1002,7 @@ async function enableSelectedUpstreamModels() {
           <div class="min-w-0">
             <p class="text-xs font-black uppercase tracking-[0.16em] text-sky-600">新增渠道</p>
             <p class="mt-1 truncate text-base font-black text-slate-950">{{ newChannel.name }} · {{ newChannel.provider }}</p>
-            <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ ruleLabel(newChannel.channelRule) }} · {{ enabledChannelModelDraftCount(newChannel) }} 个模型</p>
+            <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ draftFormats(newChannel).map(ruleLabel).join(' / ') || '未配置格式' }} · {{ enabledChannelModelDraftCount(newChannel) }} 个模型</p>
           </div>
           <span class="shrink-0 rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white">打开编辑器</span>
         </button>
@@ -1013,7 +1031,7 @@ async function enableSelectedUpstreamModels() {
                     <span class="h-1.5 w-1.5 rounded-full" :class="providerDotClass(provider)" aria-hidden="true"></span>
                     {{ provider.name || '未命名供应商' }}
                   </span>
-                  <span class="inline-flex rounded-md px-2 py-1 text-xs font-black ring-1" :class="ruleBadgeClass(channelDraftOf(channel).channelRule)">{{ ruleLabel(channelDraftOf(channel).channelRule) }}</span>
+                  <span v-for="format in draftFormats(channelDraftOf(channel))" :key="format" class="inline-flex rounded-md px-2 py-1 text-xs font-black ring-1" :class="ruleBadgeClass(format)">{{ ruleLabel(format) }}</span>
                   <span class="rounded-md bg-sky-50 px-2 py-1 text-xs font-black text-sky-700">{{ strategyLabel(channelDraftOf(channel).scheduleStrategy) }}</span>
                   <span class="rounded-md px-2 py-1 text-xs font-black" :class="channel.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'">{{ channel.status }}</span>
                 </div>

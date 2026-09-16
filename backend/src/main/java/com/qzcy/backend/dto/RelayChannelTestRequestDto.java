@@ -7,4 +7,5 @@ import lombok.Data;
 public class RelayChannelTestRequestDto {
     private Long modelId;
     private String prompt;
+    private String format;
 }

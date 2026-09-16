@@ -12,6 +12,8 @@ public class RelayProviderDto {
     private Long channelId;
     private String name;
     private String apiBaseUrl;
+    private String openaiBaseUrl;
+    private String anthropicBaseUrl;
     private String apiKeyMasked;
     private String channelRule;
     private Integer priority;

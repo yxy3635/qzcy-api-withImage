@@ -1,6 +1,8 @@
 /** 中转站管理台各编辑抽屉共用的草稿类型；草稿实体由 AdminRelay.vue 创建并传入抽屉直接绑定。 */
 
 export interface ProviderDraft {
+  openaiBaseUrl: string
+  anthropicBaseUrl: string
   id: number | null
   name: string
   apiBaseUrl: string

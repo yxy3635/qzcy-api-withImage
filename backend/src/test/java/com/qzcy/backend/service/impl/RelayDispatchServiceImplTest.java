@@ -35,6 +35,46 @@ class RelayDispatchServiceImplTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test
+    void selectsFormatUrlAndAuthWithoutMutatingSharedProvider() {
+        RelayChannelProvider provider = new RelayChannelProvider();
+        provider.setId(3L);
+        provider.setApiKey("shared-key");
+        provider.setApiBaseUrl("https://openai.example/v1");
+        provider.setChannelRule("openai");
+        provider.setOpenaiBaseUrl("https://openai.example/v1");
+        provider.setAnthropicBaseUrl("https://anthropic.example");
+        RelayContext context = new RelayContext(null, null, null, new RelayChannel(), provider, null, "chat");
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        for (String path : java.util.List.of("/v1/messages", "/v1/messages/count_tokens", "/v1/chat/completions", "/v1/responses", "/v1/images/generations")) {
+            RelayContext selected = service.contextsForFormat(java.util.List.of(context), path).get(0);
+            boolean anthropic = path.startsWith("/v1/messages");
+            assertEquals(anthropic ? "anthropic" : "openai", selected.provider().getChannelRule());
+            assertEquals(anthropic ? "https://anthropic.example" : "https://openai.example/v1", selected.provider().getApiBaseUrl());
+            assertEquals("shared-key", selected.provider().getApiKey());
+            assertEquals(3L, selected.provider().getId());
+            assertNotSame(provider, selected.provider());
+        }
+        assertEquals("openai", provider.getChannelRule());
+        assertEquals("https://openai.example/v1", provider.getApiBaseUrl());
+    }
+
+    @Test
+    void skipsUnsupportedFormatsAndPreservesLegacyProvider() {
+        RelayChannelProvider provider = new RelayChannelProvider();
+        provider.setApiBaseUrl("https://legacy.example");
+        provider.setChannelRule("anthropic");
+        RelayContext context = new RelayContext(null, null, null, new RelayChannel(), provider, null, "chat");
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        assertEquals(1, service.contextsForFormat(java.util.List.of(context), "/v1/messages").size());
+        org.junit.jupiter.api.Assertions.assertThrows(com.qzcy.backend.exception.BusinessException.class,
+                () -> service.contextsForFormat(java.util.List.of(context), "/v1/chat/completions"));
+        provider.setOpenaiBaseUrl("https://openai.example");
+        provider.setAnthropicBaseUrl("");
+        org.junit.jupiter.api.Assertions.assertThrows(com.qzcy.backend.exception.BusinessException.class,
+                () -> service.contextsForFormat(java.util.List.of(context), "/v1/messages"));
+    }
+
+    @Test
     void retriesNetworkTimeoutWrappedAsBadRequest() throws Exception {
         JsonNode body = OBJECT_MAPPER.readTree("""
                 {"error":{"type":"new_api_error","message":"Invalid request: read tcp 172.18.0.3:66224->172.18.0.1:46618: i/o timeout"}}

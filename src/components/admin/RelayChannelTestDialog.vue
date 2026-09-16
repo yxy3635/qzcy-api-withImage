@@ -37,12 +37,14 @@ const strategyLabels: Record<string, string> = {
 
 const selectedModelId = ref<number | null>(null)
 const prompt = ref(DEFAULT_PROMPT)
+const format = ref('')
 const loading = ref(false)
 const result = ref<RelayChannelTestResult | null>(null)
 
 watch(() => props.open, (open) => {
   if (!open) return
   result.value = null
+  format.value = ''
   prompt.value = DEFAULT_PROMPT
   selectedModelId.value = props.models[0]?.modelId ?? null
 })
@@ -59,7 +61,8 @@ async function submit() {
   try {
     const { data } = await adminApi.testRelayChannelChat(props.channelId, {
       modelId: selectedModelId.value,
-      prompt: prompt.value
+      prompt: prompt.value,
+      format: format.value || undefined
     })
     result.value = data.data
     if (result.value?.success) {
@@ -104,6 +107,14 @@ function modelLabel(item: TestModelOption) {
             <option v-for="item in models" :key="item.modelId" :value="item.modelId">{{ modelLabel(item) }}</option>
           </select>
           <span v-if="!models.length" class="mt-1 block text-[11px] font-black text-red-500">该渠道没有已启用的模型绑定，请先在渠道编辑中绑定。</span>
+        </label>
+        <label class="block">
+          <span class="text-xs font-black text-slate-600">测试格式</span>
+          <select v-model="format" class="input mt-1 h-10 rounded-lg text-sm" :disabled="loading">
+            <option value="">供应商默认格式</option>
+            <option value="openai">OpenAI 兼容</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
         </label>
         <label class="block">
           <span class="text-xs font-black text-slate-600">测试内容</span>

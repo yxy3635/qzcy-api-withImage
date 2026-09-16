@@ -56,7 +56,8 @@ public class RelayChannelStatusServiceImpl implements RelayChannelStatusService 
             if (!Boolean.TRUE.equals(provider.getEnabled())) {
                 continue;
             }
-            boolean available = check(provider.getApiBaseUrl(), provider.getApiKey(), provider.getChannelRule());
+            boolean available = com.qzcy.backend.service.RelayProviderFormats.urls(provider).entrySet().stream()
+                    .anyMatch(endpoint -> check(endpoint.getValue(), provider.getApiKey(), endpoint.getKey()));
             provider.setStatus(available ? "available" : "failed");
             provider.setUpdatedAt(java.time.LocalDateTime.now());
             providerMapper.updateById(provider);

@@ -76,10 +76,18 @@ public class RelayChannelTestServiceImpl implements RelayChannelTestService {
                 : publicModel;
         if (isBlank(upstreamModel)) throw new BusinessException(400, "模型名称为空，无法发起测试");
 
-        List<RelayChannelProvider> providers = usableProviders(channel);
+        String requestedFormat = request.getFormat();
+        if (requestedFormat != null && !requestedFormat.isBlank()
+                && !List.of("openai", "anthropic").contains(requestedFormat)) {
+            throw new BusinessException(400, "不支持的 API 格式");
+        }
+        List<RelayChannelProvider> providers = usableProviders(channel).stream()
+                .filter(p -> requestedFormat == null || requestedFormat.isBlank()
+                        || com.qzcy.backend.service.RelayProviderFormats.urls(p).containsKey(requestedFormat)).toList();
+        if (providers.isEmpty()) throw new BusinessException(400, "该渠道没有支持此格式的可用供应商");
         List<RelayChannelTestAttemptDto> attempts = new ArrayList<>();
         for (RelayChannelProvider provider : providerScheduler.order(channel, providers)) {
-            String rule = resolveRule(channel, provider);
+            String rule = requestedFormat == null || requestedFormat.isBlank() ? resolveRule(channel, provider) : requestedFormat;
             long startedAt = System.currentTimeMillis();
             try {
                 String content = callUpstream(channel, provider, rule, upstreamModel, prompt);
@@ -144,7 +152,7 @@ public class RelayChannelTestServiceImpl implements RelayChannelTestService {
     String callUpstream(RelayChannel channel, RelayChannelProvider provider, String rule,
                         String upstreamModel, String prompt) throws Exception {
         boolean anthropic = "anthropic".equalsIgnoreCase(rule);
-        String url = relayUrl(provider.getApiBaseUrl(), anthropic ? "/v1/messages" : "/v1/chat/completions");
+        String url = relayUrl(com.qzcy.backend.service.RelayProviderFormats.urls(provider).get(rule), anthropic ? "/v1/messages" : "/v1/chat/completions");
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", upstreamModel);
         var messages = body.putArray("messages");

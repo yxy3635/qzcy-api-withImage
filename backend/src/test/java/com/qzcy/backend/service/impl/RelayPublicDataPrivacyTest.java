@@ -35,14 +35,16 @@ class RelayPublicDataPrivacyTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private RelayChannelModelMapper channelModelMapper;
     private RelayServiceImpl service;
+    private RelayChannelProviderMapper providerMapper;
 
     @BeforeEach
     void setUp() {
+        providerMapper = mock(RelayChannelProviderMapper.class);
         channelModelMapper = mock(RelayChannelModelMapper.class);
         service = new RelayServiceImpl(
                 mock(RelayChannelMapper.class),
                 channelModelMapper,
-                mock(RelayChannelProviderMapper.class),
+                providerMapper,
                 new RelayProviderScheduler(),
                 mock(RelayGroupMapper.class),
                 mock(RelayGroupModelMapper.class),
@@ -53,6 +55,65 @@ class RelayPublicDataPrivacyTest {
                 objectMapper,
                 mock(RelayModelStatusCache.class)
         );
+    }
+
+    @Test
+    void providerUpdateKeepsOneKeyAndAllowsRemovingAFormat() {
+        var existing = new com.qzcy.backend.entity.RelayChannelProvider();
+        existing.setId(7L);
+        existing.setChannelId(9L);
+        existing.setApiKey("shared-secret");
+        existing.setChannelRule("openai");
+        existing.setApiBaseUrl("https://old.example");
+        when(providerMapper.selectByChannelId(9L)).thenReturn(List.of(existing));
+        var update = new com.qzcy.backend.dto.RelayProviderUpdateDto();
+        update.setId(7L);
+        update.setOpenaiBaseUrl("https://openai.example/v1/");
+        update.setAnthropicBaseUrl("https://anthropic.example/");
+        ReflectionTestUtils.invokeMethod(service, "replaceChannelProviders", 9L, List.of(update));
+        assertEquals("shared-secret", existing.getApiKey());
+        assertEquals("https://openai.example/v1", existing.getOpenaiBaseUrl());
+        assertEquals("https://anthropic.example", existing.getAnthropicBaseUrl());
+        assertEquals(2, com.qzcy.backend.service.RelayProviderFormats.urls(existing).size());
+        update.setOpenaiBaseUrl("");
+        ReflectionTestUtils.invokeMethod(service, "replaceChannelProviders", 9L, List.of(update));
+        assertEquals("anthropic", existing.getChannelRule());
+        assertEquals("https://anthropic.example", existing.getApiBaseUrl());
+        assertEquals(1, com.qzcy.backend.service.RelayProviderFormats.urls(existing).size());
+        update.setAnthropicBaseUrl("");
+        org.junit.jupiter.api.Assertions.assertThrows(com.qzcy.backend.exception.BusinessException.class,
+            () -> ReflectionTestUtils.invokeMethod(service, "replaceChannelProviders", 9L, List.of(update)));
+    }
+
+    @Test
+    void rejectsInvalidFormatUrl() {
+        var update = new com.qzcy.backend.dto.RelayProviderUpdateDto();
+        update.setApiKey("shared-secret");
+        update.setOpenaiBaseUrl("ftp://example.com");
+        when(providerMapper.selectByChannelId(9L)).thenReturn(List.of());
+        org.junit.jupiter.api.Assertions.assertThrows(com.qzcy.backend.exception.BusinessException.class,
+            () -> ReflectionTestUtils.invokeMethod(service, "replaceChannelProviders", 9L, List.of(update)));
+        org.mockito.Mockito.verify(providerMapper, org.mockito.Mockito.never()).insert(org.mockito.ArgumentMatchers.any(com.qzcy.backend.entity.RelayChannelProvider.class));
+    }
+
+    @Test
+    void publicFormatsAggregateEnabledProvidersWithoutExposingUrlsOrKeys() {
+        RelayChannel channel = new RelayChannel();
+        channel.setId(9L);
+        channel.setChannelRule("openai");
+        var provider = new com.qzcy.backend.entity.RelayChannelProvider();
+        provider.setOpenaiBaseUrl("https://secret-openai.example");
+        provider.setAnthropicBaseUrl("https://secret-anthropic.example");
+        provider.setApiKey("shared-secret");
+        provider.setEnabled(true);
+        when(providerMapper.selectByChannelId(9L)).thenReturn(List.of(provider));
+        when(channelModelMapper.modelsForChannel(9L)).thenReturn(List.of());
+        RelayPublicChannelDto result = ReflectionTestUtils.invokeMethod(service, "toPublicChannelDto", channel, 1);
+        assertEquals(List.of("anthropic", "openai"), result.getSupportedFormats());
+        assertFalse(objectMapper.valueToTree(result).toString().contains("secret"));
+        provider.setEnabled(false);
+        result = ReflectionTestUtils.invokeMethod(service, "toPublicChannelDto", channel, 1);
+        assertTrue(result.getSupportedFormats().isEmpty());
     }
 
     @Test

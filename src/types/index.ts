@@ -308,6 +308,8 @@ export interface RelayChannel {
 }
 
 export interface RelayChannelProvider {
+  openaiBaseUrl?: string | null
+  anthropicBaseUrl?: string | null
   id: number
   channelId: number
   name: string
@@ -414,6 +416,7 @@ export interface RelayChannelModel {
 }
 
 export interface RelayPublicChannel {
+  supportedFormats?: string[]
   id: number
   name: string
   channelRule: 'openai' | 'anthropic' | string

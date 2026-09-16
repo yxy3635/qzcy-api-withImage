@@ -179,6 +179,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 request.endpointType(),
                 model
         );
+        contexts = contextsForFormat(contexts, request.upstreamPath());
         BusinessException rateLimitFailure = null;
         boolean circuitSkipped = false;
         for (int index = 0; index < contexts.size(); index++) {
@@ -300,6 +301,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 request.endpointType(),
                 model
         );
+        contexts = contextsForFormat(contexts, request.upstreamPath());
         BusinessException rateLimitFailure = null;
         String lastErrorText = "";
         int lastStatus = 500;
@@ -769,6 +771,30 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     /**
      * 候选端点解析：渠道内供应商优先，未配置供应商的老渠道回退到渠道自身字段。
      */
+    List<RelayContext> contextsForFormat(List<RelayContext> contexts, String path) {
+        String format = path != null && path.startsWith("/v1/messages") ? "anthropic" : "openai";
+        List<RelayContext> matching = new java.util.ArrayList<>();
+        for (RelayContext context : contexts) {
+            RelayChannelProvider source = context.provider();
+            if (source == null) {
+                source = new RelayChannelProvider();
+                source.setApiBaseUrl(context.channel().getApiBaseUrl());
+                source.setApiKey(context.channel().getApiKey());
+                source.setChannelRule(context.channel().getChannelRule());
+            }
+            String url = com.qzcy.backend.service.RelayProviderFormats.urls(source).get(format);
+            if (url == null) continue;
+            RelayChannelProvider selected = new RelayChannelProvider();
+            org.springframework.beans.BeanUtils.copyProperties(source, selected);
+            selected.setApiBaseUrl(url);
+            selected.setChannelRule(format);
+            matching.add(new RelayContext(context.token(), context.model(), context.group(), context.channel(),
+                    selected, context.channelModel(), context.effectiveModelType()));
+        }
+        if (matching.isEmpty()) throw new BusinessException(400, "No available relay provider supports " + format + " format");
+        return matching;
+    }
+
     private String endpointBaseUrl(RelayContext context) {
         RelayChannelProvider provider = context == null ? null : context.provider();
         if (provider != null && provider.getApiBaseUrl() != null && !provider.getApiBaseUrl().isBlank()) {

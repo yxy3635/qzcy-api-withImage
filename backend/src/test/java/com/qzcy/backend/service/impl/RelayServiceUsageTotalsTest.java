@@ -2,7 +2,6 @@ package com.qzcy.backend.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qzcy.backend.dto.RelayTokenCreateDto;
-import com.qzcy.backend.dto.RelayTokenDto;
 import com.qzcy.backend.dto.RelayUserOverviewDto;
 import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.mapper.RelayChannelMapper;
@@ -22,7 +21,6 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -79,20 +77,49 @@ class RelayServiceUsageTotalsTest {
     }
 
     @Test
+    void deletingKeyRevokesItWithoutDeletingHistory() {
+        RelayToken stored = new RelayToken();
+        stored.setId(7L);
+        stored.setUserId(3L);
+        when(tokenMapper.selectById(7L)).thenReturn(stored);
+        when(tokenMapper.revokeAndDelete(3L, 7L)).thenReturn(1);
+        service.deleteToken(3L, 7L);
+        verify(tokenMapper).revokeAndDelete(3L, 7L);
+        org.mockito.Mockito.verify(tokenMapper, org.mockito.Mockito.never()).deleteById(7L);
+        org.mockito.Mockito.verifyNoInteractions(usageLogMapper);
+    }
+
+    @Test
+    void deletingAnotherUsersKeyIsRejected() {
+        RelayToken stored = new RelayToken();
+        stored.setUserId(4L);
+        when(tokenMapper.selectById(7L)).thenReturn(stored);
+        org.junit.jupiter.api.Assertions.assertThrows(com.qzcy.backend.exception.BusinessException.class,
+                () -> service.deleteToken(3L, 7L));
+        org.mockito.Mockito.verify(tokenMapper, org.mockito.Mockito.never()).revokeAndDelete(3L, 7L);
+    }
+
+    @Test
     void accountTotalsNeverDropBelowTokenOrLogHistory() {
-        RelayTokenDto token = new RelayTokenDto();
-        token.setRequestCount(120L);
-        token.setTokenCount(3000L);
-        token.setUsedQuota(new BigDecimal("9.250000"));
+        RelayToken lifetime = new RelayToken();
+        lifetime.setRequestCount(120L);
+        lifetime.setTokenCount(3000L);
+        lifetime.setUsedQuota(new BigDecimal("9.250000"));
+        when(tokenMapper.lifetimeUsage(3L)).thenReturn(lifetime);
         when(usageLogMapper.userTotalRequests(3L)).thenReturn(150L);
         when(usageLogMapper.userTotalTokens(3L)).thenReturn(2500L);
         when(usageLogMapper.userTotalCost(3L)).thenReturn(new BigDecimal("8.750000"));
 
         RelayUserOverviewDto overview = new RelayUserOverviewDto();
-        ReflectionTestUtils.invokeMethod(service, "fillUsageStats", overview, 3L, List.of(token));
+        ReflectionTestUtils.invokeMethod(service, "fillUsageStats", overview, 3L);
 
         assertEquals(150L, overview.getTotalRequests());
         assertEquals(3000L, overview.getTotalTokens());
         assertEquals(new BigDecimal("9.250000"), overview.getTotalCost());
+        RelayUserOverviewDto afterDelete = new RelayUserOverviewDto();
+        ReflectionTestUtils.invokeMethod(service, "fillUsageStats", afterDelete, 3L);
+        assertEquals(overview.getTotalRequests(), afterDelete.getTotalRequests());
+        assertEquals(overview.getTotalTokens(), afterDelete.getTotalTokens());
+        assertEquals(overview.getTotalCost(), afterDelete.getTotalCost());
     }
 }

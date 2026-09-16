@@ -48,6 +48,7 @@ import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.RelayService;
 import com.qzcy.backend.service.RelayModelStatusCache;
 import com.qzcy.backend.service.RelayProviderScheduler;
+import com.qzcy.backend.service.RelayProviderFormats;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -202,7 +203,6 @@ public class RelayServiceImpl implements RelayService {
             }
             boolean creating = target == null;
             if (creating) {
-                if (isBlank(item.getApiBaseUrl())) throw new BusinessException(400, "Provider base URL is required");
                 if (isBlank(item.getApiKey())) throw new BusinessException(400, "Provider API key is required");
                 target = new RelayChannelProvider();
                 target.setChannelId(channelId);
@@ -214,6 +214,15 @@ public class RelayServiceImpl implements RelayService {
                 target.setApiKey(item.getApiKey().trim());
             }
             target.setChannelRule(normalizeChannelRule(item.getChannelRule()));
+            if (item.getOpenaiBaseUrl() != null || item.getAnthropicBaseUrl() != null) {
+                target.setOpenaiBaseUrl(normalizeFormatUrl(item.getOpenaiBaseUrl()));
+                target.setAnthropicBaseUrl(normalizeFormatUrl(item.getAnthropicBaseUrl()));
+            }
+            var formatUrls = RelayProviderFormats.urls(target);
+            if (formatUrls.isEmpty()) throw new BusinessException(400, "请至少配置一种格式的 Base URL");
+            var primary = formatUrls.entrySet().iterator().next();
+            target.setChannelRule(primary.getKey());
+            target.setApiBaseUrl(primary.getValue());
             target.setPriority(item.getPriority() == null ? 10 : Math.max(0, item.getPriority()));
             target.setWeight(item.getWeight() == null ? 10 : Math.max(0, item.getWeight()));
             target.setEnabled(item.getEnabled() == null || item.getEnabled());
@@ -357,12 +366,14 @@ public class RelayServiceImpl implements RelayService {
         List<String> errors = new ArrayList<>();
         for (RelayChannelProvider provider : providers) {
             String label = isBlank(provider.getName()) ? "provider#" + provider.getId() : provider.getName();
-            try {
-                for (RelayUpstreamModelDto item : fetchUpstreamModelsForEndpoint(provider.getApiBaseUrl(), provider.getApiKey(), provider.getChannelRule())) {
-                    merged.putIfAbsent(item.getId(), item);
+            for (var endpoint : RelayProviderFormats.urls(provider).entrySet()) {
+                try {
+                    for (RelayUpstreamModelDto item : fetchUpstreamModelsForEndpoint(endpoint.getValue(), provider.getApiKey(), endpoint.getKey())) {
+                        merged.putIfAbsent(item.getId(), item);
+                    }
+                } catch (Exception ex) {
+                    errors.add(label + " (" + endpoint.getKey() + "): " + ex.getMessage());
                 }
-            } catch (Exception ex) {
-                errors.add(label + ": " + ex.getMessage());
             }
         }
         if (merged.isEmpty() && !errors.isEmpty()) {
@@ -471,7 +482,9 @@ public class RelayServiceImpl implements RelayService {
         if (item == null || !userId.equals(item.getUserId())) {
             throw new BusinessException(404, "API key not found");
         }
-        tokenMapper.deleteById(tokenId);
+        if (tokenMapper.revokeAndDelete(userId, tokenId) == 0) {
+            throw new BusinessException(404, "API key not found");
+        }
     }
 
     @Override
@@ -535,11 +548,10 @@ public class RelayServiceImpl implements RelayService {
                         .orderByAsc("id"))
                 .stream().map(this::toGroupDto).toList();
 
-        long tokenRequests = tokens.stream().mapToLong(item -> item.getRequestCount() == null ? 0L : item.getRequestCount()).sum();
-        long tokenCount = tokens.stream().mapToLong(item -> item.getTokenCount() == null ? 0L : item.getTokenCount()).sum();
-        BigDecimal tokenCost = tokens.stream()
-                .map(item -> item.getUsedQuota() == null ? BigDecimal.ZERO : item.getUsedQuota())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        RelayToken lifetime = tokenMapper.lifetimeUsage(userId);
+        long tokenRequests = lifetime == null ? 0L : nullToZero(lifetime.getRequestCount());
+        long tokenCount = lifetime == null ? 0L : nullToZero(lifetime.getTokenCount());
+        BigDecimal tokenCost = lifetime == null || lifetime.getUsedQuota() == null ? BigDecimal.ZERO : lifetime.getUsedQuota();
         long totalRequests = Math.max(tokenRequests, nullToZero(usageLogMapper.userTotalRequests(userId)));
         long totalTokens = Math.max(tokenCount, nullToZero(usageLogMapper.userTotalTokens(userId)));
         BigDecimal totalCost = max(tokenCost, usageLogMapper.userTotalCost(userId));
@@ -597,14 +609,14 @@ public class RelayServiceImpl implements RelayService {
         result.setModelUsage(loadModelUsage(userId, publicModelNames));
         result.setModelRecentCalls(loadRecentModelCalls(systemModels, publicModelNames));
         result.setTrend(usageLogMapper.userTrend(userId));
-        fillUsageStats(result, userId, tokens);
+        fillUsageStats(result, userId);
     }
 
     private void fillKeysSection(RelayUserOverviewDto result, Long userId) {
         List<RelayTokenDto> tokens = loadUserTokens(userId);
         result.setTokens(tokens);
         result.setGroups(loadGroups());
-        fillUsageStats(result, userId, tokens);
+        fillUsageStats(result, userId);
     }
 
     private void fillLogsSection(RelayUserOverviewDto result, Long userId, long page, long size,
@@ -690,12 +702,11 @@ public class RelayServiceImpl implements RelayService {
         return loaded;
     }
 
-    private void fillUsageStats(RelayUserOverviewDto result, Long userId, List<RelayTokenDto> tokens) {
-        long tokenRequests = tokens.stream().mapToLong(item -> item.getRequestCount() == null ? 0L : item.getRequestCount()).sum();
-        long tokenCount = tokens.stream().mapToLong(item -> item.getTokenCount() == null ? 0L : item.getTokenCount()).sum();
-        BigDecimal tokenCost = tokens.stream()
-                .map(item -> item.getUsedQuota() == null ? BigDecimal.ZERO : item.getUsedQuota())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    private void fillUsageStats(RelayUserOverviewDto result, Long userId) {
+        RelayToken lifetime = tokenMapper.lifetimeUsage(userId);
+        long tokenRequests = lifetime == null ? 0L : nullToZero(lifetime.getRequestCount());
+        long tokenCount = lifetime == null ? 0L : nullToZero(lifetime.getTokenCount());
+        BigDecimal tokenCost = lifetime == null || lifetime.getUsedQuota() == null ? BigDecimal.ZERO : lifetime.getUsedQuota();
         long totalRequests = Math.max(tokenRequests, nullToZero(usageLogMapper.userTotalRequests(userId)));
         long totalTokens = Math.max(tokenCount, nullToZero(usageLogMapper.userTotalTokens(userId)));
         BigDecimal totalCost = max(tokenCost, usageLogMapper.userTotalCost(userId));
@@ -1023,7 +1034,7 @@ public class RelayServiceImpl implements RelayService {
 
     private RelayProviderDto toProviderDto(RelayChannelProvider provider) {
         return new RelayProviderDto(provider.getId(), provider.getChannelId(), provider.getName(), provider.getApiBaseUrl(),
-                mask(provider.getApiKey()), provider.getChannelRule(), provider.getPriority(), provider.getWeight(),
+                provider.getOpenaiBaseUrl(), provider.getAnthropicBaseUrl(), mask(provider.getApiKey()), provider.getChannelRule(), provider.getPriority(), provider.getWeight(),
                 provider.getStatus(), provider.getEnabled());
     }
 
@@ -1053,7 +1064,11 @@ public class RelayServiceImpl implements RelayService {
                     );
                 })
                 .toList();
-        String rule = normalizeChannelRule(channel.getChannelRule());
+        List<RelayChannelProvider> providers = channelProviderMapper.selectByChannelId(channel.getId());
+        List<String> formats = providers.isEmpty() ? List.of(normalizeChannelRule(channel.getChannelRule()))
+                : providers.stream().filter(p -> !Boolean.FALSE.equals(p.getEnabled()))
+                    .flatMap(p -> RelayProviderFormats.urls(p).keySet().stream()).distinct().sorted().toList();
+        String rule = formats.isEmpty() ? normalizeChannelRule(channel.getChannelRule()) : formats.get(0);
         return new RelayPublicChannelDto(
                 channel.getId(),
                 isBlank(channel.getName()) ? "服务节点 " + String.format("%02d", position) : channel.getName(),
@@ -1064,7 +1079,7 @@ public class RelayServiceImpl implements RelayService {
                 channel.getRpmLimit(),
                 channel.getMaxConcurrency(),
                 channel.getEnabled(),
-                publicModels
+                publicModels, formats
         );
     }
 
@@ -1171,6 +1186,20 @@ public class RelayServiceImpl implements RelayService {
         }
         while (normalized.endsWith("/")) normalized = normalized.substring(0, normalized.length() - 1);
         return normalized;
+    }
+
+    private String normalizeFormatUrl(String value) {
+        if (isBlank(value)) return "";
+        String url = normalizeBaseUrl(value);
+        try {
+            URI uri = URI.create(url);
+            if (!("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))
+                    || uri.getHost() == null || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null
+                    || url.length() > 255) throw new IllegalArgumentException();
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(400, "格式 Base URL 必须是有效的 HTTP(S) 地址，不含凭证、查询参数或片段");
+        }
+        return url;
     }
 
     private String normalizeChannelRule(String value) {

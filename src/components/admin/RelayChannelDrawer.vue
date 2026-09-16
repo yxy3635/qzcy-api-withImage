@@ -65,6 +65,8 @@ function addProvider() {
     id: null,
     name: '',
     apiBaseUrl: '',
+    openaiBaseUrl: '',
+    anthropicBaseUrl: '',
     keyValue: '',
     apiKeyMasked: '',
     channelRule: last?.channelRule || 'openai',
@@ -134,19 +136,23 @@ function removeProvider(index: number) {
                 <span class="text-xs font-black text-slate-600">名称</span>
                 <input v-model="provider.name" class="input mt-1 h-9 rounded-lg text-sm" placeholder="例如 OpenAI 官方" />
               </label>
-              <label class="block">
-                <span class="text-xs font-black text-slate-600">规则</span>
-                <select v-model="provider.channelRule" class="input mt-1 h-9 rounded-lg text-sm">
-                  <option value="openai">OpenAI 兼容</option>
-                  <option value="anthropic">Anthropic</option>
-                </select>
-              </label>
+              <div class="sm:col-span-2 rounded-lg border border-slate-200 bg-white p-3">
+                <h4 class="text-sm font-black text-slate-800">支持的 API 格式</h4>
+                <p class="mt-1 text-xs leading-5 text-slate-500">填写对应格式的 Base URL 即可启用；可同时填写两种格式，共用下方 API Key。留空表示不支持。</p>
+                <div class="mt-3 space-y-3">
+                  <label class="block">
+                    <span class="rounded-md bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-800">OpenAI 兼容</span>
+                    <input v-model="provider.openaiBaseUrl" class="input mt-2 h-9 rounded-lg text-sm" type="url" placeholder="https://api.example.com/openai/v1" />
+                  </label>
+                  <label class="block">
+                    <span class="rounded-md bg-amber-50 px-2 py-1 text-xs font-black text-amber-800">Anthropic</span>
+                    <input v-model="provider.anthropicBaseUrl" class="input mt-2 h-9 rounded-lg text-sm" type="url" placeholder="https://api.example.com/anthropic" />
+                  </label>
+                </div>
+                <p class="mt-2 text-[11px] leading-5 text-slate-500">填写接口根地址（可包含 /v1），无需填写 /chat/completions 或 /messages。</p>
+              </div>
               <label class="block sm:col-span-2">
-                <span class="text-xs font-black text-slate-600">Base URL</span>
-                <input v-model="provider.apiBaseUrl" class="input mt-1 h-9 rounded-lg text-sm" placeholder="https://api.openai.com" />
-              </label>
-              <label class="block sm:col-span-2">
-                <span class="text-xs font-black text-slate-600">API Key</span>
+                <span class="text-xs font-black text-slate-600">API Key · 所有格式共用</span>
                 <input v-model="provider.keyValue" class="input mt-1 h-9 rounded-lg text-sm" type="password" :placeholder="provider.id != null && provider.apiKeyMasked ? `留空保持 ${provider.apiKeyMasked} 不变` : '上游 API Key'" />
               </label>
               <label class="block">

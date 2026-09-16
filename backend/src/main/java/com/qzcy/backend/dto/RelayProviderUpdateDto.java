@@ -7,6 +7,8 @@ public class RelayProviderUpdateDto {
     private Long id;
     private String name;
     private String apiBaseUrl;
+    private String openaiBaseUrl;
+    private String anthropicBaseUrl;
     private String apiKey;
     private String channelRule;
     private Integer priority;

@@ -68,7 +68,7 @@ export const adminApi = {
   syncRelayChannelStatusById(id: number) {
     return http.post<ApiResponse<string>>(`/admin/relay/channels/${id}/status/sync`)
   },
-  testRelayChannelChat(id: number, payload: { modelId: number; prompt: string }) {
+  testRelayChannelChat(id: number, payload: { modelId: number; prompt: string; format?: string }) {
     return http.post<ApiResponse<RelayChannelTestResult>>(`/admin/relay/channels/${id}/test`, payload)
   },
   createRelayChannel(payload: RelayChannelPayload) {

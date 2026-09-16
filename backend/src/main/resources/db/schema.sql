@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS relay_channel_provider (
     channel_id BIGINT NOT NULL,
     name VARCHAR(80) NOT NULL DEFAULT '',
     api_base_url VARCHAR(255) NOT NULL DEFAULT '',
+    openai_base_url VARCHAR(255) NULL,
+    anthropic_base_url VARCHAR(255) NULL,
     api_key VARCHAR(255) NOT NULL DEFAULT '',
     channel_rule VARCHAR(40) NOT NULL DEFAULT 'openai',
     priority INT NOT NULL DEFAULT 10,
@@ -281,6 +283,7 @@ WHERE c.enabled = 1;
 
 CREATE TABLE IF NOT EXISTS relay_token (
                                            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
                                            user_id BIGINT NOT NULL,
                                            name VARCHAR(80) NOT NULL,
     token VARCHAR(255) NOT NULL UNIQUE,
@@ -303,6 +306,9 @@ CREATE TABLE IF NOT EXISTS relay_token (
     INDEX idx_relay_token_enabled (enabled),
     INDEX idx_relay_token_value_enabled (token, enabled)
     );
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_token' AND COLUMN_NAME = 'deleted') = 0, 'ALTER TABLE relay_token ADD COLUMN deleted TINYINT(1) NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @has_old_token_groups := (
     SELECT COUNT(*)

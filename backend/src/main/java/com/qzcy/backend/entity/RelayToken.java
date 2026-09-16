@@ -3,6 +3,7 @@ package com.qzcy.backend.entity;
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -28,6 +29,8 @@ public class RelayToken {
     private String ipWhitelist;
     private LocalDateTime lastUsedAt;
     private Boolean enabled;
+    @TableLogic(value = "0", delval = "1")
+    private Boolean deleted;
     private LocalDateTime expiresAt;
 
     @TableField(fill = FieldFill.INSERT)

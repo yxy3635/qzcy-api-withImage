@@ -14,6 +14,8 @@ public class RelayChannelProvider {
     private Long channelId;
     private String name;
     private String apiBaseUrl;
+    private String openaiBaseUrl;
+    private String anthropicBaseUrl;
     private String apiKey;
     private String channelRule;
     private Integer priority;

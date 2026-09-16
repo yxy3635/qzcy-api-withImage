@@ -20,4 +20,5 @@ public class RelayPublicChannelDto {
     private Integer maxConcurrency;
     private Boolean enabled;
     private List<RelayPublicChannelModelDto> models;
+    private List<String> supportedFormats;
 }

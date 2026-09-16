@@ -10,12 +10,15 @@ import { useToast } from '@/composables/useToast'
 import { useSidebarPreference } from '@/composables/useSidebarPreference'
 import { clearPendingRecharge, isBackForwardNavigation, pendingRechargeOrderId, rememberPendingRecharge } from '@/utils/pendingRecharge'
 import RequestLoader from '@/components/RequestLoader.vue'
+import RelayModal from '@/components/RelayModal.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import Pagination from '@/components/Pagination.vue'
 import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
 import RelayTrendChart from '@/components/relay/RelayTrendChart.vue'
 import RelayModelDistribution from '@/components/relay/RelayModelDistribution.vue'
 import RelayRecentCalls from '@/components/relay/RelayRecentCalls.vue'
+import RelayModelSelect from '@/components/relay/RelayModelSelect.vue'
+import { relayModelOptions } from '@/utils/relayModelOptions'
 import type { Announcement, ErrorRequestLog, PaymentRecord, RechargeCouponPreview, RelayModel, RelayModelRecentCall, RelayPublicChannelModel, RelayToken, RelayUsageLog, RelayUserOverview } from '@/types'
 
 const router = useRouter()
@@ -65,10 +68,25 @@ const logPageSizeOptions = [10, 20, 50, 100]
 const expandedLogIds = ref<Set<number>>(new Set())
 const keyActionDialog = ref<{ action: 'toggle' | 'delete'; token: RelayToken } | null>(null)
 const keyActionLoading = ref(false)
+const keyGroupDialog = ref<RelayToken | null>(null)
+const keyGroupSelection = ref('')
+const keyGroupSaving = ref(false)
+const keyGroupError = ref('')
+const keyNameDialog = ref<RelayToken | null>(null)
+const keyNameInput = ref('')
+const keyNameSaving = ref(false)
+const keyNameError = ref('')
+const canSaveKeyName = computed(() => Boolean(keyNameDialog.value)
+  && Boolean(keyNameInput.value.trim())
+  && keyNameInput.value.trim() !== keyNameDialog.value?.name)
+const editableKeyGroups = computed(() => groups.value.filter((group) => group.enabled))
+const canSaveKeyGroup = computed(() => Boolean(keyGroupDialog.value)
+  && keyGroupSelection.value !== keyGroupDialog.value?.groups
+  && editableKeyGroups.value.some((group) => group.code === keyGroupSelection.value))
 const activePricingTooltip = ref<{
   model: RelayPublicChannelModel
   detail: RelayModel
-  rule: string
+  formats: string[]
   x: number
   y: number
 } | null>(null)
@@ -649,7 +667,7 @@ function groupRatioLabel(code: string) {
   return `${ratio.toFixed(3)}x`
 }
 
-function showPricingTooltip(event: MouseEvent | FocusEvent, model: RelayPublicChannelModel, rule: string) {
+function showPricingTooltip(event: MouseEvent | FocusEvent, model: RelayPublicChannelModel, formats: string[]) {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   const width = 288
   const estimatedHeight = 430
@@ -664,7 +682,7 @@ function showPricingTooltip(event: MouseEvent | FocusEvent, model: RelayPublicCh
   activePricingTooltip.value = {
     model,
     detail: channelModelDetail(model),
-    rule,
+    formats,
     x,
     y
   }
@@ -1185,7 +1203,7 @@ function ccSwitchTargetForToken(token: RelayToken) {
   const tokenGroups = new Set(csvValues(token.groups).map((group) => group.toLowerCase()))
   const matchingChannels = channels.value.filter((channel) => csvValues(channel.groupNames)
     .some((group) => tokenGroups.has(group.toLowerCase())))
-  const hasOpenAiChannel = matchingChannels.some((channel) => String(channel.channelRule || '').toLowerCase() !== 'anthropic')
+  const hasOpenAiChannel = matchingChannels.some((channel) => (channel.supportedFormats ?? [channel.channelRule]).includes('openai'))
 
   // A token may be shared by both protocols. Prefer Codex/OpenAI unless every matching channel is Anthropic.
   return hasOpenAiChannel || !matchingChannels.length
@@ -1227,10 +1245,29 @@ const CC_SWITCH_USAGE_SCRIPT = `({
   }
 })`
 
+const CC_SWITCH_PROVIDER_NAME = 'imageCreaterAPI'
+
+function ccSwitchNoteForToken(token: RelayToken) {
+  return token.name || '我的 API 密钥'
+}
+
+function encodeBase64(value: string) {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
+}
+
 const ccSwitchImportDialog = ref<RelayToken | null>(null)
 const ccSwitchImportLoading = ref(false)
+const ccSwitchModelsLoading = ref(false)
+const ccSwitchModelsError = ref('')
+const ccSwitchModels = ref<{ value: string; label: string }[]>([])
+let ccSwitchModelsRequest = 0
 const ccSwitchForm = reactive({
-  name: '',
   app: 'codex',
   model: '',
   haikuModel: '',
@@ -1240,14 +1277,28 @@ const ccSwitchForm = reactive({
   usageAutoInterval: 30
 })
 
-function defaultModelForToken(token: RelayToken) {
-  const tokenGroups = new Set(csvValues(token.groups).map((group) => group.toLowerCase()))
-  for (const channel of channels.value) {
-    if (!csvValues(channel.groupNames).some((group) => tokenGroups.has(group.toLowerCase()))) continue
-    const model = (channel.models || []).find((item) => item.enabled)
-    if (model) return model.displayName || model.model
+async function loadCcSwitchModels() {
+  const token = ccSwitchImportDialog.value
+  if (!token) return
+  const request = ++ccSwitchModelsRequest
+  ccSwitchModelsLoading.value = true
+  ccSwitchModelsError.value = ''
+  try {
+    const { data } = await relayApi.overview({ section: 'channels' })
+    if (request !== ccSwitchModelsRequest || ccSwitchImportDialog.value?.id !== token.id) return
+    const groupChannels = data.data.channels || []
+    ccSwitchModels.value = relayModelOptions(token, groupChannels)
+    ccSwitchForm.model = ccSwitchModels.value[0]?.value || ''
+    const tokenGroups = new Set(csvValues(token.groups).map(group => group.toLowerCase()))
+    const matchingChannels = groupChannels.filter(channel => channel.enabled
+      && csvValues(channel.groupNames).some(group => tokenGroups.has(group.toLowerCase())))
+    ccSwitchForm.app = matchingChannels.length && matchingChannels.every(channel => !(channel.supportedFormats ?? [channel.channelRule]).includes('openai') && (channel.supportedFormats ?? [channel.channelRule]).includes('anthropic')) ? 'claude' : 'codex'
+  } catch (err) {
+    if (request !== ccSwitchModelsRequest || ccSwitchImportDialog.value?.id !== token.id) return
+    ccSwitchModelsError.value = err instanceof Error ? err.message : '模型加载失败，请重试'
+  } finally {
+    if (request === ccSwitchModelsRequest) ccSwitchModelsLoading.value = false
   }
-  return ''
 }
 
 async function importToCcSwitch(token: RelayToken) {
@@ -1259,12 +1310,12 @@ async function importToCcSwitch(token: RelayToken) {
     const params = new URLSearchParams({
       resource: 'provider',
       app,
-      name: ccSwitchForm.name.trim() || token.name,
+      name: CC_SWITCH_PROVIDER_NAME,
       endpoint: apiBase.value,
       apiKey: data.data,
       homepage: siteOrigin.value,
       enabled: 'false',
-      notes: `由 imageCreater API 中转站安全导入 · ${appLabel}`
+      notes: ccSwitchNoteForToken(token)
     })
     const icon = ccSwitchIconForApp(app)
     if (icon) params.set('icon', icon)
@@ -1278,7 +1329,9 @@ async function importToCcSwitch(token: RelayToken) {
       params.set('usageBaseUrl', siteOrigin.value)
       params.set('usageEnabled', 'true')
       params.set('usageAutoInterval', String(Math.max(0, Math.floor(Number(ccSwitchForm.usageAutoInterval) || 0))))
-      params.set('usageScript', CC_SWITCH_USAGE_SCRIPT)
+      // CCSwitch decodes this parameter as Base64 after URL decoding it.
+      // URLSearchParams takes care of escaping '+', '/', and '=' in the value.
+      params.set('usageScript', encodeBase64(CC_SWITCH_USAGE_SCRIPT))
     }
     const link = document.createElement('a')
     link.href = `ccswitch://v1/import?${params.toString()}`
@@ -1296,24 +1349,29 @@ async function importToCcSwitch(token: RelayToken) {
 
 function requestCcSwitchImport(token: RelayToken) {
   const target = ccSwitchTargetForToken(token)
-  ccSwitchForm.name = token.name
   ccSwitchForm.app = target.app
-  ccSwitchForm.model = defaultModelForToken(token)
+  ccSwitchForm.model = ''
+  ccSwitchModels.value = []
   ccSwitchForm.haikuModel = ''
   ccSwitchForm.sonnetModel = ''
   ccSwitchForm.opusModel = ''
   ccSwitchForm.usageEnabled = true
   ccSwitchForm.usageAutoInterval = 30
   ccSwitchImportDialog.value = token
+  void loadCcSwitchModels()
 }
 
 function closeCcSwitchImport() {
-  if (!ccSwitchImportLoading.value) ccSwitchImportDialog.value = null
+  if (!ccSwitchImportLoading.value) {
+    ccSwitchImportDialog.value = null
+    ccSwitchModelsRequest++
+    ccSwitchModelsLoading.value = false
+  }
 }
 
 async function confirmCcSwitchImport() {
   const token = ccSwitchImportDialog.value
-  if (!token) return
+  if (!token || ccSwitchModelsLoading.value || ccSwitchImportLoading.value) return
   ccSwitchImportLoading.value = true
   try {
     await importToCcSwitch(token)
@@ -1331,6 +1389,66 @@ function tokenQuotaPercent(token: RelayToken) {
   const quota = Number(token.quota || 0)
   if (quota <= 0) return 0
   return Math.min(100, Math.max(0, (Number(token.usedQuota || 0) / quota) * 100))
+}
+
+function openKeyNameDialog(token: RelayToken) {
+  keyNameDialog.value = token
+  keyNameInput.value = token.name
+  keyNameError.value = ''
+}
+
+function closeKeyNameDialog() {
+  if (!keyNameSaving.value) keyNameDialog.value = null
+}
+
+async function saveKeyName() {
+  const token = keyNameDialog.value
+  if (!token || keyNameSaving.value || !canSaveKeyName.value) return
+  const name = keyNameInput.value.trim()
+  keyNameSaving.value = true
+  keyNameError.value = ''
+  try {
+    const { data } = await relayApi.updateToken(token.id, { name })
+    const currentToken = tokens.value.find((item) => item.id === token.id)
+    if (currentToken) currentToken.name = data.data?.name ?? name
+    keyNameDialog.value = null
+    toast.success('密钥名称已更新')
+  } catch (err) {
+    keyNameError.value = err instanceof Error ? err.message : '名称修改失败，请重试'
+  } finally {
+    keyNameSaving.value = false
+  }
+}
+
+function openKeyGroupDialog(token: RelayToken) {
+  keyGroupDialog.value = token
+  keyGroupSelection.value = token.groups
+  keyGroupError.value = ''
+}
+
+function closeKeyGroupDialog() {
+  if (!keyGroupSaving.value) keyGroupDialog.value = null
+}
+
+async function saveKeyGroup() {
+  const token = keyGroupDialog.value
+  if (!token || keyGroupSaving.value || !canSaveKeyGroup.value) return
+  const selectedGroup = keyGroupSelection.value
+  keyGroupSaving.value = true
+  keyGroupError.value = ''
+  try {
+    const { data } = await relayApi.updateToken(token.id, { groups: selectedGroup })
+    const savedGroup = data.data?.groups ?? selectedGroup
+    const currentToken = tokens.value.find((item) => item.id === token.id)
+    if (currentToken) currentToken.groups = savedGroup
+    if (keyGroupFilter.value && keyGroupFilter.value !== savedGroup) keyGroupFilter.value = ''
+    keyGroupDialog.value = null
+    toast.success(`密钥「${token.name}」分组已更新`)
+  } catch (err) {
+    keyGroupError.value = err instanceof Error ? err.message : '分组修改失败，请重试'
+  } finally {
+    keyGroupSaving.value = false
+  }
 }
 
 function openKeyAction(token: RelayToken, action: 'toggle' | 'delete') {
@@ -1830,7 +1948,7 @@ onMounted(async () => {
             </div>
           </section>
 
-          <section v-if="activeMenu === 'keys'" class="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_14px_45px_rgba(15,23,42,0.07)]">
+          <section v-if="activeMenu === 'keys'" class="relay-keys-panel flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_14px_45px_rgba(15,23,42,0.07)]">
             <div class="relay-panel-head shrink-0 border-b border-slate-100 px-4 py-4 sm:px-5" :class="{ 'is-condensed': panelHeaderCollapsed }">
               <div class="relay-panel-headline flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -1892,16 +2010,17 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="hidden shrink-0 grid-cols-[minmax(220px,1.45fr)_minmax(170px,.95fr)_minmax(155px,.8fr)_minmax(155px,.85fr)_auto] items-center gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:grid"><span>密钥 / 分组</span><span>用量</span><span>限制 / 有效期</span><span>状态 / 活动</span><span class="text-right">操作</span></div>
 
-            <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0" @scroll="handlePanelScroll" @wheel="handlePanelWheel" @keydown="handlePanelKeydown" @touchstart="handlePanelTouchStart" @touchmove="handlePanelTouchMove" @touchend="handlePanelTouchEnd">
+
+            <div class="relay-keys-scroll relative min-h-0 flex-1 overflow-y-auto overscroll-contain" tabindex="0" @scroll="handlePanelScroll" @wheel="handlePanelWheel" @keydown="handlePanelKeydown" @touchstart="handlePanelTouchStart" @touchmove="handlePanelTouchMove" @touchend="handlePanelTouchEnd">
+            <div class="relay-keys-columns relay-keys-heading"><span>密钥 / 分组</span><span>用量</span><span>限制 / 有效期</span><span>状态 / 活动</span><span>操作</span></div>
               <div v-if="activeMenuLoading" class="relay-list-refresh-bar" aria-hidden="true"><span></span></div>
               <div v-if="activeMenuLoading && !tokens.length" class="grid h-full min-h-52 place-items-center"><RequestLoader label="正在读取 API 密钥" :cell-size="13" /></div>
               <div v-else-if="filteredTokens.length" class="divide-y divide-slate-100">
-                <article v-for="(item, index) in filteredTokens" :key="item.id" class="relay-list-item grid gap-4 px-4 py-4 transition hover:bg-slate-50/80 sm:px-5 xl:grid-cols-[minmax(220px,1.45fr)_minmax(170px,.95fr)_minmax(155px,.8fr)_minmax(155px,.85fr)_auto] xl:items-center" :style="{ '--i': index }">
-                  <div class="min-w-0">
-                    <div class="flex min-w-0 items-center gap-2"><span class="h-2 w-2 shrink-0 rounded-full" :class="item.enabled ? 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]' : 'bg-slate-300'"></span><p class="truncate text-sm font-black text-slate-950" :title="item.name">{{ item.name }}</p></div>
-                    <div class="mt-2 flex min-w-0 flex-wrap items-center gap-2 pl-4"><code class="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-teal-700">{{ item.tokenPreview }}</code><span class="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">{{ groupOf(item.groups)?.name || item.groups }} · {{ Number(groupOf(item.groups)?.ratio || 1).toFixed(3) }}x</span></div>
+                <article v-for="(item, index) in filteredTokens" :key="item.id" class="relay-list-item relay-keys-columns relay-key-row" :style="{ '--i': index }">
+                  <div class="relay-key-identity min-w-0">
+                    <div class="flex min-w-0 items-center gap-2"><span class="h-2 w-2 shrink-0 rounded-full" :class="item.enabled ? 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]' : 'bg-slate-300'"></span><button type="button" class="inline-flex min-w-0 items-center gap-1 rounded text-left text-sm font-black text-slate-950 transition hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" :title="'修改名称：' + item.name" :aria-label="'修改密钥名称：' + item.name" @click="openKeyNameDialog(item)"><span class="truncate">{{ item.name }}</span><svg viewBox="0 0 24 24" class="h-3 w-3 shrink-0 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m16 4 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" /></svg></button></div>
+                    <div class="relay-key-details mt-2 flex min-w-0 flex-col items-start gap-2 pl-4"><code class="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-teal-700">{{ item.tokenPreview }}</code><button type="button" class="relay-key-group inline-flex max-w-full items-center gap-1.5 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" :aria-label="`编辑密钥「${item.name}」的分组`" title="编辑密钥分组" @click="openKeyGroupDialog(item)"><span class="truncate" :title="groupOf(item.groups)?.name || item.groups">{{ groupOf(item.groups)?.name || item.groups }} · {{ Number(groupOf(item.groups)?.ratio || 1).toFixed(3) }}x</span><svg viewBox="0 0 24 24" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m16 4 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" /></svg><span class="shrink-0">编辑</span></button></div>
                     <p class="mt-2 pl-4 text-[10px] font-semibold text-slate-400">创建于 {{ item.createdAt ? item.createdAt.replace('T', ' ').slice(0, 16) : '-' }}</p>
                   </div>
 
@@ -1912,19 +2031,19 @@ onMounted(async () => {
                     <p v-else class="mt-2 text-[10px] font-bold text-slate-400">不限额度 · {{ item.requestCount || 0 }} 次请求</p>
                   </div>
 
-                  <div class="grid grid-cols-2 gap-2 text-xs xl:block">
+                  <div class="relay-key-limits text-xs">
                     <div><p class="font-semibold text-slate-400">速率限制</p><p class="mt-1 font-black text-slate-700">{{ item.rpmLimit || 0 }} RPM / {{ item.tpmLimit || 0 }} TPM</p></div>
-                    <div class="xl:mt-2"><p class="font-semibold text-slate-400">有效期</p><p class="mt-1 font-black text-slate-700">{{ item.expiresAt ? item.expiresAt.replace('T', ' ').slice(0, 16) : '永久有效' }}</p></div>
+                    <div class="mt-2"><p class="font-semibold text-slate-400">有效期</p><p class="mt-1 font-black text-slate-700">{{ item.expiresAt ? item.expiresAt.replace('T', ' ').slice(0, 16) : '永久有效' }}</p></div>
                   </div>
 
-                  <div class="flex items-center justify-between gap-3 xl:block">
+                  <div class="relay-key-status">
                     <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-black" :class="item.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"><span class="h-1.5 w-1.5 rounded-full" :class="item.enabled ? 'bg-emerald-500' : 'bg-slate-400'"></span>{{ item.enabled ? '运行中' : '已禁用' }}</span>
-                    <div class="text-right xl:mt-2 xl:text-left"><p class="text-[10px] font-semibold text-slate-400">上次使用</p><p class="mt-1 text-[11px] font-black text-slate-600">{{ item.lastUsedAt ? item.lastUsedAt.replace('T', ' ').slice(5, 16) : '尚未使用' }}</p></div>
+                    <div class="mt-2 text-left"><p class="text-[10px] font-semibold text-slate-400">上次使用</p><p class="mt-1 text-[11px] font-black text-slate-600">{{ item.lastUsedAt ? item.lastUsedAt.replace('T', ' ').slice(5, 16) : '尚未使用' }}</p></div>
                   </div>
 
-                  <div class="grid grid-cols-2 gap-2 xl:flex xl:flex-wrap xl:justify-end">
+                  <div class="relay-key-actions">
                     <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white shadow-sm shadow-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" :disabled="tokenSecretActionId === item.id" @click="copyToken(item)"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>{{ tokenSecretActionId === item.id ? '读取中' : copied === `token-${item.id}` ? '已复制' : '复制密钥' }}</button>
-                    <button type="button" class="group inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 px-3 text-xs font-black text-blue-700 shadow-sm shadow-blue-100 transition hover:-translate-y-0.5 hover:border-blue-300 hover:from-blue-100 hover:to-indigo-100 hover:shadow-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" :disabled="tokenSecretActionId === item.id" title="按密钥分组自动导入 Codex（OpenAI）或 Claude" @click="requestCcSwitchImport(item)"><svg viewBox="0 0 24 24" class="h-[18px] w-[18px] transition-transform duration-200 group-hover:translate-x-0.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="12" height="12" rx="2.2" /><path d="M7 19.5h5M9.5 16.5v3M13 10.5h7m-2.5-2.5 2.5 2.5-2.5 2.5" /></svg><span class="hidden 2xl:inline">导入 CCSwitch</span><span class="2xl:hidden">导入</span></button>
+                    <button type="button" class="group inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 px-3 text-xs font-black text-blue-700 shadow-sm shadow-blue-100 transition hover:-translate-y-0.5 hover:border-blue-300 hover:from-blue-100 hover:to-indigo-100 hover:shadow-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" :disabled="tokenSecretActionId === item.id" title="按密钥分组自动导入 Codex（OpenAI）或 Claude" @click="requestCcSwitchImport(item)"><svg viewBox="0 0 24 24" class="h-[18px] w-[18px] transition-transform duration-200 group-hover:translate-x-0.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="12" height="12" rx="2.2" /><path d="M7 19.5h5M9.5 16.5v3M13 10.5h7m-2.5-2.5 2.5 2.5-2.5 2.5" /></svg><span>导入 CCSwitch</span></button>
                     <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2" :class="item.enabled ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 focus-visible:ring-amber-500' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 focus-visible:ring-emerald-500'" @click="openKeyAction(item, 'toggle')"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 2v10M6.3 5.8a8 8 0 1 0 11.4 0" /></svg>{{ item.enabled ? '禁用' : '启用' }}</button>
                     <button type="button" class="grid h-10 w-[42px] place-items-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2" aria-label="删除密钥" title="删除密钥" @click="openKeyAction(item, 'delete')"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 14h8l1-14M10 11v6m4-6v6" /></svg></button>
                   </div>
@@ -2113,31 +2232,28 @@ onMounted(async () => {
             </footer>
           </section>
 
-          <section v-if="activeMenu === 'channels'" class="flex h-full min-h-0 flex-col gap-3">
-            <div class="shrink-0 overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.06)]">
+          <section v-if="activeMenu === 'channels'" class="channel-directory flex h-full min-h-0 flex-col gap-4">
+            <div class="shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <div class="flex flex-col gap-4 p-4 sm:p-5 xl:flex-row xl:items-center xl:justify-between">
                 <div class="flex min-w-0 items-center gap-4">
-                  <div class="channel-radar channel-radar-large shrink-0" :class="{ 'is-active': syncingStatus }" aria-hidden="true">
-                    <span></span><i></i>
-                  </div>
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
-                      <h2 class="text-lg font-black tracking-tight text-slate-950">渠道运行矩阵</h2>
+                      <h2 class="text-xl font-bold tracking-tight text-slate-950">可用渠道</h2>
                       <span v-if="syncingStatus" class="rounded-full bg-cyan-50 px-2.5 py-1 text-[10px] font-black text-cyan-700" aria-live="polite">{{ checkedChannelIds.size }} / {{ channels.length }}</span>
                     </div>
-                    <p class="mt-1 text-xs font-semibold text-slate-500">逐一检测服务节点状态；内部线路、地址和调度参数不会对用户展示。</p>
+                    <p class="mt-1 text-xs font-semibold text-slate-500">查看渠道状态、接入格式与可用模型。</p>
                   </div>
                 </div>
-                <div class="grid grid-cols-3 gap-2 sm:flex sm:items-center">
-                  <div class="rounded-xl bg-emerald-50 px-3 py-2 text-center sm:min-w-20"><strong class="block text-base font-black text-emerald-700">{{ availableChannels }}</strong><span class="text-[10px] font-bold text-emerald-600/70">正常</span></div>
-                  <div class="rounded-xl bg-rose-50 px-3 py-2 text-center sm:min-w-20"><strong class="block text-base font-black text-rose-700">{{ failedChannels }}</strong><span class="text-[10px] font-bold text-rose-600/70">异常</span></div>
-                  <div class="rounded-xl bg-slate-100 px-3 py-2 text-center sm:min-w-20"><strong class="block text-base font-black text-slate-800">{{ channelModelCount }}</strong><span class="text-[10px] font-bold text-slate-500">模型</span></div>
+                <div class="channel-overview grid grid-cols-3 divide-x divide-slate-200 sm:min-w-64">
+                  <div class="px-4 py-1 text-center"><strong class="block text-2xl font-semibold tabular-nums text-emerald-700">{{ availableChannels }}</strong><span class="text-xs text-slate-500">正常</span></div>
+                  <div class="px-4 py-1 text-center"><strong class="block text-2xl font-semibold tabular-nums text-rose-700">{{ failedChannels }}</strong><span class="text-xs text-slate-500">异常</span></div>
+                  <div class="px-4 py-1 text-center"><strong class="block text-2xl font-semibold tabular-nums text-slate-800">{{ channelModelCount }}</strong><span class="text-xs text-slate-500">模型</span></div>
                 </div>
               </div>
               <div class="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
                 <label class="relative block min-w-0 flex-1 sm:max-w-md">
                   <svg viewBox="0 0 24 24" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-                  <input v-model="channelSearch" class="h-10 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" placeholder="搜索节点、模型或分组" />
+                  <input v-model="channelSearch" class="h-10 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" aria-label="搜索渠道、模型或分组" placeholder="搜索渠道、模型或分组" />
                 </label>
                 <button class="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-70" :disabled="syncingStatus || !channels.length" @click="syncStatus">
                   <svg v-if="!syncingStatus" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6" /></svg>
@@ -2152,62 +2268,67 @@ onMounted(async () => {
 
             <div class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5">
               <div v-if="activeMenuLoading" class="relay-list-refresh-bar" aria-hidden="true"><span></span></div>
-              <div v-if="channelRows.length" class="grid gap-3 pb-1 xl:grid-cols-2 2xl:grid-cols-3">
+              <div v-if="channelRows.length" class="channel-directory-grid pb-2">
                 <article
                   v-for="(channel, index) in channelRows"
                   :key="channel.id"
-                  class="relay-list-item channel-card group relative isolate overflow-hidden rounded-[20px] border bg-white p-4 shadow-[0_10px_35px_rgba(15,23,42,0.045)] transition duration-300"
+                  class="relay-list-item channel-card group relative isolate flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 transition duration-200"
                   :style="{ '--i': index }"
                   :class="[
-                    channel.status === 'available' ? 'border-emerald-100 hover:border-emerald-200' : channel.status === 'failed' ? 'border-rose-100 hover:border-rose-200' : 'border-slate-200 hover:border-slate-300',
                     { 'is-checking': checkingChannelId === channel.id, 'channel-check-complete': checkedChannelIds.has(channel.id) && checkingChannelId !== channel.id }
                   ]"
                 >
                   <div v-if="checkingChannelId === channel.id" class="channel-scan-line" aria-hidden="true"></div>
                   <div class="flex items-start justify-between gap-3">
                     <div class="flex min-w-0 items-start gap-3">
-                      <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl font-black" :class="channel.status === 'available' ? 'bg-emerald-50 text-emerald-700' : channel.status === 'failed' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600'">{{ channel.name.slice(0, 1).toUpperCase() }}</div>
+                      <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-base font-bold text-slate-600">{{ channel.name.slice(0, 1).toUpperCase() }}</div>
                       <div class="min-w-0">
-                        <h3 class="truncate text-base font-black tracking-tight text-slate-950">{{ channel.name }}</h3>
-                        <div class="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
-                          <span class="rounded-md px-1.5 py-0.5 text-[9px] font-black ring-1" :class="ruleBadgeClass(channel.channelRule)">{{ ruleLabel(channel.channelRule) }}</span>
-                          <span class="max-w-40 truncate text-[11px] font-semibold text-slate-400">兼容协议节点</span>
-                        </div>
+                        <h3 class="break-words text-base font-bold leading-6 tracking-tight text-slate-950" :title="channel.name">{{ channel.name }}</h3>
+                        <p class="mt-0.5 text-xs text-slate-400">{{ channel.enabledModels.length }} 个模型可用</p>
                       </div>
                     </div>
-                    <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-black" :class="checkingChannelId === channel.id ? 'bg-cyan-50 text-cyan-700' : channel.status === 'available' ? 'bg-emerald-50 text-emerald-700' : channel.status === 'failed' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600'">
+                    <span class="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold" :class="checkingChannelId === channel.id ? 'bg-cyan-50 text-cyan-700' : channel.status === 'available' ? 'bg-emerald-50 text-emerald-700' : channel.status === 'failed' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600'">
                       <span v-if="checkingChannelId === channel.id" class="channel-radar" aria-hidden="true"><span></span><i></i></span>
                       <span v-else class="h-1.5 w-1.5 rounded-full" :class="channel.status === 'available' ? 'bg-emerald-500' : channel.status === 'failed' ? 'bg-rose-500' : 'bg-slate-400'"></span>
                       {{ checkingChannelId === channel.id ? '检测中' : statusText(channel.status) }}
                     </span>
                   </div>
 
-                  <p
-                    class="mt-3 min-h-10 line-clamp-2 text-xs font-semibold leading-5"
+                  <div class="mt-4 border-b border-slate-100 pb-4">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="text-xs font-medium text-slate-500">接入格式</span>
+                      <span v-for="format in (channel.supportedFormats ?? [channel.channelRule])" :key="format" class="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold ring-1" :class="ruleBadgeClass(format)">
+                        {{ ruleLabel(format) }}
+                      </span>
+                      <span v-if="channel.supportedFormats?.length === 0" class="text-xs text-slate-500">暂无已启用格式</span>
+                    </div>
+                  </div>
+                  <p v-if="channel.remark"
+                    class="mt-3 line-clamp-2 text-xs leading-5"
                     :class="channel.remark ? 'text-slate-600' : 'text-slate-400'"
                     :title="channel.remark || undefined"
-                  >{{ channel.remark || '由系统自动选择并调度，节点内部配置不会公开。' }}</p>
+                  >{{ channel.remark }}</p>
 
-                  <div class="mt-3 border-y border-slate-100 py-3">
+                  <div class="mt-4">
                     <div class="min-w-0">
-                      <p class="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Access groups</p>
+                      <p class="text-xs font-medium text-slate-500">可用分组</p>
                       <div class="mt-2 flex flex-wrap gap-1.5">
-                        <span v-for="group in channel.groups" :key="group" class="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600">{{ group }}<b class="text-emerald-700">{{ groupRatioLabel(group) }}</b></span>
+                        <span v-for="group in channel.groups" :key="group" class="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600">{{ group }}<b class="ml-1 border-l border-slate-200 pl-2 font-semibold text-slate-500">{{ groupRatioLabel(group) }}</b></span>
                       </div>
                     </div>
                   </div>
 
-                  <div class="mt-3">
-                    <div class="flex items-center justify-between gap-3"><p class="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Enabled models</p><span class="text-[10px] font-bold text-slate-400">{{ channel.enabledModels.length }} 个</span></div>
-                    <div class="mt-2 flex max-h-[68px] flex-wrap gap-1.5 overflow-y-auto">
-                      <button v-for="model in channel.enabledModels" :key="model.modelId" type="button" class="rounded-lg border border-emerald-100 bg-emerald-50/70 px-2 py-1 text-left text-[10px] font-black text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" @mouseenter="showPricingTooltip($event, model, channel.channelRule)" @mouseleave="hidePricingTooltip" @focus="showPricingTooltip($event, model, channel.channelRule)" @blur="hidePricingTooltip">{{ publicModelName(model) }}</button>
+                  <div class="mb-5 mt-5 flex-1">
+                    <div class="flex items-center justify-between gap-3"><p class="text-xs font-medium text-slate-500">支持模型</p><span class="text-[11px] text-slate-400">悬停查看价格</span></div>
+                    <div class="mt-2.5 flex max-h-32 flex-wrap gap-2 overflow-y-auto pr-1">
+                      <button v-for="model in channel.enabledModels" :key="model.modelId" type="button" class="max-w-full break-all rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left text-xs font-medium leading-4 text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" @mouseenter="showPricingTooltip($event, model, channel.supportedFormats ?? [channel.channelRule])" @mouseleave="hidePricingTooltip" @focus="showPricingTooltip($event, model, channel.supportedFormats ?? [channel.channelRule])" @blur="hidePricingTooltip">{{ publicModelName(model) }}</button>
                       <span v-if="!channel.enabledModels.length" class="text-[11px] font-semibold text-slate-400">暂无绑定模型</span>
                     </div>
                   </div>
 
-                  <div class="mt-3 flex items-center justify-between gap-3">
-                    <span class="text-[10px] font-bold text-slate-400">{{ channel.rpmLimit ? `${channel.rpmLimit} RPM` : '不限 RPM' }} · {{ channel.maxConcurrency ? `${channel.maxConcurrency} 并发` : '不限并发' }}</span>
-                    <button type="button" class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[10px] font-black text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" :disabled="syncingStatus" @click="syncSingleChannel(channel)">
+                  <div class="-mx-5 -mb-5 mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3">
+                    <span class="text-[11px] font-medium text-slate-500">{{ channel.rpmLimit ? `${channel.rpmLimit} RPM` : '不限 RPM' }} · {{ channel.maxConcurrency ? `${channel.maxConcurrency} 并发` : '不限并发' }}</span>
+                    <button type="button" class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" :disabled="syncingStatus" @click="syncSingleChannel(channel)">
                       <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6" /></svg>
                       单独检测
                     </button>
@@ -2504,6 +2625,51 @@ onMounted(async () => {
       </main>
     </div>
 
+    <RelayModal :open="Boolean(keyNameDialog)" title="修改密钥名称" :subtitle="keyNameDialog?.tokenPreview" width="min(440px, calc(100vw - 32px))" @close="closeKeyNameDialog">
+      <form class="space-y-5 p-5 sm:p-6" @submit.prevent="saveKeyName">
+        <label class="block">
+          <span class="text-sm font-bold text-slate-700">密钥名称</span>
+          <input v-model="keyNameInput" type="text" required :disabled="keyNameSaving" class="mt-2 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:opacity-60" placeholder="输入密钥名称" @input="keyNameError = ''" />
+        </label>
+        <p v-if="keyNameError" role="alert" class="rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{{ keyNameError }}</p>
+        <div class="flex justify-end gap-2">
+          <button type="button" :disabled="keyNameSaving" class="h-10 rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60" @click="closeKeyNameDialog">取消</button>
+          <button type="submit" :disabled="keyNameSaving || !canSaveKeyName" class="h-10 rounded-xl bg-emerald-600 px-5 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">{{ keyNameSaving ? '保存中…' : '保存名称' }}</button>
+        </div>
+      </form>
+    </RelayModal>
+
+    <RelayModal :open="Boolean(keyGroupDialog)" title="编辑密钥分组" :subtitle="keyGroupDialog ? `${keyGroupDialog.name} · ${keyGroupDialog.tokenPreview}` : ''" width="min(520px, calc(100vw - 32px))" @close="closeKeyGroupDialog">
+      <form class="space-y-5 p-5 sm:p-6" @submit.prevent="saveKeyGroup">
+        <p class="text-sm font-semibold text-slate-500">切换后，此密钥将使用新分组的可用模型和计费倍率。</p>
+        <fieldset :disabled="keyGroupSaving" class="min-w-0">
+          <legend class="mb-3 text-sm font-black text-slate-700">选择分组 <span class="ml-1 text-xs font-medium text-slate-400">{{ editableKeyGroups.length }} 个可用</span></legend>
+          <p v-if="keyGroupDialog && !editableKeyGroups.some(group => group.code === keyGroupDialog?.groups)" class="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-700">当前分组「{{ groupOf(keyGroupDialog.groups)?.name || keyGroupDialog.groups || '未分组' }}」不可选，请选择其他分组。</p>
+          <div class="max-h-[min(320px,45dvh)] space-y-2 overflow-y-auto overscroll-contain p-1">
+            <label v-for="group in editableKeyGroups" :key="group.code" class="relative block" :class="keyGroupSaving ? 'cursor-wait opacity-60' : 'cursor-pointer'">
+              <input v-model="keyGroupSelection" type="radio" name="key-edit-group" :value="group.code" class="peer sr-only" @change="keyGroupError = ''" />
+              <span class="flex min-h-16 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3 transition duration-150 peer-checked:border-emerald-500 peer-checked:bg-emerald-50/70 peer-checked:shadow-[0_0_0_1px_rgba(16,185,129,0.12)] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-emerald-500" :class="!keyGroupSaving && 'hover:border-emerald-300 hover:bg-slate-50'">
+                <span class="grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-colors" :class="keyGroupSelection === group.code ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white'">
+                  <svg v-if="keyGroupSelection === group.code" viewBox="0 0 20 20" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m5 10 3 3 7-7" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block break-words text-sm font-bold leading-5" :class="keyGroupSelection === group.code ? 'text-emerald-950' : 'text-slate-800'">{{ group.name }}</span>
+                  <span v-if="group.code === keyGroupDialog?.groups" class="mt-1 block text-[11px] font-medium text-slate-500">当前分组</span>
+                </span>
+                <span class="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-bold tabular-nums" :class="keyGroupSelection === group.code ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'">{{ Number(group.ratio ?? 1).toFixed(3) }}x <span class="font-medium">倍率</span></span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+        <p v-if="!editableKeyGroups.length" class="text-sm font-semibold text-amber-700">暂无可切换的分组。</p>
+        <p v-if="keyGroupError" role="alert" class="rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{{ keyGroupError }}</p>
+        <div class="flex justify-end gap-2">
+          <button type="button" :disabled="keyGroupSaving" class="h-10 rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-600 transition hover:bg-slate-50 disabled:opacity-60" @click="closeKeyGroupDialog">取消</button>
+          <button type="submit" :disabled="keyGroupSaving || !canSaveKeyGroup" class="h-10 rounded-xl bg-emerald-600 px-5 text-xs font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">{{ keyGroupSaving ? '保存中…' : '保存分组' }}</button>
+        </div>
+      </form>
+    </RelayModal>
+
     <div v-if="showKeyDialog" class="fixed inset-0 z-50 flex min-h-dvh items-center justify-center overflow-y-auto bg-slate-950/45 p-2 backdrop-blur-[5px] sm:p-4" @click.self="showKeyDialog = false">
       <div class="flex max-h-[calc(100dvh-1rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[26px] border border-white/80 bg-white shadow-[0_32px_110px_rgba(15,23,42,0.30)] sm:max-h-[calc(100dvh-2rem)]">
         <div class="flex shrink-0 items-start justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
@@ -2702,34 +2868,30 @@ onMounted(async () => {
         </div>
 
         <div class="mt-4 space-y-3">
-          <label class="block">
+          <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
             <span class="text-xs font-black text-slate-600">供应商名称</span>
-            <input v-model="ccSwitchForm.name" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100" placeholder="显示在 CCSwitch 里的名称" />
-          </label>
+            <p class="mt-1 font-mono text-sm font-black text-slate-900">{{ CC_SWITCH_PROVIDER_NAME }}</p>
+          </div>
+          <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <span class="text-xs font-black text-slate-600">备注</span>
+            <p class="mt-1 text-sm font-black text-slate-900">{{ ccSwitchNoteForToken(ccSwitchImportDialog) }}</p>
+          </div>
           <label class="block">
             <span class="text-xs font-black text-slate-600">目标应用</span>
-            <select v-model="ccSwitchForm.app" class="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100">
+            <select v-model="ccSwitchForm.app" :disabled="ccSwitchModelsLoading || ccSwitchImportLoading" class="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100">
               <option v-for="option in ccSwitchAppOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
             <span class="mt-1 block text-[11px] font-semibold text-slate-400">已按密钥分组自动推荐，可手动更改。</span>
           </label>
-          <label class="block">
-            <span class="text-xs font-black text-slate-600">默认模型（可选）</span>
-            <input v-model="ccSwitchForm.model" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100" placeholder="留空则使用 CCSwitch 默认" />
-          </label>
-          <div v-if="ccSwitchForm.app === 'claude'" class="grid grid-cols-3 gap-2">
-            <label class="block">
-              <span class="text-xs font-black text-slate-600">Haiku 模型</span>
-              <input v-model="ccSwitchForm.haikuModel" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-800 outline-none transition focus:border-sky-300" placeholder="可留空" />
-            </label>
-            <label class="block">
-              <span class="text-xs font-black text-slate-600">Sonnet 模型</span>
-              <input v-model="ccSwitchForm.sonnetModel" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-800 outline-none transition focus:border-sky-300" placeholder="可留空" />
-            </label>
-            <label class="block">
-              <span class="text-xs font-black text-slate-600">Opus 模型</span>
-              <input v-model="ccSwitchForm.opusModel" class="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-800 outline-none transition focus:border-sky-300" placeholder="可留空" />
-            </label>
+          <div class="space-y-2">
+            <RelayModelSelect v-model="ccSwitchForm.model" label="默认模型（可选）" :options="ccSwitchModels" :loading="ccSwitchModelsLoading" :disabled="ccSwitchImportLoading || Boolean(ccSwitchModelsError)" />
+            <p v-if="ccSwitchModelsError" role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{{ ccSwitchModelsError }} <button type="button" class="ml-2 font-bold underline underline-offset-2" @click="loadCcSwitchModels">重新加载</button></p>
+            <p v-else-if="!ccSwitchModelsLoading" class="text-[11px] text-slate-500">当前密钥分组 · {{ ccSwitchModels.length }} 个可选模型</p>
+          </div>
+          <div v-if="ccSwitchForm.app === 'claude'" class="space-y-3">
+            <RelayModelSelect v-model="ccSwitchForm.haikuModel" label="Haiku 模型（可选）" :options="ccSwitchModels" :loading="ccSwitchModelsLoading" :disabled="ccSwitchImportLoading || Boolean(ccSwitchModelsError)" />
+            <RelayModelSelect v-model="ccSwitchForm.sonnetModel" label="Sonnet 模型（可选）" :options="ccSwitchModels" :loading="ccSwitchModelsLoading" :disabled="ccSwitchImportLoading || Boolean(ccSwitchModelsError)" />
+            <RelayModelSelect v-model="ccSwitchForm.opusModel" label="Opus 模型（可选）" :options="ccSwitchModels" :loading="ccSwitchModelsLoading" :disabled="ccSwitchImportLoading || Boolean(ccSwitchModelsError)" />
           </div>
 
           <div class="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
@@ -2747,7 +2909,7 @@ onMounted(async () => {
 
         <div class="mt-5 flex items-center justify-end gap-2">
           <button class="h-10 rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-600 transition hover:bg-slate-50 disabled:opacity-60" type="button" :disabled="ccSwitchImportLoading" @click="closeCcSwitchImport">取消</button>
-          <button class="h-10 rounded-xl bg-slate-950 px-5 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" type="button" :disabled="ccSwitchImportLoading || !ccSwitchForm.name.trim()" @click="confirmCcSwitchImport">
+          <button class="h-10 rounded-xl bg-slate-950 px-5 text-xs font-black text-white transition hover:bg-sky-600 disabled:opacity-60" type="button" :disabled="ccSwitchImportLoading || ccSwitchModelsLoading" @click="confirmCcSwitchImport">
             {{ ccSwitchImportLoading ? '唤起中…' : '打开 CCSwitch 导入' }}
           </button>
         </div>
@@ -2764,7 +2926,7 @@ onMounted(async () => {
         <div class="rounded-t-xl px-4 py-3" :class="modelHasConfiguredPricing(activePricingTooltip.detail) ? 'bg-emerald-50' : 'bg-amber-50'">
           <div class="flex items-center justify-between gap-3">
             <p class="truncate text-sm font-black" :class="modelHasConfiguredPricing(activePricingTooltip.detail) ? 'text-emerald-700' : 'text-amber-800'">{{ publicModelName(activePricingTooltip.model) }}</p>
-            <span class="rounded-md px-2 py-1 text-[10px] font-black ring-1" :class="ruleBadgeClass(activePricingTooltip.rule)">{{ ruleLabel(activePricingTooltip.rule) }}</span>
+            <span class="flex flex-wrap gap-1"><span v-for="format in activePricingTooltip.formats" :key="format" class="rounded-md px-2 py-1 text-[10px] font-black ring-1" :class="ruleBadgeClass(format)">{{ ruleLabel(format) }}</span></span>
           </div>
         </div>
         <div class="px-4 py-3 text-xs font-semibold text-slate-500">
@@ -3044,6 +3206,198 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.relay-keys-panel {
+  container-type: inline-size;
+}
+
+.relay-keys-heading {
+  display: none;
+}
+
+.relay-keys-scroll {
+  scrollbar-gutter: stable;
+  background: rgba(255, 255, 255, .9);
+}
+
+.relay-key-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px 24px;
+  padding: 12px 20px;
+  transition: background-color 160ms ease;
+}
+
+.relay-key-row:hover {
+  background: rgba(248, 250, 252, .85);
+}
+
+.relay-key-row > * {
+  min-width: 0;
+}
+
+.relay-key-identity,
+.relay-key-actions {
+  grid-column: 1 / -1;
+}
+
+.relay-key-row strong {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.relay-key-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 6px;
+}
+
+.relay-key-actions > button {
+  width: 100%;
+  height: 34px;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+}
+
+.relay-key-actions > button:nth-child(2) {
+  background: #fff;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+.relay-key-actions > button:nth-child(2):hover {
+  background: #f0fdf4;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.relay-key-actions > button:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  border-color: transparent;
+  background: transparent;
+}
+
+.relay-key-actions > button:last-child::after {
+  content: '删除';
+}
+
+.relay-key-actions > button:last-child:hover {
+  color: #e11d48;
+  background: #fff1f2;
+}
+
+@container (max-width: 519px) {
+  .relay-key-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .relay-key-limits {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .relay-key-limits > div {
+    margin-top: 0;
+  }
+}
+
+@container (min-width: 1100px) {
+  .relay-keys-columns {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.5fr) minmax(150px, 1fr) minmax(145px, .95fr) minmax(110px, .8fr) 226px;
+    column-gap: 24px;
+    padding-inline: 20px;
+  }
+
+  .relay-keys-heading {
+    flex-shrink: 0;
+    padding-block: 9px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .relay-key-identity,
+  .relay-key-actions {
+    grid-column: auto;
+  }
+
+  .relay-key-row {
+    align-items: center;
+    min-height: 100px;
+    padding-block: 10px;
+  }
+
+  .relay-key-identity {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 5px 8px;
+  }
+
+  .relay-key-identity > div:first-child button {
+    font-size: 12px;
+  }
+
+  .relay-key-details {
+    display: contents;
+  }
+
+  .relay-key-details > code {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 3px 6px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  .relay-key-group {
+    grid-column: 1 / -1;
+    justify-self: start;
+    margin-left: 16px;
+    max-width: calc(100% - 16px);
+    padding-block: 3px;
+  }
+
+  .relay-key-identity > p {
+    grid-column: 1 / -1;
+    margin-top: 0;
+    font-size: 9px;
+  }
+
+  .relay-key-limits > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+  }
+
+  .relay-key-limits > div > p {
+    margin-top: 0;
+    font-size: 11px;
+  }
+
+  .relay-key-actions > button {
+    height: 30px;
+  }
+}
+
 .dash-card,
 .dash-section {
   animation: dashSectionIn 500ms cubic-bezier(.16, 1, .3, 1) both;
@@ -3352,9 +3706,16 @@ onMounted(async () => {
 .channel-radar-large > span { inset: 9px; }
 .channel-radar-large:not(.is-active) > i { animation-duration: 4s; opacity: .55; }
 
+.channel-directory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
 .channel-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 45px rgba(15, 23, 42, .08);
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, .045);
 }
 
 .channel-card.is-checking {
