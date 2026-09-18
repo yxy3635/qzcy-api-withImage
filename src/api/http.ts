@@ -7,7 +7,7 @@ const http = axios.create({
   timeout: 600000
 })
 
-const publicPaths = ['/auth/login', '/auth/register', '/auth/email-code', '/auth/forgot-password']
+const publicPaths = ['/auth/login', '/auth/register', '/auth/registration-config', '/auth/email-code', '/auth/forgot-password']
 
 function notifyBanned(message?: string) {
   window.dispatchEvent(new CustomEvent('imageCreater:banned', {

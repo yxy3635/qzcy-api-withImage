@@ -1,5 +1,12 @@
 USE image_creator;
 
+CREATE TABLE IF NOT EXISTS registration_config (
+    id BIGINT PRIMARY KEY,
+    registration_closed TINYINT(1) NOT NULL DEFAULT 0,
+    invitation_only TINYINT(1) NOT NULL DEFAULT 0
+);
+INSERT IGNORE INTO registration_config (id) VALUES (1);
+
 CREATE TABLE IF NOT EXISTS relay_channel (
                                              id BIGINT PRIMARY KEY AUTO_INCREMENT,
                                              name VARCHAR(80) NOT NULL,

@@ -7,6 +7,7 @@ import com.qzcy.backend.service.EmailCodeRateLimiter;
 import com.qzcy.backend.service.EmailCodeService;
 import com.qzcy.backend.service.MailDeliveryService;
 import com.qzcy.backend.service.MailConfigService;
+import com.qzcy.backend.service.RegistrationConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -26,12 +27,16 @@ public class EmailCodeServiceImpl implements EmailCodeService {
     private final MailDeliveryService mailDeliveryService;
     private final EmailCodeRateLimiter rateLimiter;
     private final UserMapper userMapper;
+    private final RegistrationConfigService registrationConfigService;
     private final Map<String, CodeEntry> codes = new ConcurrentHashMap<>();
 
     @Override
     public Map<String, Object> sendCode(String email, String scene, String clientIp) {
         String normalizedEmail = normalizeEmail(email);
         String normalizedScene = normalizeScene(scene);
+        if ("register".equals(normalizedScene)) {
+            registrationConfigService.requireRegistrationOpen();
+        }
         rateLimiter.checkAndRecord(normalizedEmail, clientIp);
         if (!shouldSendForScene(normalizedEmail, normalizedScene)) {
             // Use the same success response to avoid exposing whether an email is registered.

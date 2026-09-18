@@ -13,6 +13,7 @@ import com.qzcy.backend.service.AuthService;
 import com.qzcy.backend.service.EmailCodeService;
 import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.ReferralService;
+import com.qzcy.backend.service.RegistrationConfigService;
 import com.qzcy.backend.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,9 +28,11 @@ public class AuthServiceImpl implements AuthService {
     private final EmailCodeService emailCodeService;
     private final PaymentConfigService paymentConfigService;
     private final ReferralService referralService;
+    private final RegistrationConfigService registrationConfigService;
 
     @Override
     public AuthUser register(RegisterDto dto) {
+        registrationConfigService.validateRegistration(dto.getInviteCode());
         String username = dto.getUsername() == null ? "" : dto.getUsername().trim();
         if (!username.matches("^[A-Za-z0-9]{3,20}$")) {
             throw new BusinessException(400, "用户名只能包含英文和数字，长度3-20位");

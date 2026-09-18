@@ -663,3 +663,7 @@ export interface RelayModelRecentCall {
   durationMs: number
   createdAt: string
 }
+export interface RegistrationConfig {
+  registrationClosed: boolean
+  invitationOnly: boolean
+}

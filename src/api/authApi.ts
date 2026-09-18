@@ -1,5 +1,5 @@
 import http from './http'
-import type { ApiResponse, UserInfo } from '@/types'
+import type { ApiResponse, UserInfo, RegistrationConfig } from '@/types'
 
 export interface LoginResponse {
   token: string
@@ -7,6 +7,9 @@ export interface LoginResponse {
 }
 
 export const authApi = {
+  registrationConfig() {
+    return http.get<ApiResponse<RegistrationConfig>>('/auth/registration-config')
+  },
   login(username: string, password: string) {
     const account = username.trim()
     return http.post<ApiResponse<LoginResponse>>('/auth/login', {

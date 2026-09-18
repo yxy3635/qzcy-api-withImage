@@ -1,4 +1,5 @@
 import http from './http'
+import type { RegistrationConfig } from '@/types'
 import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayChannelProvider, RelayChannelTestResult, RelayDashboard, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
 /** 渠道保存 payload：供应商 apiKey 留空表示保留原值，id 为空表示新增。 */
@@ -8,6 +9,12 @@ export type RelayChannelPayload = Partial<Omit<RelayChannel, 'id' | 'apiKeyMaske
 }
 
 export const adminApi = {
+  registrationConfig() {
+    return http.get<ApiResponse<RegistrationConfig>>('/admin/registration-config')
+  },
+  updateRegistrationConfig(payload: RegistrationConfig) {
+    return http.put<ApiResponse<RegistrationConfig>>('/admin/registration-config', payload)
+  },
   dashboard() {
     return http.get<ApiResponse<AdminStats>>('/admin/dashboard')
   },

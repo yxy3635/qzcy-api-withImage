@@ -41,6 +41,7 @@ const router = createRouter({
     { path: '/admin/dashboard', component: AdminDashboard, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/announcements', component: AdminAnnouncements, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/users', component: AdminUsers, meta: { requiresAuth: true, admin: true } },
+    { path: '/admin/registration', component: () => import('@/views/admin/AdminRegistration.vue'), meta: { requiresAuth: true, admin: true } },
     { path: '/admin/user-usage', component: AdminUserUsage, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/pricing', component: AdminPricing, meta: { requiresAuth: true, admin: true } },
     { path: '/admin/relay', component: AdminRelay, meta: { requiresAuth: true, admin: true } },

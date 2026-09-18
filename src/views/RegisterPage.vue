@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
+import type { RegistrationConfig } from '@/types'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/authApi'
@@ -20,11 +21,16 @@ const inviteCode = ref('')
 const error = ref('')
 const loading = ref(false)
 const sending = ref(false)
+const registrationConfig = ref<RegistrationConfig | null>(null)
+const configLoading = ref(true)
+const configError = ref('')
+const canRegister = computed(() => !configLoading.value && registrationConfig.value !== null && !registrationConfig.value.registrationClosed)
 const { secondsLeft: codeCooldown, start: startCodeCooldown } = useEmailCodeCooldown()
 
 const isVisible = ref(false)
 
 onMounted(() => {
+  void loadRegistrationConfig()
   const queryCode = route.query.inviteCode || route.query.invite || route.query.ref
   inviteCode.value = typeof queryCode === 'string' ? queryCode.toUpperCase().slice(0, 6) : ''
   // Trigger animation after mount
@@ -33,11 +39,26 @@ onMounted(() => {
   }, 100)
 })
 
+async function loadRegistrationConfig() {
+  configLoading.value = true
+  configError.value = ''
+  try {
+    const { data } = await authApi.registrationConfig()
+    registrationConfig.value = data.data
+  } catch (err) {
+    registrationConfig.value = null
+    configError.value = err instanceof Error ? err.message : '加载注册设置失败，请重试'
+  } finally {
+    configLoading.value = false
+  }
+}
+
 function isEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
 async function sendCode() {
+  if (!canRegister.value || sending.value || codeCooldown.value > 0) return
   error.value = ''
   if (!isEmail(email.value)) {
     error.value = '请输入有效邮箱'
@@ -53,16 +74,19 @@ async function sendCode() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : '验证码发送失败'
     toast.error(error.value)
+    await loadRegistrationConfig()
   } finally {
     sending.value = false
   }
 }
 
 async function submit() {
+  if (!canRegister.value || loading.value) return
   error.value = ''
   if (!/^[A-Za-z0-9]{3,20}$/.test(username.value)) error.value = '用户名只能包含英文/数字，长度3-20位'
   else if (!isEmail(email.value)) error.value = '请输入有效邮箱'
   else if (!code.value.trim()) error.value = '请输入邮箱验证码'
+  else if (registrationConfig.value?.invitationOnly && !inviteCode.value) error.value = '当前仅限邀请码注册，请填写有效邀请码'
   else if (inviteCode.value && !/^[A-Za-z0-9]{6}$/.test(inviteCode.value)) error.value = '邀请码必须是6位英文或数字'
   else if (password.value.length < 6) error.value = '密码至少6位'
   else if (password.value !== confirmPassword.value) error.value = '两次密码不一致'
@@ -78,6 +102,7 @@ async function submit() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : '注册失败'
     toast.error(error.value)
+    await loadRegistrationConfig()
   } finally {
     loading.value = false
   }
@@ -106,7 +131,7 @@ const title = 'imageCreater'
 			<span style="color: aqua;">{{ title.slice(0 , 5) }}</span>
 			<span>{{ title.slice(5) }}</span>
 		</h1>
-        <p class="text-slate-500 font-medium">注册以开始</p>
+        <p class="text-slate-500 font-medium">{{ registrationConfig?.registrationClosed ? '当前已关闭注册' : registrationConfig?.invitationOnly ? '仅限邀请码邀请注册' : '注册以开始' }}</p>
       </div>
 
       <!-- Glassmorphism Form Panel -->
@@ -114,7 +139,16 @@ const title = 'imageCreater'
         class="auth-form rounded-[26px] border border-white/70 bg-white/80 p-4 shadow-[0_24px_72px_-18px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:p-6 md:p-7"
         @submit.prevent="submit"
       >
-        <div class="grid gap-x-5 gap-y-4 sm:grid-cols-2">
+        <div v-if="configLoading" role="status" class="py-6 text-center text-sm text-slate-500">正在加载注册设置…</div>
+        <div v-else-if="configError" role="alert" class="rounded-xl bg-red-50 p-4 text-sm text-red-600">
+          {{ configError }}
+          <button type="button" class="ml-2 font-bold underline" @click="loadRegistrationConfig">重试</button>
+        </div>
+        <div v-else-if="registrationConfig?.registrationClosed" role="status" class="rounded-xl bg-amber-50 p-5 text-center text-sm leading-6 text-amber-800">
+          当前已暂停新用户注册，有邀请码也无法注册。如需帮助，请联系管理员。
+        </div>
+        <p v-else-if="registrationConfig?.invitationOnly" class="mb-5 rounded-xl bg-sky-50 p-4 text-sm text-sky-800">当前仅限邀请注册，请向邀请人获取有效的 6 位邀请码。</p>
+        <div v-if="canRegister" class="grid gap-x-5 gap-y-4 sm:grid-cols-2">
           <!-- Username Input -->
           <div class="space-y-2">
             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">用户名 (英文/数字)</label>
@@ -169,7 +203,8 @@ const title = 'imageCreater'
               v-model.trim="inviteCode"
               class="h-12 w-full bg-slate-50/50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-0 uppercase focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-slate-400"
               maxlength="6"
-              placeholder="选填，6位英文或数字"
+              :placeholder="registrationConfig?.invitationOnly ? '必填，6位英文或数字' : '选填，6位英文或数字'"
+              :required="registrationConfig?.invitationOnly"
             />
           </div>
 
@@ -211,7 +246,7 @@ const title = 'imageCreater'
         </div>
 
         <!-- Submit Button -->
-        <button 
+        <button v-if="canRegister"
           class="group relative mt-6 flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-6 text-sm font-semibold text-white shadow-md transition-transform hover:scale-[1.01] hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
           :disabled="loading"
         >
