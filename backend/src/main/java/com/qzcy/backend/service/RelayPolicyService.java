@@ -13,6 +13,7 @@ import java.util.List;
 public interface RelayPolicyService {
     RelayToken requireRelayToken(String authorization);
     RelayToken requireRelayToken(String authorization, String apiKeyHeader, String queryKey);
+    void enforceUserAgentAccess(RelayToken access, String userAgent);
     void enforceIpAccess(RelayToken access, String clientIp);
     RelayModel requireModel(String model, String endpointType);
     RelayModel requireModelForGroup(String model, String endpointType, RelayGroup group);

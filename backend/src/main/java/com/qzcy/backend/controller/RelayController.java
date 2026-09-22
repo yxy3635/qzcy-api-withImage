@@ -152,6 +152,7 @@ public class RelayController {
         try {
             access = relayPolicyService.requireRelayToken(authorization, apiKeyHeader, queryKey);
             relayPolicyService.enforceIpAccess(access, clientIp(request));
+            relayPolicyService.enforceUserAgentAccess(access, request.getHeader(HttpHeaders.USER_AGENT));
         } catch (BusinessException ex) {
             log.warn("Relay models local error uri={} status={} format={} message={}",
                     request.getRequestURI(),
@@ -227,6 +228,7 @@ public class RelayController {
         try {
             access = relayPolicyService.requireRelayToken(authorization, apiKeyHeader, queryKey);
             relayPolicyService.enforceIpAccess(access, clientIp(request));
+            relayPolicyService.enforceUserAgentAccess(access, request.getHeader(HttpHeaders.USER_AGENT));
         } catch (BusinessException ex) {
             int status = ex.getCode() >= 400 && ex.getCode() < 600 ? ex.getCode() : 401;
             return ResponseEntity.status(status)

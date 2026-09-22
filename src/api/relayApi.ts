@@ -12,10 +12,10 @@ export const relayApi = {
   } = {}) {
     return http.get<ApiResponse<RelayUserOverview>>('/relay/overview', { params })
   },
-  createToken(payload: { name: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; expiresAt?: string; enabled?: boolean }) {
+  createToken(payload: { name: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; userAgentBlacklist?: string; clearExpiresAt?: boolean; expiresAt?: string; enabled?: boolean }) {
     return http.post<ApiResponse<RelayToken>>('/relay/tokens', payload)
   },
-  updateToken(id: number, payload: { name?: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; expiresAt?: string; enabled?: boolean }) {
+  updateToken(id: number, payload: { name?: string; groups?: string; allowedModels?: string; quota?: number; rpmLimit?: number; tpmLimit?: number; ipWhitelist?: string; userAgentBlacklist?: string; clearExpiresAt?: boolean; expiresAt?: string; enabled?: boolean }) {
     return http.put<ApiResponse<RelayToken>>(`/relay/tokens/${id}`, payload)
   },
   revealToken(id: number) {

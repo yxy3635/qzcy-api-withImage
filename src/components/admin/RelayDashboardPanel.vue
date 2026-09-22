@@ -124,7 +124,7 @@ function shortMessage(message?: string | null) {
 
     <template v-else>
       <!-- KPI 横幅 -->
-      <section class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <section class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
         <div class="panel p-4">
           <p class="text-xs font-bold text-slate-500">渠道可用</p>
           <p class="mt-1.5 text-2xl font-black tabular-nums" :class="(summary?.channelsAvailable || 0) < (summary?.channelsTotal || 0) ? 'text-amber-600' : 'text-slate-950'">
@@ -157,6 +157,11 @@ function shortMessage(message?: string | null) {
           <p class="text-xs font-bold text-slate-500">当前 RPM</p>
           <p class="mt-1.5 text-2xl font-black tabular-nums text-slate-950">{{ summary?.currentRpm || 0 }}</p>
           <p class="text-xs font-semibold text-slate-400">最近 1 分钟</p>
+        </div>
+        <div class="panel p-4" title="最近 60 秒内有 API 调用的去重用户数">
+          <p class="text-xs font-bold text-slate-500">平台活跃人数</p>
+          <p class="mt-1.5 text-2xl font-black tabular-nums text-emerald-600">{{ summary?.activeUsersLastMinute ?? '—' }}<span class="ml-1 text-xs text-slate-400">人</span></p>
+          <p class="text-xs font-semibold text-slate-400">最近 1 分钟 · 去重用户</p>
         </div>
       </section>
 
@@ -224,6 +229,11 @@ function shortMessage(message?: string | null) {
                 最近错误 {{ relativeTime(channel.lastErrorAt) }}<template v-if="channel.lastErrorCode"> · {{ channel.lastErrorCode }}</template>
               </span>
               <span v-else class="text-slate-400">24h 无错误</span>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-slate-200/60 pt-2 text-[11px] font-bold">
+              <span class="text-slate-500">最近调用 <span class="ml-1 text-sky-700">{{ relativeTime(channel.lastCallAt) || '暂无调用记录' }}</span></span>
+              <time v-if="channel.lastCallAt" :datetime="channel.lastCallAt" class="tabular-nums text-slate-400">{{ channel.lastCallAt.replace('T', ' ') }}</time>
             </div>
 
             <div class="flex gap-2 pt-0.5">

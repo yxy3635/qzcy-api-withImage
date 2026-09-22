@@ -307,4 +307,27 @@ class RelayDispatchServiceImplTest {
         assertEquals(new BigDecimal("0.165000"), fallback.getCost());
         assertEquals("success", fallback.getStatus());
     }
+    @Test
+    void blockedUserAgentStopsBothStreamingAndNonStreamingBeforeUpstreamOrBilling() {
+        RelayPolicyService policy = mock(RelayPolicyService.class);
+        var token = new com.qzcy.backend.entity.RelayToken();
+        RelayContext context = new RelayContext(token, null, null, null, null, null, "chat");
+        when(policy.buildContexts(any(), any(), any(), any(), any(), any())).thenReturn(java.util.List.of(context));
+        org.mockito.Mockito.doThrow(new com.qzcy.backend.exception.BusinessException(403, "blocked"))
+                .when(policy).enforceUserAgentAccess(token, "CODEX_CLI_RS/1.0");
+        var logs = mock(RelayUsageLogMapper.class);
+        var tokens = mock(RelayTokenMapper.class);
+        var users = mock(UserMapper.class);
+        var payments = mock(PaymentService.class);
+        var service = new RelayDispatchServiceImpl(policy, new RelayProviderScheduler(), logs, tokens, users, payments, OBJECT_MAPPER);
+        var request = new com.qzcy.backend.dto.relay.RelayDispatchRequest(
+                "Bearer test", "", "", "CODEX_CLI_RS/1.0", "127.0.0.1", "chat", "/v1/responses",
+                OBJECT_MAPPER.createObjectNode().put("model", "test"));
+        assertEquals(403, org.junit.jupiter.api.Assertions.assertThrows(com.qzcy.backend.exception.BusinessException.class,
+                () -> service.dispatch(request)).getCode());
+        assertEquals(403, org.junit.jupiter.api.Assertions.assertThrows(com.qzcy.backend.exception.BusinessException.class,
+                () -> service.dispatchStream(request)).getCode());
+        org.mockito.Mockito.verifyNoInteractions(logs, tokens, users, payments);
+    }
+
 }

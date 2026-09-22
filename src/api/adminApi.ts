@@ -1,6 +1,6 @@
 import http from './http'
 import type { RegistrationConfig } from '@/types'
-import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayChannelProvider, RelayChannelTestResult, RelayDashboard, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
+import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserModelUsage, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayChannelProvider, RelayChannelTestResult, RelayDashboard, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
 /** 渠道保存 payload：供应商 apiKey 留空表示保留原值，id 为空表示新增。 */
 export type RelayChannelPayload = Partial<Omit<RelayChannel, 'id' | 'apiKeyMasked' | 'status'>> & {
@@ -35,6 +35,9 @@ export const adminApi = {
   },
   userUsage(page = 1, size = 20, keyword = '') {
     return http.get<ApiResponse<PageResult<AdminUserUsage>>>('/admin/user-usage', { params: { page, size, keyword } })
+  },
+  userModelUsage(id: number, scope: 'today' | 'total' = 'today') {
+    return http.get<ApiResponse<AdminUserModelUsage[]>>(`/admin/users/${id}/model-usage`, { params: { scope } })
   },
   userRankings() {
     return http.get<ApiResponse<AdminUserRankings>>('/admin/user-rankings')

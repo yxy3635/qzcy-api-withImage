@@ -31,4 +31,5 @@ public class RelayDashboardChannelDto {
     private BigDecimal cost24h;
     private LocalDateTime lastErrorAt;
     private Integer lastErrorCode;
+    private LocalDateTime lastCallAt;
 }

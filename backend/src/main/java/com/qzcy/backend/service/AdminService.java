@@ -4,12 +4,15 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminImageRecordDto;
 import com.qzcy.backend.dto.AdminPaymentRecordDto;
 import com.qzcy.backend.dto.AdminRelayUsageLogDto;
+import com.qzcy.backend.dto.AdminUserModelUsageDto;
 import com.qzcy.backend.dto.AdminUserUsageDto;
 import com.qzcy.backend.dto.AdminUserRankingsDto;
 import com.qzcy.backend.dto.AdminUserGiftDto;
 import com.qzcy.backend.dto.AdminUserUpdateDto;
 import com.qzcy.backend.dto.DashboardStats;
 import com.qzcy.backend.entity.User;
+
+import java.util.List;
 
 public interface AdminService {
     DashboardStats dashboard();
@@ -18,6 +21,7 @@ public interface AdminService {
     Page<AdminPaymentRecordDto> paymentRecords(long page, long size, String keyword, String status);
     Page<AdminRelayUsageLogDto> relayUsageRecords(long page, long size, String keyword, String status);
     Page<AdminUserUsageDto> userUsage(long page, long size, String keyword);
+    List<AdminUserModelUsageDto> userModelUsage(Long userId, String scope);
     AdminUserRankingsDto userRankings();
     void giftBalance(Long userId, AdminUserGiftDto dto);
     User updateUser(Long id, AdminUserUpdateDto dto);

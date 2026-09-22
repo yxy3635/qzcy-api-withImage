@@ -3,9 +3,12 @@ package com.qzcy.backend.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qzcy.backend.dto.AdminRelayUsageLogDto;
+import com.qzcy.backend.dto.AdminRelayDailyTrendDto;
 import com.qzcy.backend.dto.AdminUserRankingDto;
+import com.qzcy.backend.dto.AdminUserModelUsageDto;
 import com.qzcy.backend.dto.AdminUserUsageDto;
 import com.qzcy.backend.dto.RelayChannelProfitDto;
+import com.qzcy.backend.dto.RelayDashboardChannelDto;
 import com.qzcy.backend.dto.RelayDashboardChannelStatsDto;
 import com.qzcy.backend.dto.RelayDashboardErrorDto;
 import com.qzcy.backend.dto.RelayDashboardLastErrorDto;
@@ -210,6 +213,34 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
     Page<AdminUserUsageDto> adminUserUsage(Page<AdminUserUsageDto> page, @Param("keyword") String keyword);
 
     @Select("""
+            SELECT model AS model,
+                   COALESCE(group_names, '') AS groupNames,
+                   COUNT(*) AS requests,
+                   COALESCE(SUM(total_tokens), 0) AS totalTokens,
+                   COALESCE(SUM(cost), 0) AS cost
+            FROM relay_usage_log
+            WHERE user_id = #{userId}
+              AND created_at >= CURDATE()
+              AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+            GROUP BY model, group_names
+            ORDER BY requests DESC, cost DESC
+            """)
+    List<AdminUserModelUsageDto> userTodayModelUsage(@Param("userId") Long userId);
+
+    @Select("""
+            SELECT model AS model,
+                   COALESCE(group_names, '') AS groupNames,
+                   COUNT(*) AS requests,
+                   COALESCE(SUM(total_tokens), 0) AS totalTokens,
+                   COALESCE(SUM(cost), 0) AS cost
+            FROM relay_usage_log
+            WHERE user_id = #{userId}
+            GROUP BY model, group_names
+            ORDER BY requests DESC, cost DESC
+            """)
+    List<AdminUserModelUsageDto> userTotalModelUsage(@Param("userId") Long userId);
+
+    @Select("""
             SELECT u.id,
                    u.username,
                    u.email,
@@ -351,6 +382,15 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
                                                @Param("keyword") String keyword,
                                                @Param("status") String status);
 
+    @Select("SELECT COUNT(DISTINCT user_id) FROM relay_usage_log WHERE created_at >= #{since}")
+    Long activeUsersSince(@Param("since") LocalDateTime since);
+
+    @Select("""
+            SELECT c.id, (SELECT MAX(l.created_at) FROM relay_usage_log l WHERE l.channel_id = c.id) AS lastCallAt
+            FROM relay_channel c
+            """)
+    List<RelayDashboardChannelDto> dashboardLastCalls();
+
     // ---------- 管理端仪表盘聚合（均命中 created_at / channel_id+created_at 索引） ----------
 
     /** 失败口径与 adminUsageLogs 的 'error' 过滤保持一致：status='failed' OR status_code>=400。 */
@@ -432,4 +472,17 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
 
     @Select("SELECT COUNT(*) FROM relay_usage_log WHERE created_at >= #{since}")
     Long requestsSince(@Param("since") LocalDateTime since);
+
+    @Select("""
+            SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date,
+                   COUNT(*) AS requests,
+                   COALESCE(SUM(total_tokens), 0) AS tokens,
+                   COALESCE(SUM(cost), 0) AS cost,
+                   COALESCE(SUM(cost), 0) - COALESCE(SUM((input_cost + output_cost + cache_read_cost + cache_creation_cost + request_cost) * channel_ratio), 0) AS profit
+            FROM relay_usage_log
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+            GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
+            ORDER BY date
+            """)
+    List<AdminRelayDailyTrendDto> dashboardDailyTrend(@Param("days") int days);
 }

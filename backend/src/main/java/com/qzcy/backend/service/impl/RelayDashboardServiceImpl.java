@@ -62,7 +62,8 @@ public class RelayDashboardServiceImpl implements RelayDashboardService {
 
     @Override
     public RelayDashboardDto dashboard() {
-        LocalDateTime since24h = LocalDateTime.now().minusHours(TREND_HOURS);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime since24h = now.minusHours(TREND_HOURS);
         List<RelayChannel> channels = channelMapper.selectList(new QueryWrapper<RelayChannel>()
                 .orderByAsc("priority")
                 .orderByDesc("weight")
@@ -74,6 +75,10 @@ public class RelayDashboardServiceImpl implements RelayDashboardService {
         for (RelayDashboardLastErrorDto item : usageLogMapper.dashboardLastErrors(since24h)) {
             // 同一秒可能存在并列行，取查询返回的第一条（即最新）。
             lastErrorByChannel.putIfAbsent(item.getChannelId(), item);
+        }
+        Map<Long, LocalDateTime> lastCallByChannel = new HashMap<>();
+        for (RelayDashboardChannelDto item : usageLogMapper.dashboardLastCalls()) {
+            if (item.getLastCallAt() != null) lastCallByChannel.put(item.getId(), item.getLastCallAt());
         }
         Set<String> openCircuits = relayDispatchService.openCircuitScopes();
 
@@ -132,7 +137,8 @@ public class RelayDashboardServiceImpl implements RelayDashboardService {
                     stats == null ? 0L : nullToZero(stats.getTotalTokens()),
                     stats == null || stats.getCost() == null ? BigDecimal.ZERO : stats.getCost(),
                     lastError == null ? null : lastError.getLastErrorAt(),
-                    lastError == null ? null : lastError.getLastErrorCode()
+                    lastError == null ? null : lastError.getLastErrorCode(),
+                    lastCallByChannel.get(channel.getId())
             ));
         }
 
@@ -149,7 +155,8 @@ public class RelayDashboardServiceImpl implements RelayDashboardService {
                 errorRate,
                 nullToZero(usageLogMapper.todayTokens()),
                 usageLogMapper.todayCost() == null ? BigDecimal.ZERO : usageLogMapper.todayCost(),
-                nullToZero(usageLogMapper.requestsSince(LocalDateTime.now().minusMinutes(1)))
+                nullToZero(usageLogMapper.requestsSince(now.minusMinutes(1))),
+                nullToZero(usageLogMapper.activeUsersSince(now.minusMinutes(1)))
         );
 
         return new RelayDashboardDto(

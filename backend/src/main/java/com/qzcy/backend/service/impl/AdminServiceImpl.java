@@ -9,6 +9,7 @@ import com.qzcy.backend.dto.AdminUserUsageDto;
 import com.qzcy.backend.dto.AdminUserRankingsDto;
 import com.qzcy.backend.dto.AdminUserGiftDto;
 import com.qzcy.backend.dto.AdminUserUpdateDto;
+import com.qzcy.backend.dto.AdminUserModelUsageDto;
 import com.qzcy.backend.dto.DashboardStats;
 import com.qzcy.backend.entity.ImageRecord;
 import com.qzcy.backend.entity.PaymentRecord;
@@ -29,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -76,7 +78,8 @@ public class AdminServiceImpl implements AdminService {
                 yesterdayRelayCost.subtract(yesterdayRelayUpstreamCost),
                 relayUsageLogMapper.channelProfits(),
                 adminStatsMapper.recentRegistrations(),
-                imageRecordMapper.generationTrend()
+                imageRecordMapper.generationTrend(),
+                relayUsageLogMapper.dashboardDailyTrend(30)
         );
     }
 
@@ -106,6 +109,13 @@ public class AdminServiceImpl implements AdminService {
     @Override
     public Page<AdminUserUsageDto> userUsage(long page, long size, String keyword) {
         return relayUsageLogMapper.adminUserUsage(Page.of(page, size), keyword);
+    }
+
+    @Override
+    public List<AdminUserModelUsageDto> userModelUsage(Long userId, String scope) {
+        return "total".equalsIgnoreCase(scope)
+                ? relayUsageLogMapper.userTotalModelUsage(userId)
+                : relayUsageLogMapper.userTodayModelUsage(userId);
     }
 
     @Override

@@ -4,7 +4,7 @@ import AppLayout from '@/components/AppLayout.vue'
 import Pagination from '@/components/Pagination.vue'
 import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
 import { adminApi } from '@/api/adminApi'
-import type { AdminUserRankings, AdminUserUsage } from '@/types'
+import type { AdminUserModelUsage, AdminUserRankings, AdminUserUsage } from '@/types'
 
 const users = ref<AdminUserUsage[]>([])
 const keyword = ref('')
@@ -16,6 +16,12 @@ const error = ref('')
 const rankings = ref<AdminUserRankings>({ recharge: [], tokens: [] })
 const rankingsLoading = ref(false)
 const rankingsError = ref('')
+
+const detailUser = ref<AdminUserUsage | null>(null)
+const detailRows = ref<AdminUserModelUsage[]>([])
+const detailLoading = ref(false)
+const detailError = ref('')
+const detailScope = ref<'today' | 'total'>('today')
 
 const todayRevenue = computed(() => users.value.reduce((sum, user) => sum + Number(user.todayCost || 0), 0))
 const todayRequests = computed(() => users.value.reduce((sum, user) => sum + Number(user.todayRequests || 0), 0))
@@ -59,6 +65,40 @@ function compact(value?: number) {
   return Math.round(amount).toLocaleString()
 }
 function date(value?: string) { return value ? value.replace('T', ' ').slice(0, 10) : '-' }
+function groupsOf(row: AdminUserModelUsage) { return (row.groupNames || 'default').split(',').map((item) => item.trim()).filter(Boolean) }
+
+async function loadDetail() {
+  if (!detailUser.value) return
+  detailRows.value = []
+  detailError.value = ''
+  detailLoading.value = true
+  try {
+    const { data } = await adminApi.userModelUsage(detailUser.value.id, detailScope.value)
+    detailRows.value = data.data
+  } catch {
+    detailError.value = '模型用量加载失败，请稍后重试'
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+async function openDetail(user: AdminUserUsage) {
+  detailUser.value = user
+  detailScope.value = 'today'
+  await loadDetail()
+}
+
+function switchDetailScope(scope: 'today' | 'total') {
+  if (detailScope.value === scope) return
+  detailScope.value = scope
+  void loadDetail()
+}
+
+function closeDetail() {
+  detailUser.value = null
+  detailRows.value = []
+  detailError.value = ''
+}
 
 onMounted(() => {
   void load()
@@ -100,7 +140,7 @@ onMounted(() => {
             <thead><tr><th>用户</th><th>状态</th><th>今日调用</th><th>今日 Token</th><th>今日金额</th><th>昨日调用</th><th>昨日金额</th><th>累计 Token</th><th>累计消费</th><th>累计充值</th><th>当前余额</th><th>注册日期</th></tr></thead>
             <tbody>
               <tr v-for="user in users" :key="user.id">
-                <td><div class="person"><b>{{ user.username.slice(0, 1).toUpperCase() }}</b><div><strong>{{ user.username }}</strong><small>{{ user.email || `ID ${user.id}` }}</small></div></div></td>
+                <td><div class="person"><b>{{ user.username.slice(0, 1).toUpperCase() }}</b><button class="person-link" type="button" :title="`查看 ${user.username} 今日模型用量`" @click="openDetail(user)"><strong>{{ user.username }} <span class="ml-1 text-xs font-semibold text-slate-500">(ID: {{ user.id }})</span></strong><small>{{ user.email || `ID ${user.id}` }}</small></button></div></td>
                 <td><span class="state" :class="user.banned ? 'banned' : 'active'">{{ user.banned ? '已封禁' : user.role === 'ADMIN' ? '管理员' : '正常' }}</span></td>
                 <td>{{ compact(user.todayRequests) }}</td><td class="tokens">{{ compact(user.todayTokens) }}</td><td class="money">{{ money(user.todayCost) }}</td><td>{{ compact(user.yesterdayRequests) }}</td><td>{{ money(user.yesterdayCost) }}</td><td>{{ compact(user.totalTokens) }}</td><td>{{ money(user.totalCost) }}</td><td class="recharge">{{ money(user.totalRecharge) }}</td><td>{{ money(user.balance) }}</td><td>{{ date(user.createdAt) }}</td>
               </tr>
@@ -138,13 +178,52 @@ onMounted(() => {
           <p v-else class="ranking-state">暂无调用记录</p>
         </section>
       </section>
+
+      <Teleport to="body">
+        <div v-if="detailUser" class="detail-overlay" @click.self="closeDetail">
+          <section class="detail-panel">
+            <header class="detail-heading">
+              <div class="detail-title">
+                <p>Model Usage</p>
+                <h2>{{ detailUser.username }} 的{{ detailScope === 'today' ? '今日' : '历史累计' }}模型用量</h2>
+                <span>{{ detailUser.email || `ID ${detailUser.id}` }} · 按模型与分组聚合调用</span>
+              </div>
+              <div class="detail-tabs">
+                <button type="button" :class="{ active: detailScope === 'today' }" @click="switchDetailScope('today')">今日</button>
+                <button type="button" :class="{ active: detailScope === 'total' }" @click="switchDetailScope('total')">历史累计</button>
+                <button type="button" class="detail-close" @click="closeDetail">×</button>
+              </div>
+            </header>
+            <div class="detail-body">
+              <p v-if="detailLoading" class="detail-state">加载中</p>
+              <p v-else-if="detailError" class="detail-state detail-error">{{ detailError }}</p>
+              <div v-else-if="detailRows.length" class="detail-table-wrap">
+                <table>
+                  <thead><tr><th>模型</th><th>分组</th><th>调用次数</th><th>Token</th><th>消费金额</th></tr></thead>
+                  <tbody>
+                    <tr v-for="row in detailRows" :key="`${row.model}-${row.groupNames}`">
+                      <td class="detail-model">{{ row.model }}</td>
+                      <td><span v-for="group in groupsOf(row)" :key="group" class="detail-group">{{ group }}</span></td>
+                      <td>{{ compact(row.requests) }}</td>
+                      <td class="detail-tokens">{{ compact(row.totalTokens) }}</td>
+                      <td class="detail-cost">{{ money(row.cost) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-else class="detail-state">{{ detailScope === 'today' ? '该用户今日暂无调用记录' : '该用户暂无历史调用记录' }}</p>
+            </div>
+          </section>
+        </div>
+      </Teleport>
     </section>
   </AppLayout>
 </template>
 
 <style scoped>
-.usage-page { --glass: rgba(255,255,255,.50); --glass-strong: rgba(255,255,255,.70); --glass-line: rgba(255,255,255,.72); color: #172033; }.usage-header, .table-caption, .pagination-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; }.eyebrow { color: #0284c7; font-size: .69rem; font-weight: 800; letter-spacing: .14em; }.usage-header h1 { margin: .42rem 0 0; color: #0f172a; font-size: 2rem; font-weight: 850; letter-spacing: 0; }.usage-header p:not(.eyebrow) { margin: .6rem 0 0; color: #52657a; font-size: .9rem; font-weight: 600; }.usage-search { display: flex; gap: .5rem; }.usage-search label { position: relative; }.usage-search svg { position: absolute; top: 50%; left: .75rem; width: 1rem; height: 1rem; color: #64748b; fill: none; stroke: currentColor; stroke-width: 2; transform: translateY(-50%); }.usage-search input { width: 15rem; height: 2.6rem; border: 1px solid var(--glass-line); border-radius: .5rem; background: rgba(255,255,255,.64); padding: 0 .75rem 0 2.25rem; color: #172033; font-size: .8rem; font-weight: 650; outline: none; box-shadow: 0 10px 28px rgba(39,84,107,.09), inset 0 1px 0 rgba(255,255,255,.78); backdrop-filter: blur(15px) saturate(135%); transition: .2s ease; }.usage-search input:focus { border-color: rgba(56,189,248,.7); background: rgba(255,255,255,.82); box-shadow: 0 0 0 3px rgba(186,230,253,.6), 0 10px 28px rgba(39,84,107,.09); }.usage-search button { height: 2.6rem; border: 1px solid rgba(15,23,42,.10); border-radius: .5rem; background: rgba(15,23,42,.92); color: #fff; padding: 0 .95rem; font-size: .78rem; font-weight: 800; box-shadow: 0 9px 20px rgba(15,23,42,.18); backdrop-filter: blur(12px); transition: .2s ease; }.usage-search button:hover { background: rgba(2,132,199,.94); transform: translateY(-1px); }.usage-search button:disabled { opacity: .65; }.usage-metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: .75rem; margin-top: 1.6rem; }.usage-metrics article { padding: 1rem 1.1rem; border: 1px solid var(--glass-line); border-radius: .5rem; background: linear-gradient(135deg, rgba(255,255,255,.73), rgba(255,255,255,.37)); box-shadow: 0 14px 30px rgba(30,73,94,.10), inset 0 1px 0 rgba(255,255,255,.84); backdrop-filter: blur(18px) saturate(145%); transition: transform .2s ease, box-shadow .2s ease; }.usage-metrics article:hover { transform: translateY(-2px); box-shadow: 0 18px 36px rgba(30,73,94,.14), inset 0 1px 0 rgba(255,255,255,.88); }.usage-metrics span { color: #65778a; font-size: .72rem; font-weight: 750; }.usage-metrics strong { display: block; margin-top: .48rem; color: #172033; font-size: 1.35rem; font-weight: 850; letter-spacing: 0; }.usage-metrics article:nth-child(2) strong { color: #0369a1; }.usage-metrics article:nth-child(3) strong { color: #047857; }.usage-metrics article:nth-child(4) strong { color: #7c3aed; }.usage-error { margin-top: 1rem; border: 1px solid rgba(251,113,133,.24); border-radius: .5rem; background: rgba(255,241,242,.72); color: #be123c; padding: .75rem 1rem; font-size: .82rem; font-weight: 700; backdrop-filter: blur(12px); }.usage-table-panel { overflow: hidden; margin-top: 1rem; border: 1px solid var(--glass-line); border-radius: .5rem; background: var(--glass); box-shadow: 0 18px 44px rgba(30,73,94,.12), inset 0 1px 0 rgba(255,255,255,.82); backdrop-filter: blur(20px) saturate(140%); }.table-caption { padding: 1.05rem 1.25rem; border-bottom: 1px solid rgba(255,255,255,.64); background: rgba(255,255,255,.16); }.table-caption h2 { margin: 0; font-size: 1.03rem; font-weight: 800; }.table-caption p { margin: .28rem 0 0; color: #617388; font-size: .74rem; font-weight: 600; }.table-caption > span { border-radius: 99px; background: rgba(224,242,254,.74); color: #0369a1; padding: .3rem .55rem; font-size: .68rem; font-weight: 750; }.usage-table-wrap { overflow-x: auto; }.usage-table-wrap table { width: 100%; min-width: 1420px; border-collapse: collapse; }.usage-table-wrap th { padding: .72rem 1rem; background: rgba(248,250,252,.54); color: #607286; text-align: left; font-size: .65rem; font-weight: 800; letter-spacing: .05em; white-space: nowrap; }.usage-table-wrap td { padding: .84rem 1rem; border-top: 1px solid rgba(255,255,255,.58); color: #405269; font-size: .75rem; font-weight: 650; white-space: nowrap; }.usage-table-wrap tbody tr { transition: background .18s ease; }.usage-table-wrap tbody tr:hover { background: rgba(255,255,255,.38); }.person { display: flex; align-items: center; gap: .65rem; }.person > b { display: grid; width: 1.9rem; height: 1.9rem; place-items: center; border: 1px solid rgba(255,255,255,.65); border-radius: .45rem; background: rgba(224,242,254,.7); color: #0369a1; font-size: .78rem; box-shadow: inset 0 1px 0 rgba(255,255,255,.8); }.person strong, .person small { display: block; }.person strong { color: #1e293b; font-weight: 780; }.person small { margin-top: .16rem; color: #718196; font-size: .66rem; font-weight: 600; }.state { display: inline-block; border-radius: 99px; padding: .28rem .45rem; font-size: .65rem; font-weight: 800; }.active { background: rgba(209,250,229,.72); color: #047857; }.banned { background: rgba(255,228,230,.74); color: #be123c; }.tokens { color: #0369a1 !important; font-weight: 780 !important; }.money { color: #047857 !important; font-weight: 780 !important; }.recharge { color: #7c3aed !important; font-weight: 780 !important; }.usage-empty { padding: 2.5rem; color: #718196; text-align: center; font-size: .8rem; font-weight: 700; }.pagination-row { align-items: center; padding: .9rem 1.25rem; border-top: 1px solid rgba(255,255,255,.58); color: #718196; font-size: .72rem; font-weight: 650; background: rgba(255,255,255,.17); }
+.usage-page { --glass: rgba(255,255,255,.50); --glass-strong: rgba(255,255,255,.70); --glass-line: rgba(255,255,255,.72); color: #172033; }.usage-header, .table-caption, .pagination-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; }.eyebrow { color: #0284c7; font-size: .69rem; font-weight: 800; letter-spacing: .14em; }.usage-header h1 { margin: .42rem 0 0; color: #0f172a; font-size: 2rem; font-weight: 850; letter-spacing: 0; }.usage-header p:not(.eyebrow) { margin: .6rem 0 0; color: #52657a; font-size: .9rem; font-weight: 600; }.usage-search { display: flex; gap: .5rem; }.usage-search label { position: relative; }.usage-search svg { position: absolute; top: 50%; left: .75rem; width: 1rem; height: 1rem; color: #64748b; fill: none; stroke: currentColor; stroke-width: 2; transform: translateY(-50%); }.usage-search input { width: 15rem; height: 2.6rem; border: 1px solid var(--glass-line); border-radius: .5rem; background: rgba(255,255,255,.64); padding: 0 .75rem 0 2.25rem; color: #172033; font-size: .8rem; font-weight: 650; outline: none; box-shadow: 0 10px 28px rgba(39,84,107,.09), inset 0 1px 0 rgba(255,255,255,.78); backdrop-filter: blur(15px) saturate(135%); transition: .2s ease; }.usage-search input:focus { border-color: rgba(56,189,248,.7); background: rgba(255,255,255,.82); box-shadow: 0 0 0 3px rgba(186,230,253,.6), 0 10px 28px rgba(39,84,107,.09); }.usage-search button { height: 2.6rem; border: 1px solid rgba(15,23,42,.10); border-radius: .5rem; background: rgba(15,23,42,.92); color: #fff; padding: 0 .95rem; font-size: .78rem; font-weight: 800; box-shadow: 0 9px 20px rgba(15,23,42,.18); backdrop-filter: blur(12px); transition: .2s ease; }.usage-search button:hover { background: rgba(2,132,199,.94); transform: translateY(-1px); }.usage-search button:disabled { opacity: .65; }.usage-metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: .75rem; margin-top: 1.6rem; }.usage-metrics article { padding: 1rem 1.1rem; border: 1px solid var(--glass-line); border-radius: .5rem; background: linear-gradient(135deg, rgba(255,255,255,.73), rgba(255,255,255,.37)); box-shadow: 0 14px 30px rgba(30,73,94,.10), inset 0 1px 0 rgba(255,255,255,.84); backdrop-filter: blur(18px) saturate(145%); transition: transform .2s ease, box-shadow .2s ease; }.usage-metrics article:hover { transform: translateY(-2px); box-shadow: 0 18px 36px rgba(30,73,94,.14), inset 0 1px 0 rgba(255,255,255,.88); }.usage-metrics span { color: #65778a; font-size: .72rem; font-weight: 750; }.usage-metrics strong { display: block; margin-top: .48rem; color: #172033; font-size: 1.35rem; font-weight: 850; letter-spacing: 0; }.usage-metrics article:nth-child(2) strong { color: #0369a1; }.usage-metrics article:nth-child(3) strong { color: #047857; }.usage-metrics article:nth-child(4) strong { color: #7c3aed; }.usage-error { margin-top: 1rem; border: 1px solid rgba(251,113,133,.24); border-radius: .5rem; background: rgba(255,241,242,.72); color: #be123c; padding: .75rem 1rem; font-size: .82rem; font-weight: 700; backdrop-filter: blur(12px); }.usage-table-panel { overflow: hidden; margin-top: 1rem; border: 1px solid var(--glass-line); border-radius: .5rem; background: var(--glass); box-shadow: 0 18px 44px rgba(30,73,94,.12), inset 0 1px 0 rgba(255,255,255,.82); backdrop-filter: blur(20px) saturate(140%); }.table-caption { padding: 1.05rem 1.25rem; border-bottom: 1px solid rgba(255,255,255,.64); background: rgba(255,255,255,.16); }.table-caption h2 { margin: 0; font-size: 1.03rem; font-weight: 800; }.table-caption p { margin: .28rem 0 0; color: #617388; font-size: .74rem; font-weight: 600; }.table-caption > span { border-radius: 99px; background: rgba(224,242,254,.74); color: #0369a1; padding: .3rem .55rem; font-size: .68rem; font-weight: 750; }.usage-table-wrap { overflow-x: auto; }.usage-table-wrap table { width: 100%; min-width: 1420px; border-collapse: collapse; }.usage-table-wrap th { padding: .72rem 1rem; background: rgba(248,250,252,.54); color: #607286; text-align: left; font-size: .65rem; font-weight: 800; letter-spacing: .05em; white-space: nowrap; }.usage-table-wrap td { padding: .84rem 1rem; border-top: 1px solid rgba(255,255,255,.58); color: #405269; font-size: .75rem; font-weight: 650; white-space: nowrap; }.usage-table-wrap tbody tr { transition: background .18s ease; }.usage-table-wrap tbody tr:hover { background: rgba(255,255,255,.38); }.person { display: flex; align-items: center; gap: .65rem; }.person > b { display: grid; width: 1.9rem; height: 1.9rem; place-items: center; border: 1px solid rgba(255,255,255,.65); border-radius: .45rem; background: rgba(224,242,254,.7); color: #0369a1; font-size: .78rem; box-shadow: inset 0 1px 0 rgba(255,255,255,.8); }.person strong, .person small { display: block; }.person strong { color: #1e293b; font-weight: 780; }.person small { margin-top: .16rem; color: #718196; font-size: .66rem; font-weight: 600; }.person-link { padding: 0; border: 0; background: none; text-align: left; cursor: pointer; transition: color .18s ease; }.person-link:hover strong, .person-link:focus-visible strong { color: #0284c7; }.person-link:focus-visible { outline: 2px solid rgba(56,189,248,.7); outline-offset: 2px; border-radius: .3rem; }.state { display: inline-block; border-radius: 99px; padding: .28rem .45rem; font-size: .65rem; font-weight: 800; }.active { background: rgba(209,250,229,.72); color: #047857; }.banned { background: rgba(255,228,230,.74); color: #be123c; }.tokens { color: #0369a1 !important; font-weight: 780 !important; }.money { color: #047857 !important; font-weight: 780 !important; }.recharge { color: #7c3aed !important; font-weight: 780 !important; }.usage-empty { padding: 2.5rem; color: #718196; text-align: center; font-size: .8rem; font-weight: 700; }.pagination-row { align-items: center; padding: .9rem 1.25rem; border-top: 1px solid rgba(255,255,255,.58); color: #718196; font-size: .72rem; font-weight: 650; background: rgba(255,255,255,.17); }
 .rankings-section { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }.ranking-panel { overflow: hidden; border: 1px solid var(--glass-line); border-radius: .5rem; background: var(--glass); box-shadow: 0 18px 44px rgba(30,73,94,.12), inset 0 1px 0 rgba(255,255,255,.82); backdrop-filter: blur(20px) saturate(140%); }.ranking-heading { display: flex; align-items: center; justify-content: space-between; min-height: 4.5rem; padding: .9rem 1.1rem; border-bottom: 1px solid rgba(255,255,255,.64); background: rgba(255,255,255,.16); }.ranking-heading p { margin: 0 0 .2rem; color: #607286; font-size: .62rem; font-weight: 800; letter-spacing: .08em; }.ranking-heading h2 { margin: 0; color: #1e293b; font-size: .96rem; font-weight: 850; }.ranking-label { border-radius: 99px; padding: .3rem .5rem; font-size: .65rem; font-weight: 800; }.recharge-label { background: rgba(237,233,254,.75); color: #6d28d9; }.token-label { background: rgba(224,242,254,.75); color: #0369a1; }.ranking-list { margin: 0; padding: 0; list-style: none; }.ranking-list li { display: grid; grid-template-columns: 1.8rem minmax(0, 1fr) auto; align-items: center; gap: .65rem; min-height: 3.75rem; padding: .55rem 1.1rem; border-top: 1px solid rgba(255,255,255,.55); }.ranking-list li:first-child { border-top: 0; }.ranking-number { display: grid; width: 1.45rem; height: 1.45rem; place-items: center; border-radius: .38rem; background: rgba(226,232,240,.72); color: #475569; font-size: .68rem; font-weight: 850; }.ranking-list li:nth-child(1) .ranking-number { background: rgba(254,243,199,.9); color: #a16207; }.ranking-list li:nth-child(2) .ranking-number { background: rgba(226,232,240,.9); color: #475569; }.ranking-list li:nth-child(3) .ranking-number { background: rgba(254,226,226,.86); color: #c2410c; }.ranking-user { min-width: 0; }.ranking-user strong, .ranking-user small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.ranking-user strong { color: #334155; font-size: .76rem; font-weight: 800; }.ranking-user small { margin-top: .15rem; color: #718196; font-size: .66rem; font-weight: 600; }.ranking-value { font-size: .76rem; font-weight: 850; white-space: nowrap; }.ranking-value.token { color: #0369a1; }.ranking-state { margin: 0; padding: 2.2rem 1.1rem; color: #718196; text-align: center; font-size: .76rem; font-weight: 700; }.ranking-error { color: #be123c; }
 @media (max-width: 1050px) { .usage-metrics { grid-template-columns: repeat(2, minmax(0,1fr)); } } @media (max-width: 640px) { .usage-header { align-items: stretch; flex-direction: column; }.usage-header h1 { font-size: 1.7rem; }.usage-search, .usage-search label, .usage-search input { width: 100%; }.usage-search button { flex: 0 0 auto; }.usage-metrics { grid-template-columns: 1fr; }.table-caption { align-items: flex-start; flex-direction: column; }.pagination-row { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 780px) { .rankings-section { grid-template-columns: 1fr; } }
+.detail-overlay { position: fixed; inset: 0; z-index: 9998; display: grid; place-items: center; padding: 1rem; background: rgba(15,23,42,.42); backdrop-filter: blur(6px); }.detail-panel { display: flex; max-height: min(82vh, 44rem); width: min(46rem, 100%); flex-direction: column; overflow: hidden; border: 1px solid var(--glass-line); border-radius: .65rem; background: linear-gradient(160deg, rgba(255,255,255,.92), rgba(248,250,252,.88)); box-shadow: 0 32px 80px rgba(15,23,42,.32), inset 0 1px 0 rgba(255,255,255,.85); }.detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.1rem 1.35rem; border-bottom: 1px solid rgba(255,255,255,.72); background: rgba(255,255,255,.45); }.detail-title p { margin: 0; color: #0284c7; font-size: .64rem; font-weight: 800; letter-spacing: .12em; }.detail-title h2 { margin: .3rem 0 0; color: #0f172a; font-size: 1.14rem; font-weight: 850; }.detail-title span { display: block; margin-top: .3rem; color: #718196; font-size: .7rem; font-weight: 650; }.detail-tabs { display: flex; align-items: center; gap: .3rem; flex: 0 0 auto; padding: .22rem; border: 1px solid rgba(15,23,42,.10); border-radius: .55rem; background: rgba(241,245,249,.8); }.detail-tabs button { height: 1.85rem; border: 0; border-radius: .4rem; background: transparent; color: #64748b; padding: 0 .7rem; font-size: .68rem; font-weight: 800; cursor: pointer; transition: .18s ease; }.detail-tabs button:hover { color: #0369a1; }.detail-tabs button.active { background: rgba(255,255,255,.95); color: #0369a1; box-shadow: 0 3px 9px rgba(15,23,42,.14); }.detail-tabs .detail-close { width: 1.85rem; padding: 0; font-size: 1.05rem; font-weight: 700; color: #94a3b8; }.detail-tabs .detail-close:hover { background: rgba(255,241,242,.9); color: #be123c; }.detail-body { min-height: 6rem; overflow: auto; }.detail-state { margin: 0; padding: 2.4rem 1.35rem; color: #718196; text-align: center; font-size: .78rem; font-weight: 700; }.detail-error { color: #be123c; }.detail-table-wrap { overflow-x: auto; }.detail-table-wrap table { width: 100%; border-collapse: collapse; }.detail-table-wrap th { padding: .68rem 1.1rem; background: rgba(248,250,252,.7); color: #607286; text-align: left; font-size: .64rem; font-weight: 800; letter-spacing: .05em; white-space: nowrap; }.detail-table-wrap td { padding: .74rem 1.1rem; border-top: 1px solid rgba(226,232,240,.8); color: #405269; font-size: .74rem; font-weight: 650; white-space: nowrap; }.detail-table-wrap tbody tr:hover { background: rgba(224,242,254,.35); }.detail-model { color: #1e293b !important; font-weight: 780 !important; }.detail-group { display: inline-block; margin: 0 .25rem .25rem 0; border-radius: 99px; background: rgba(237,233,254,.75); color: #6d28d9; padding: .18rem .45rem; font-size: .62rem; font-weight: 800; }.detail-tokens { color: #0369a1 !important; font-weight: 780 !important; }.detail-cost { color: #047857 !important; font-weight: 780 !important; }
 </style>

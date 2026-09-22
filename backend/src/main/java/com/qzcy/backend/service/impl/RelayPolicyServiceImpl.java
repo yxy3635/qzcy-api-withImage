@@ -109,6 +109,17 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
     }
 
     @Override
+    public void enforceUserAgentAccess(RelayToken access, String userAgent) {
+        String blacklist = access.getUserAgentBlacklist();
+        if (blacklist == null || blacklist.isBlank() || userAgent == null) return;
+        String normalized = userAgent.toLowerCase(java.util.Locale.ROOT);
+        boolean blocked = Arrays.stream(blacklist.split("\\R"))
+                .map(String::trim).filter(s -> !s.isEmpty())
+                .anyMatch(s -> normalized.contains(s.toLowerCase(java.util.Locale.ROOT)));
+        if (blocked) throw new BusinessException(403, "This User-Agent is blocked by the API key policy");
+    }
+
+    @Override
     public void enforceIpAccess(RelayToken access, String clientIp) {
         if (access.getIpWhitelist() == null || access.getIpWhitelist().isBlank()) return;
         if (!containsCsv(access.getIpWhitelist(), clientIp)) {

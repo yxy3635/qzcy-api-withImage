@@ -30,4 +30,5 @@ public class DashboardStats {
     private List<RelayChannelProfitDto> relayChannelProfits;
     private List<Map<String, Object>> recentRegistrations;
     private List<Map<String, Object>> generationTrend;
+    private List<AdminRelayDailyTrendDto> relayDailyTrend;
 }

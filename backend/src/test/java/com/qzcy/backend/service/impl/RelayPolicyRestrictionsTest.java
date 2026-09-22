@@ -158,4 +158,21 @@ class RelayPolicyRestrictionsTest {
         assertEquals(0, cost.output().compareTo(new BigDecimal("2.0")));
         assertEquals(0, cost.total().compareTo(new BigDecimal("2.59")));
     }
+    @Test
+    void userAgentBlacklistMatchesCaseInsensitivelyAndPreservesSpacesAndLiteralCharacters() {
+        RelayToken token = new RelayToken();
+        token.setUserAgentBlacklist("  CoDeX_Cli_RS  \r\n\nClaude-CLI\nMy Agent/1.0\na.*b");
+        for (String agent : new String[]{"codex_cli_rs/0.50 (Windows)", "CLAUDE-cli/2.0", "prefix MY AGENT/1.0 suffix", "a.*b/1"}) {
+            assertEquals(403, assertThrows(BusinessException.class,
+                    () -> service.enforceUserAgentAccess(token, agent)).getCode());
+        }
+        assertDoesNotThrow(() -> service.enforceUserAgentAccess(token, "Other Agent/1.0"));
+        assertDoesNotThrow(() -> service.enforceUserAgentAccess(token, "axxxb"));
+        assertDoesNotThrow(() -> service.enforceUserAgentAccess(token, null));
+        token.setUserAgentBlacklist("  \n  ");
+        assertDoesNotThrow(() -> service.enforceUserAgentAccess(token, "codex_cli_rs/1.0"));
+        token.setUserAgentBlacklist(null);
+        assertDoesNotThrow(() -> service.enforceUserAgentAccess(token, "claude-cli/1.0"));
+    }
+
 }

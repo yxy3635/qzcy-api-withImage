@@ -122,4 +122,23 @@ class RelayServiceUsageTotalsTest {
         assertEquals(overview.getTotalTokens(), afterDelete.getTotalTokens());
         assertEquals(overview.getTotalCost(), afterDelete.getTotalCost());
     }
+    @Test
+    void blacklistUpdatesNormalizeAndCanBeClearedWithoutChangingUsage() {
+        RelayToken stored = new RelayToken();
+        stored.setId(7L);
+        stored.setUserId(3L);
+        when(tokenMapper.selectById(7L)).thenReturn(stored);
+        RelayTokenCreateDto request = new RelayTokenCreateDto();
+        request.setUserAgentBlacklist(" CoDeX_CLI_RS \r\n\nClaude-CLI\ncodex_cli_rs");
+        service.updateToken(3L, 7L, request);
+        request.setUserAgentBlacklist("");
+        service.updateToken(3L, 7L, request);
+        ArgumentCaptor<RelayToken> update = ArgumentCaptor.forClass(RelayToken.class);
+        org.mockito.Mockito.verify(tokenMapper, org.mockito.Mockito.times(2)).updateById(update.capture());
+        assertEquals("codex_cli_rs\nclaude-cli", update.getAllValues().get(0).getUserAgentBlacklist());
+        assertEquals("", update.getAllValues().get(1).getUserAgentBlacklist());
+        assertNull(update.getAllValues().get(0).getUsedQuota());
+        assertNull(update.getAllValues().get(0).getExpiresAt());
+    }
+
 }

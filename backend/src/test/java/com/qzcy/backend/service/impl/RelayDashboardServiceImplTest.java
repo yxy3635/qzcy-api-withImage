@@ -138,12 +138,18 @@ class RelayDashboardServiceImplTest {
         when(usageLogMapper.todayCost()).thenReturn(new BigDecimal("1.234"));
         when(usageLogMapper.requestsSince(any(LocalDateTime.class))).thenReturn(7L);
 
+        when(usageLogMapper.activeUsersSince(any(LocalDateTime.class))).thenReturn(3L);
+
         RelayDashboardSummaryDto summary = service.dashboard().getSummary();
 
         assertEquals(10L, summary.getTodayRequests());
         assertEquals(2L, summary.getTodayErrors());
         assertEquals(20.0, summary.getErrorRate());
         assertEquals(7L, summary.getCurrentRpm());
+        assertEquals(3L, summary.getActiveUsersLastMinute());
+        var since = org.mockito.ArgumentCaptor.forClass(LocalDateTime.class);
+        org.mockito.Mockito.verify(usageLogMapper).requestsSince(since.capture());
+        org.mockito.Mockito.verify(usageLogMapper).activeUsersSince(since.getValue());
         assertEquals(0, summary.getTodayCost().compareTo(new BigDecimal("1.234")));
     }
 
@@ -201,4 +207,25 @@ class RelayDashboardServiceImplTest {
         assertEquals(502, channelDto.getLastErrorCode());
         assertEquals(LocalDateTime.of(2026, 9, 5, 12, 0), channelDto.getLastErrorAt());
     }
+    @Test
+    void lastCallSurvivesOutsideDailyWindowAndUnusedChannelHasNoTimestamp() {
+        stubEmptyAggregates();
+        when(channelMapper.selectList(any())).thenReturn(List.of(channel(1, "old", true), channel(2, "unused", true)));
+        when(providerMapper.selectByChannelId(any())).thenReturn(List.of());
+        LocalDateTime oldCall = LocalDateTime.now().minusDays(3);
+        RelayDashboardChannelDto called = new RelayDashboardChannelDto();
+        called.setId(1L);
+        called.setLastCallAt(oldCall);
+        RelayDashboardChannelDto unused = new RelayDashboardChannelDto();
+        unused.setId(2L);
+        when(usageLogMapper.dashboardLastCalls()).thenReturn(List.of(called, unused));
+
+        RelayDashboardDto result = service.dashboard();
+
+        assertEquals(0L, result.getChannels().get(0).getRequests24h());
+        assertEquals(oldCall, result.getChannels().get(0).getLastCallAt());
+        org.junit.jupiter.api.Assertions.assertNull(result.getChannels().get(1).getLastCallAt());
+        assertEquals(0L, result.getSummary().getActiveUsersLastMinute());
+    }
+
 }

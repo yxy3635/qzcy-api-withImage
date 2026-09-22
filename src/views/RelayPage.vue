@@ -121,11 +121,27 @@ const paymentOptions = ref([
 const rechargePresets = [1, 5, 10, 100]
 const ccSwitchDownloadUrl = 'https://image.qzcy3.top/CC-Switch-v3.16.3-Windows.msi'
 const codexDownloadUrl = 'https://image.qzcy3.top/Codex%20Installer.exe'
+const editingKeyId = ref<number | null>(null)
+const keyGroupSelected = ref(false)
+const originalKeyExpiry = ref('')
+const userAgentPresets = [
+  { name: 'Codex CLI', value: 'codex_cli_rs' },
+  { name: 'Claude Code', value: 'claude-cli' },
+  { name: 'Gemini CLI', value: 'gemini-cli' },
+  { name: 'OpenCode', value: 'opencode' },
+  { name: 'Cursor', value: 'cursor' }
+]
+function addUserAgentPreset(value: string) {
+  const entries = keyForm.userAgentBlacklist.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
+  if (!entries.some(item => item.toLowerCase() === value.toLowerCase())) entries.push(value)
+  keyForm.userAgentBlacklist = entries.join('\n')
+}
 const keyForm = reactive({
   name: '',
   group: 'default',
   ipLimitEnabled: false,
   ipWhitelist: '',
+  userAgentBlacklist: '',
   quota: 0,
   rpmLimit: 0,
   tpmLimit: 0,
@@ -1083,7 +1099,18 @@ async function copyText(value: string, key: string) {
   }, 1200)
 }
 
+function revealKeyRestrictions(element: Element) {
+  element.querySelector('h3')?.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'nearest'
+  })
+}
+
 function openKeyDialog() {
+  keyGroupSelected.value = false
+  editingKeyId.value = null
+  originalKeyExpiry.value = ''
+  keyForm.userAgentBlacklist = ''
   keyFormError.value = ''
   keyForm.name = ''
   keyForm.group = groups.value[0]?.code || 'default'
@@ -1096,6 +1123,27 @@ function openKeyDialog() {
   keyForm.quotaEnabled = false
   keyForm.speedLimitEnabled = false
   keyForm.expiresEnabled = false
+  showKeyDialog.value = true
+}
+
+function onKeyRowClick(event: MouseEvent, token: RelayToken) {
+  if ((event.target as HTMLElement).closest('button, a, input, select, textarea')) return
+  openKeyRestrictions(token)
+}
+
+function openKeyRestrictions(token: RelayToken) {
+  editingKeyId.value = token.id
+  keyFormError.value = ''
+  Object.assign(keyForm, {
+    name: token.name, group: token.groups,
+    ipWhitelist: token.ipWhitelist || '', ipLimitEnabled: Boolean(token.ipWhitelist),
+    userAgentBlacklist: token.userAgentBlacklist || '',
+    quota: Number(token.quota || 0), quotaEnabled: Number(token.quota || 0) > 0,
+    rpmLimit: token.rpmLimit || 0, tpmLimit: token.tpmLimit || 0,
+    speedLimitEnabled: Boolean(token.rpmLimit || token.tpmLimit),
+    expiresAt: token.expiresAt?.replace(' ', 'T').slice(0, 16) || '', expiresEnabled: Boolean(token.expiresAt)
+  })
+  originalKeyExpiry.value = keyForm.expiresAt
   showKeyDialog.value = true
 }
 
@@ -1129,8 +1177,8 @@ function validIpAddress(value: string) {
 }
 
 function validateKeyForm() {
-  if (keyForm.name.trim().length > 80) return '密钥名称不能超过 80 个字符'
-  if (!keyForm.group) return '请选择一个密钥分组'
+  if (editingKeyId.value === null && keyForm.name.trim().length > 80) return '密钥名称不能超过 80 个字符'
+  if (editingKeyId.value === null && !keyForm.group) return '请选择一个密钥分组'
 
   if (keyForm.ipLimitEnabled) {
     const normalized = normalizeIpWhitelist(keyForm.ipWhitelist)
@@ -1151,7 +1199,7 @@ function validateKeyForm() {
     if (rpm === 0 && tpm === 0) return '开启速率限制后，RPM 或 TPM 至少填写一项'
   }
 
-  if (keyForm.expiresEnabled) {
+  if (keyForm.expiresEnabled && (editingKeyId.value === null || keyForm.expiresAt !== originalKeyExpiry.value)) {
     if (!keyForm.expiresAt) return '开启有效期后，请选择密钥失效时间'
     const expires = new Date(keyForm.expiresAt).getTime()
     if (!Number.isFinite(expires) || expires <= Date.now() + 60_000) return '密钥失效时间必须晚于当前时间'
@@ -1162,26 +1210,35 @@ function validateKeyForm() {
 
 async function createKey() {
   keyFormError.value = validateKeyForm()
+  if (keyForm.userAgentBlacklist.length > 8000) keyFormError.value = 'User-Agent 黑名单不能超过 8000 个字符'
   if (keyFormError.value) {
     toast.warning(keyFormError.value)
     return
   }
   creatingKey.value = true
   try {
-    await relayApi.createToken({
+    const payload = {
       name: keyForm.name || '我的 API 密钥',
       groups: keyForm.group,
       quota: keyForm.quotaEnabled ? keyForm.quota : 0,
       rpmLimit: keyForm.speedLimitEnabled ? keyForm.rpmLimit : 0,
       tpmLimit: keyForm.speedLimitEnabled ? keyForm.tpmLimit : 0,
       ipWhitelist: keyForm.ipLimitEnabled ? keyForm.ipWhitelist : '',
-      expiresAt: keyForm.expiresEnabled ? keyForm.expiresAt : undefined
-    })
+      userAgentBlacklist: keyForm.userAgentBlacklist,
+      clearExpiresAt: editingKeyId.value !== null && !keyForm.expiresEnabled,
+      expiresAt: keyForm.expiresEnabled && (editingKeyId.value === null || keyForm.expiresAt !== originalKeyExpiry.value) ? keyForm.expiresAt : undefined
+    }
+    if (editingKeyId.value !== null) {
+      const { name, groups, ...restrictions } = payload
+      await relayApi.updateToken(editingKeyId.value, restrictions)
+    } else {
+      await relayApi.createToken(payload)
+    }
     await load()
     showKeyDialog.value = false
-    toast.success('密钥创建成功')
+    toast.success(editingKeyId.value !== null ? '使用限制已保存' : '密钥创建成功')
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : '密钥创建失败')
+    toast.error(err instanceof Error ? err.message : '密钥保存失败')
   } finally {
     creatingKey.value = false
   }
@@ -2017,7 +2074,7 @@ onMounted(async () => {
               <div v-if="activeMenuLoading" class="relay-list-refresh-bar" aria-hidden="true"><span></span></div>
               <div v-if="activeMenuLoading && !tokens.length" class="grid h-full min-h-52 place-items-center"><RequestLoader label="正在读取 API 密钥" :cell-size="13" /></div>
               <div v-else-if="filteredTokens.length" class="divide-y divide-slate-100">
-                <article v-for="(item, index) in filteredTokens" :key="item.id" class="relay-list-item relay-keys-columns relay-key-row" :style="{ '--i': index }">
+                <article v-for="(item, index) in filteredTokens" :key="item.id" class="relay-list-item relay-keys-columns relay-key-row" :style="{ '--i': index }" @click="onKeyRowClick($event, item)">
                   <div class="relay-key-identity min-w-0">
                     <div class="flex min-w-0 items-center gap-2"><span class="h-2 w-2 shrink-0 rounded-full" :class="item.enabled ? 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]' : 'bg-slate-300'"></span><button type="button" class="inline-flex min-w-0 items-center gap-1 rounded text-left text-sm font-black text-slate-950 transition hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" :title="'修改名称：' + item.name" :aria-label="'修改密钥名称：' + item.name" @click="openKeyNameDialog(item)"><span class="truncate">{{ item.name }}</span><svg viewBox="0 0 24 24" class="h-3 w-3 shrink-0 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m16 4 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" /></svg></button></div>
                     <div class="relay-key-details mt-2 flex min-w-0 flex-col items-start gap-2 pl-4"><code class="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-teal-700">{{ item.tokenPreview }}</code><button type="button" class="relay-key-group inline-flex max-w-full items-center gap-1.5 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" :aria-label="`编辑密钥「${item.name}」的分组`" title="编辑密钥分组" @click="openKeyGroupDialog(item)"><span class="truncate" :title="groupOf(item.groups)?.name || item.groups">{{ groupOf(item.groups)?.name || item.groups }} · {{ Number(groupOf(item.groups)?.ratio || 1).toFixed(3) }}x</span><svg viewBox="0 0 24 24" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m16 4 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" /></svg><span class="shrink-0">编辑</span></button></div>
@@ -2042,6 +2099,10 @@ onMounted(async () => {
                   </div>
 
                   <div class="relay-key-actions">
+                    <button type="button" class="relay-key-edit-access col-span-2 inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" :aria-label="'编辑访问限制：' + item.name" @click.stop="openKeyRestrictions(item)">
+                      <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 4 6v5c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V6l-8-3zm-3 9 2 2 4-4" /></svg>
+                      编辑访问限制
+                    </button>
                     <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white shadow-sm shadow-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" :disabled="tokenSecretActionId === item.id" @click="copyToken(item)"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>{{ tokenSecretActionId === item.id ? '读取中' : copied === `token-${item.id}` ? '已复制' : '复制密钥' }}</button>
                     <button type="button" class="group inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 px-3 text-xs font-black text-blue-700 shadow-sm shadow-blue-100 transition hover:-translate-y-0.5 hover:border-blue-300 hover:from-blue-100 hover:to-indigo-100 hover:shadow-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60" :disabled="tokenSecretActionId === item.id" title="按密钥分组自动导入 Codex（OpenAI）或 Claude" @click="requestCcSwitchImport(item)"><svg viewBox="0 0 24 24" class="h-[18px] w-[18px] transition-transform duration-200 group-hover:translate-x-0.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="12" height="12" rx="2.2" /><path d="M7 19.5h5M9.5 16.5v3M13 10.5h7m-2.5-2.5 2.5 2.5-2.5 2.5" /></svg><span>导入 CCSwitch</span></button>
                     <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2" :class="item.enabled ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 focus-visible:ring-amber-500' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 focus-visible:ring-emerald-500'" @click="openKeyAction(item, 'toggle')"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 2v10M6.3 5.8a8 8 0 1 0 11.4 0" /></svg>{{ item.enabled ? '禁用' : '启用' }}</button>
@@ -2670,24 +2731,25 @@ onMounted(async () => {
       </form>
     </RelayModal>
 
+    <Transition name="key-dialog" appear>
     <div v-if="showKeyDialog" class="fixed inset-0 z-50 flex min-h-dvh items-center justify-center overflow-y-auto bg-slate-950/45 p-2 backdrop-blur-[5px] sm:p-4" @click.self="showKeyDialog = false">
       <div class="flex max-h-[calc(100dvh-1rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[26px] border border-white/80 bg-white shadow-[0_32px_110px_rgba(15,23,42,0.30)] sm:max-h-[calc(100dvh-2rem)]">
         <div class="flex shrink-0 items-start justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
           <div>
-            <h2 class="text-xl font-black tracking-tight text-slate-950">创建 API 密钥</h2>
-            <p class="mt-1 text-xs font-semibold text-slate-500">配置访问范围和安全限制，所有已启用的限制都会在 API 请求时由后端校验。</p>
+            <h2 class="text-xl font-black tracking-tight text-slate-950">{{ editingKeyId !== null ? '编辑访问限制 · ' + keyForm.name : '创建 API 密钥' }}</h2>
+            <p class="mt-1 text-xs font-semibold text-slate-500">{{ editingKeyId !== null ? '限制仅对当前密钥生效，保存后由后端校验。' : '选择分组后，下方将展开访问限制设置。' }}</p>
           </div>
           <button type="button" aria-label="关闭创建密钥弹窗" class="mr-5 rounded-lg px-3 py-2 text-2xl leading-none text-slate-400 hover:bg-slate-50" @click="showKeyDialog = false">×</button>
         </div>
         <div class="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6">
-          <label class="block">
+          <label v-if="editingKeyId === null" class="block">
             <span class="text-sm font-black text-slate-700">名称</span>
             <input v-model="keyForm.name" class="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-sm font-semibold outline-none focus:border-teal-300" placeholder="我的 API 密钥" />
           </label>
 
-          <div>
+          <div v-if="editingKeyId === null">
             <span class="text-sm font-black text-slate-700">分组</span>
-            <div class="mt-2 max-h-44 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2" role="radiogroup" aria-label="选择密钥分组">
+            <div class="mt-2 max-h-[min(42dvh,24rem)] space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2" role="radiogroup" aria-label="选择密钥分组">
               <button
                 v-for="group in groups"
                 :key="group.code"
@@ -2696,7 +2758,7 @@ onMounted(async () => {
                 :aria-checked="keyForm.group === group.code"
                 class="grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
                 :class="keyForm.group === group.code ? 'border-emerald-500 bg-emerald-50 shadow-sm ring-2 ring-emerald-100' : 'border-transparent bg-white hover:border-slate-300 hover:bg-slate-50'"
-                @click="keyForm.group = group.code"
+                @click="keyForm.group = group.code; keyGroupSelected = true"
               >
                 <span class="grid h-5 w-5 place-items-center rounded-full border-2 transition" :class="keyForm.group === group.code ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300 bg-white'" aria-hidden="true">
                   <span v-if="keyForm.group === group.code" class="h-2 w-2 rounded-full bg-white"></span>
@@ -2712,10 +2774,19 @@ onMounted(async () => {
 
           <p v-if="keyFormError" class="flex items-start gap-2 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2.5 text-xs font-bold leading-5 text-rose-700"><svg viewBox="0 0 24 24" class="mt-0.5 h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 2.7 20h18.6L12 3zm0 6v5m0 3h.01" /></svg>{{ keyFormError }}</p>
 
-          <div>
+          <Transition name="key-restrictions" @after-enter="revealKeyRestrictions">
+          <div v-if="editingKeyId !== null || keyGroupSelected" class="key-restrictions-grid">
+          <div class="min-h-0 overflow-hidden">
             <div class="flex items-center justify-between gap-3"><div><h3 class="text-sm font-black text-slate-800">访问限制</h3><p class="mt-1 text-xs font-semibold text-slate-500">点击选项即可展开配置；未开启的项目不会限制密钥。</p></div><span class="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">后端实时校验</span></div>
 
             <div class="mt-3 grid items-start gap-3 md:grid-cols-2">
+              <article class="rounded-2xl border border-rose-200 bg-rose-50/40 p-4 md:col-span-2">
+                <label for="ua-blacklist" class="text-sm font-black text-slate-800">User-Agent 黑名单</label>
+                <p class="mt-1 text-xs font-semibold leading-5 text-slate-500">每行一个关键词，不区分大小写；请求头包含任意关键词即拒绝访问（403）。留空表示不限制。</p>
+                <textarea id="ua-blacklist" v-model="keyForm.userAgentBlacklist" maxlength="8000" class="mt-3 min-h-24 w-full resize-y rounded-xl border border-rose-200 bg-white px-3 py-2.5 font-mono text-xs text-slate-700 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100" placeholder="codex_cli_rs&#10;claude-cli"></textarea>
+                <div class="mt-2 flex flex-wrap items-center gap-2"><span class="text-[11px] font-bold text-slate-500">常用客户端</span><button v-for="preset in userAgentPresets" :key="preset.value" type="button" :title="'添加关键词：' + preset.value" class="rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 focus-visible:ring-2 focus-visible:ring-rose-400" @click="addUserAgentPreset(preset.value)">+ {{ preset.name }}</button></div>
+                <p class="mt-2 text-[11px] leading-5 text-slate-500">预设填入客户端名称关键词，可自行编辑；不同版本或代理的请求头可能不同，请按实际 User-Agent 调整。不支持正则表达式。</p>
+              </article>
               <article class="overflow-hidden rounded-2xl border transition" :class="keyForm.ipLimitEnabled ? 'border-emerald-300 bg-emerald-50/40 shadow-sm' : 'border-slate-200 bg-white'">
                 <button type="button" class="flex w-full items-center justify-between gap-3 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500" role="switch" :aria-checked="keyForm.ipLimitEnabled" :aria-expanded="keyForm.ipLimitEnabled" @click="keyForm.ipLimitEnabled = !keyForm.ipLimitEnabled; keyFormError = ''">
                   <span class="flex items-center gap-3"><span class="grid h-9 w-9 place-items-center rounded-xl" :class="keyForm.ipLimitEnabled ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 4 6v5c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V6l-8-3zm-3 9 2 2 4-4" /></svg></span><span><strong class="block text-sm font-black text-slate-800">IP 白名单</strong><small class="mt-0.5 block text-[11px] font-semibold text-slate-500">仅允许指定公网 IP 调用</small></span></span>
@@ -2778,13 +2849,17 @@ onMounted(async () => {
               </article>
             </div>
           </div>
+          </div>
+          </Transition>
         </div>
         <div class="flex shrink-0 justify-end gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:px-6 sm:py-4">
           <button class="h-11 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 sm:h-12 sm:px-6" @click="showKeyDialog = false">取消</button>
-          <button class="h-11 rounded-xl bg-teal-600 px-5 text-sm font-black text-white shadow-sm shadow-teal-100 transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:px-6" :disabled="creatingKey" @click="createKey">{{ creatingKey ? '创建中' : '确定创建' }}</button>
+          <button class="h-11 rounded-xl bg-teal-600 px-5 text-sm font-black text-white shadow-sm shadow-teal-100 transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:px-6" :disabled="creatingKey" @click="createKey">{{ creatingKey ? '保存中…' : editingKeyId !== null ? '保存限制' : '确定创建' }}</button>
         </div>
       </div>
     </div>
+
+    </Transition>
 
     <div v-if="showErrorLogsDialog" class="fixed inset-0 z-[54] grid place-items-center bg-slate-950/45 px-4 backdrop-blur-sm" @click.self="showErrorLogsDialog = false">
       <section class="flex max-h-[86vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -3265,13 +3340,13 @@ onMounted(async () => {
   transform: none;
 }
 
-.relay-key-actions > button:nth-child(2) {
+.relay-key-actions > button:nth-child(3) {
   background: #fff;
   border-color: #e2e8f0;
   color: #475569;
 }
 
-.relay-key-actions > button:nth-child(2):hover {
+.relay-key-actions > button:nth-child(3):hover {
   background: #f0fdf4;
   border-color: #a7f3d0;
   color: #047857;
@@ -4003,5 +4078,30 @@ onMounted(async () => {
   }
 
   .channel-card:hover { transform: none; }
+}
+</style>
+
+<style scoped>
+.key-dialog-enter-active, .key-dialog-leave-active { transition: opacity .22s ease; }
+.key-dialog-enter-active > div, .key-dialog-leave-active > div { transition: transform .26s cubic-bezier(.22,1,.36,1), opacity .22s ease; }
+.key-dialog-enter-from, .key-dialog-leave-to { opacity: 0; }
+.key-dialog-enter-from > div, .key-dialog-leave-to > div { transform: translateY(18px) scale(.98); opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .key-dialog-enter-active, .key-dialog-leave-active, .key-dialog-enter-active > div, .key-dialog-leave-active > div { transition: none; }
+}
+</style>
+
+<style scoped>
+.key-restrictions-grid { display: grid; grid-template-rows: 1fr; }
+.key-restrictions-enter-active, .key-restrictions-leave-active {
+  transition: grid-template-rows .3s ease, opacity .25s ease, transform .3s ease;
+}
+.key-restrictions-enter-from, .key-restrictions-leave-to {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .key-restrictions-enter-active, .key-restrictions-leave-active { transition: none; }
 }
 </style>

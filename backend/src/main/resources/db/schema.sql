@@ -304,6 +304,7 @@ CREATE TABLE IF NOT EXISTS relay_token (
     rpm_limit INT NOT NULL DEFAULT 0,
     tpm_limit INT NOT NULL DEFAULT 0,
     ip_whitelist VARCHAR(500) NOT NULL DEFAULT '',
+    user_agent_blacklist TEXT,
     last_used_at DATETIME,
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     expires_at DATETIME,
@@ -315,6 +316,9 @@ CREATE TABLE IF NOT EXISTS relay_token (
     );
 
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_token' AND COLUMN_NAME = 'deleted') = 0, 'ALTER TABLE relay_token ADD COLUMN deleted TINYINT(1) NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_token' AND COLUMN_NAME = 'user_agent_blacklist') = 0, 'ALTER TABLE relay_token ADD COLUMN user_agent_blacklist TEXT NULL', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @has_old_token_groups := (

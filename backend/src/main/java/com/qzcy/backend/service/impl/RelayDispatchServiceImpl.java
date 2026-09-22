@@ -179,6 +179,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 request.endpointType(),
                 model
         );
+        relayPolicyService.enforceUserAgentAccess(contexts.get(0).token(), request.userAgent());
         contexts = contextsForFormat(contexts, request.upstreamPath());
         BusinessException rateLimitFailure = null;
         boolean circuitSkipped = false;
@@ -301,6 +302,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 request.endpointType(),
                 model
         );
+        relayPolicyService.enforceUserAgentAccess(contexts.get(0).token(), request.userAgent());
         contexts = contextsForFormat(contexts, request.upstreamPath());
         BusinessException rateLimitFailure = null;
         String lastErrorText = "";

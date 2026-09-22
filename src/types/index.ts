@@ -209,6 +209,14 @@ export interface PageResult<T> {
   pages: number
 }
 
+export interface AdminRelayDailyTrendPoint {
+  date: string
+  requests: number
+  tokens: number
+  cost: number
+  profit: number
+}
+
 export interface AdminStats {
   totalUsers: number
   totalImages: number
@@ -230,6 +238,7 @@ export interface AdminStats {
   relayChannelProfits: RelayChannelProfit[]
   recentRegistrations: Array<{ date: string; count: number }>
   generationTrend: Array<{ date: string; count: number }>
+  relayDailyTrend: AdminRelayDailyTrendPoint[]
 }
 
 export interface RelayChannelProfit {
@@ -268,6 +277,14 @@ export interface AdminUserUsage {
   totalTokens: number
   totalCost: number
   totalRecharge: number
+}
+
+export interface AdminUserModelUsage {
+  model: string
+  groupNames: string
+  requests: number
+  totalTokens: number
+  cost: number
 }
 
 export interface AdminUserRanking {
@@ -333,6 +350,7 @@ export interface RelayDashboardSummary {
   todayTokens: number
   todayCost: number
   currentRpm: number
+  activeUsersLastMinute: number
 }
 
 export interface RelayDashboardTrendPoint {
@@ -371,6 +389,7 @@ export interface RelayDashboardChannel {
   cost24h: number
   lastErrorAt?: string | null
   lastErrorCode?: number | null
+  lastCallAt?: string | null
 }
 
 export interface RelayDashboardError {
@@ -467,6 +486,7 @@ export interface RelayToken {
   rpmLimit: number
   tpmLimit: number
   ipWhitelist: string
+  userAgentBlacklist?: string
   enabled: boolean
   expiresAt?: string
   lastUsedAt?: string

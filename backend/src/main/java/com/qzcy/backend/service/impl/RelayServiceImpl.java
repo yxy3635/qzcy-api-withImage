@@ -436,6 +436,7 @@ public class RelayServiceImpl implements RelayService {
         item.setRpmLimit(dto.getRpmLimit() == null ? 0 : Math.max(0, dto.getRpmLimit()));
         item.setTpmLimit(dto.getTpmLimit() == null ? 0 : Math.max(0, dto.getTpmLimit()));
         item.setIpWhitelist(normalizeIpWhitelist(dto.getIpWhitelist()));
+        item.setUserAgentBlacklist(normalizeUserAgentBlacklist(dto.getUserAgentBlacklist()));
         item.setExpiresAt(validateExpiresAt(dto.getExpiresAt()));
         item.setEnabled(dto.getEnabled() == null || dto.getEnabled());
         tokenMapper.insert(item);
@@ -460,10 +461,15 @@ public class RelayServiceImpl implements RelayService {
         if (dto.getQuota() != null) update.setQuota(nonNegative(dto.getQuota()));
         if (dto.getRpmLimit() != null) update.setRpmLimit(Math.max(0, dto.getRpmLimit()));
         if (dto.getTpmLimit() != null) update.setTpmLimit(Math.max(0, dto.getTpmLimit()));
+        if (dto.getUserAgentBlacklist() != null) update.setUserAgentBlacklist(normalizeUserAgentBlacklist(dto.getUserAgentBlacklist()));
         if (dto.getIpWhitelist() != null) update.setIpWhitelist(normalizeIpWhitelist(dto.getIpWhitelist()));
         if (dto.getExpiresAt() != null) update.setExpiresAt(validateExpiresAt(dto.getExpiresAt()));
         if (dto.getEnabled() != null) update.setEnabled(dto.getEnabled());
         tokenMapper.updateById(update);
+        if (Boolean.TRUE.equals(dto.getClearExpiresAt())) {
+            tokenMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<RelayToken>()
+                    .eq("id", tokenId).eq("user_id", userId).set("expires_at", null));
+        }
         return toTokenDto(tokenMapper.selectById(tokenId));
     }
 
@@ -1111,12 +1117,21 @@ public class RelayServiceImpl implements RelayService {
         return toTokenDto(item, false);
     }
 
+    private String normalizeUserAgentBlacklist(String value) {
+        if (value == null || value.isBlank()) return "";
+        if (value.length() > 8000) throw new BusinessException(400, "User-Agent 黑名单不能超过 8000 个字符");
+        return java.util.Arrays.stream(value.split("\\R"))
+                .map(String::trim).filter(s -> !s.isEmpty())
+                .map(s -> s.toLowerCase(java.util.Locale.ROOT)).distinct()
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
     private RelayTokenDto toTokenDto(RelayToken item, boolean revealToken) {
         User user = item.getUserId() == null ? null : userMapper.selectById(item.getUserId());
         return new RelayTokenDto(item.getId(), item.getUserId(), user == null ? "" : user.getUsername(),
                 item.getName(), item.getTokenPreview(), revealToken ? item.getToken() : "", item.getGroupNames(), item.getAllowedModels(),
                 item.getQuota(), item.getUsedQuota(), usageLogMapper.tokenTodayCost(item.getId()), item.getRequestCount(), item.getTokenCount(),
-                item.getRpmLimit(), item.getTpmLimit(), item.getIpWhitelist(), item.getEnabled(), item.getExpiresAt(),
+                item.getRpmLimit(), item.getTpmLimit(), item.getIpWhitelist(), item.getUserAgentBlacklist(), item.getEnabled(), item.getExpiresAt(),
                 item.getLastUsedAt(), item.getCreatedAt());
     }
 

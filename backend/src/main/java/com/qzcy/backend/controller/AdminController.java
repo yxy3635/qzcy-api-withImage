@@ -5,6 +5,7 @@ import com.qzcy.backend.dto.AdminImageRecordDto;
 import com.qzcy.backend.dto.AdminPaymentRecordDto;
 import com.qzcy.backend.dto.AdminRelayUsageLogDto;
 import com.qzcy.backend.dto.AdminUserUpdateDto;
+import com.qzcy.backend.dto.AdminUserModelUsageDto;
 import com.qzcy.backend.dto.AdminUserUsageDto;
 import com.qzcy.backend.dto.AdminUserRankingsDto;
 import com.qzcy.backend.dto.AdminUserGiftDto;
@@ -128,6 +129,12 @@ public class AdminController {
     public ApiResponse<Void> giftBalance(@PathVariable Long id, @RequestBody AdminUserGiftDto dto) {
         adminService.giftBalance(id, dto);
         return ApiResponse.success(null);
+    }
+
+    @GetMapping("/users/{id}/model-usage")
+    public ApiResponse<java.util.List<AdminUserModelUsageDto>> userModelUsage(@PathVariable Long id,
+                                                                              @RequestParam(defaultValue = "today") String scope) {
+        return ApiResponse.success(adminService.userModelUsage(id, scope));
     }
 
     @GetMapping("/users/{id}/relay-overview")

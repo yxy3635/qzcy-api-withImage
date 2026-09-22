@@ -31,6 +31,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
         ensureRelayPrecision();
         ensureRelayTokenIndexes();
         if (tableExists("relay_token")) {
+            addColumnIfMissing("relay_token", "user_agent_blacklist", "TEXT NULL");
             addColumnIfMissing("relay_token", "deleted", "TINYINT(1) NOT NULL DEFAULT 0");
         }
         ensureGptImage2Model();

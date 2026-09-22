@@ -27,6 +27,7 @@ public class RelayToken {
     private Integer rpmLimit;
     private Integer tpmLimit;
     private String ipWhitelist;
+    private String userAgentBlacklist;
     private LocalDateTime lastUsedAt;
     private Boolean enabled;
     @TableLogic(value = "0", delval = "1")

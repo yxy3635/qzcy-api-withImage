@@ -27,6 +27,7 @@ public class RelayTokenDto {
     private Integer rpmLimit;
     private Integer tpmLimit;
     private String ipWhitelist;
+    private String userAgentBlacklist;
     private Boolean enabled;
     private LocalDateTime expiresAt;
     private LocalDateTime lastUsedAt;

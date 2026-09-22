@@ -20,4 +20,5 @@ public class RelayDashboardSummaryDto {
     private Long todayTokens;
     private BigDecimal todayCost;
     private Long currentRpm;
+    private Long activeUsersLastMinute;
 }
