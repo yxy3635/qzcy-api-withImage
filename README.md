@@ -257,6 +257,18 @@ curl https://your-domain.example/api/v1/models \
 
 ## 生产部署
 
+### Docker Compose 部署（推荐）
+
+已提供前后端 Dockerfile、Nginx 配置和 MySQL / Redis 编排。服务器安装 Docker Engine 与 Compose v2 后，在项目根目录执行：
+
+```bash
+cp .env.example .env
+# 编辑 .env，填写站点地址、数据库密码、JWT 密钥和首次管理员密码
+docker compose up -d --build --wait --wait-timeout 300
+```
+
+首次部署会自动初始化数据库，数据库与图片使用持久化数据卷。Docker 中的管理员密码使用 `.env` 内的 `ADMIN_INITIAL_PASSWORD`。完整步骤、HTTPS、升级及备份恢复见 [Docker 部署说明](docs/docker-deployment.md)。
+
 ### 构建产物
 
 前端：

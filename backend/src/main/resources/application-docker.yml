@@ -1,0 +1,28 @@
+# Docker Compose supplies credentials; never load the local dev profile here.
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://mysql:3306/image_creator?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:imagecreater}
+    password: ${MYSQL_PASSWORD}
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  data:
+    redis:
+      host: redis
+
+server:
+  forward-headers-strategy: framework
+  shutdown: graceful
+
+app:
+  admin:
+    initial-password: ${ADMIN_INITIAL_PASSWORD}
+  jwt:
+    secret: ${JWT_SECRET}
+  upload:
+    image-path: /app/userImage/
+  cors:
+    allowed-origin-patterns: ${SITE_URL}

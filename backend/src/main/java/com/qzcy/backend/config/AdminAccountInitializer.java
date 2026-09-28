@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -14,7 +15,8 @@ import java.math.BigDecimal;
 @RequiredArgsConstructor
 public class AdminAccountInitializer implements CommandLineRunner {
     private static final String DEFAULT_ADMIN_USERNAME = "admin";
-    private static final String DEFAULT_ADMIN_PASSWORD = "admin" + "123";
+    @Value("${app.admin.initial-password:admin123}")
+    private String initialPassword;
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
@@ -30,7 +32,7 @@ public class AdminAccountInitializer implements CommandLineRunner {
 
         User admin = new User();
         admin.setUsername(DEFAULT_ADMIN_USERNAME);
-        admin.setPassword(passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD));
+        admin.setPassword(passwordEncoder.encode(initialPassword));
         admin.setRole("ADMIN");
         admin.setBanned(false);
         admin.setBalance(BigDecimal.ZERO);

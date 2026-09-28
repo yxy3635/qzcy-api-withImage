@@ -1,0 +1,9 @@
+target
+.idea
+.mvn
+mvnw*
+userImage
+.env*
+*.log
+src/main/resources/application-dev.yml
+src/main/resources/application-prod.yml

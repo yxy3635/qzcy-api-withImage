@@ -42,3 +42,9 @@ __screenshots__/
 # Vite
 *.timestamp-*-*.mjs
 application-prod.yml
+
+# Server deployment secrets and backups
+.env
+.env.*
+!.env.example
+/backups/

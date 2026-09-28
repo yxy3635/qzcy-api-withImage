@@ -1,5 +1,102 @@
 USE image_creator;
 
+-- Base tables must exist before the compatibility migrations below.
+CREATE TABLE IF NOT EXISTS `user` (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(80) NOT NULL,
+    email VARCHAR(255) NULL,
+    password VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'USER',
+    banned TINYINT(1) NOT NULL DEFAULT 0,
+    balance DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
+    version INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_user_username (username),
+    UNIQUE KEY uk_user_email (email)
+);
+
+CREATE TABLE IF NOT EXISTS payment_record (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    amount DECIMAL(12, 6) NOT NULL,
+    type VARCHAR(30) NOT NULL,
+    status VARCHAR(30) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS payment_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    api_url VARCHAR(500) NOT NULL DEFAULT '',
+    merchant_id VARCHAR(255) NOT NULL DEFAULT '',
+    merchant_secret VARCHAR(255) NOT NULL DEFAULT '',
+    register_gift_amount DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
+    enabled TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS mail_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    host VARCHAR(255) NOT NULL DEFAULT '',
+    port INT NOT NULL DEFAULT 587,
+    username VARCHAR(255) NOT NULL DEFAULT '',
+    password VARCHAR(500) NOT NULL DEFAULT '',
+    from_address VARCHAR(255) NOT NULL DEFAULT '',
+    ssl_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    starttls_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    enabled TINYINT(1) NOT NULL DEFAULT 0,
+    dev_return_code TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS image_record (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    prompt LONGTEXT NOT NULL,
+    generated_image_url TEXT NULL,
+    status VARCHAR(30) NOT NULL,
+    generation_model VARCHAR(255) NULL,
+    request_url TEXT NULL,
+    error_status_code INT NULL,
+    error_type VARCHAR(255) NULL,
+    error_message TEXT NULL,
+    cost DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_image_record_user_created (user_id, created_at),
+    INDEX idx_image_record_status_created (status, created_at)
+);
+
+CREATE TABLE IF NOT EXISTS image_generation_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    code VARCHAR(40) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    model VARCHAR(255) NOT NULL,
+    api_key TEXT NULL,
+    api_base_url VARCHAR(500) NOT NULL,
+    endpoint_path VARCHAR(255) NOT NULL,
+    size VARCHAR(40) NOT NULL,
+    quality VARCHAR(40) NOT NULL,
+    price DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 10,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_image_generation_config_code (code)
+);
+
+CREATE TABLE IF NOT EXISTS image_generation_metric (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    image_record_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    quality_code VARCHAR(40) NOT NULL,
+    duration_ms BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_image_metric_created (created_at),
+    INDEX idx_image_metric_record (image_record_id)
+);
+
 CREATE TABLE IF NOT EXISTS registration_config (
     id BIGINT PRIMARY KEY,
     registration_closed TINYINT(1) NOT NULL DEFAULT 0,
