@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { adminApi } from '@/api/adminApi'
-import AppLayout from '@/components/AppLayout.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import Pagination from '@/components/Pagination.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
@@ -14,6 +13,8 @@ type RelayLogWithAliases = AdminRelayUsageLog & {
 }
 
 const activeTab = ref<LogTab>('relay')
+const pageSizeOptions = [20, 50, 100]
+const relayPageSize = ref(50)
 const imageRecords = ref<AdminImageRecord[]>([])
 const imageCurrent = ref(1)
 const imagePages = ref(1)
@@ -55,7 +56,7 @@ async function loadImages(page = 1) {
   imageLoading.value = true
   error.value = ''
   try {
-    const { data } = await adminApi.imageRecords(page, 10, imageKeyword.value, imageStatus.value)
+    const { data } = await adminApi.imageRecords(page, 30, imageKeyword.value, imageStatus.value)
     imageRecords.value = data.data.records
     imageCurrent.value = data.data.current
     imagePages.value = data.data.pages
@@ -71,7 +72,7 @@ async function loadRelay(page = 1) {
   relayLoading.value = true
   error.value = ''
   try {
-    const { data } = await adminApi.relayUsageRecords(page, 12, relayKeyword.value, relayStatus.value)
+    const { data } = await adminApi.relayUsageRecords(page, relayPageSize.value, relayKeyword.value, relayStatus.value)
     relayRecords.value = data.data.records
     relayCurrent.value = data.data.current
     relayPages.value = data.data.pages
@@ -100,6 +101,13 @@ function showRelayErrors() {
 function selectRelayStatus(value: string) {
   relayStatus.value = value
   relayStatusOpen.value = false
+  loadRelay(1)
+}
+
+function changeRelayPageSize(event: Event) {
+  const value = Number((event.target as HTMLSelectElement).value) || 50
+  if (value === relayPageSize.value) return
+  relayPageSize.value = value
   loadRelay(1)
 }
 
@@ -182,7 +190,6 @@ onMounted(() => loadRelay())
 </script>
 
 <template>
-  <AppLayout admin wide>
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <p class="text-sm font-bold uppercase tracking-[0.22em] text-sky-600">日志中心</p>
@@ -233,21 +240,21 @@ onMounted(() => loadRelay())
               <col class="w-[110px]" /><col class="w-[190px]" /><col class="w-[160px]" /><col class="w-[240px]" /><col class="w-[130px]" /><col class="w-[180px]" /><col class="w-[120px]" /><col class="w-[80px]" /><col class="w-[150px]" /><col class="w-[250px]" />
             </colgroup>
             <thead class="bg-slate-50 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-              <tr><th class="px-5 py-4">用户</th><th>API 密钥 / 模型</th><th>端点 / 类型</th><th>Token</th><th>费用</th><th>状态</th><th>首字 / 吞吐</th><th>耗时</th><th>时间</th><th>User-Agent</th></tr>
+              <tr><th class="px-5 py-2.5">用户</th><th class="py-2.5">API 密钥 / 模型</th><th class="py-2.5">端点 / 类型</th><th class="py-2.5">Token</th><th class="py-2.5">费用</th><th class="py-2.5">状态</th><th class="py-2.5">首字 / 吞吐</th><th class="py-2.5">耗时</th><th class="py-2.5">时间</th><th class="py-2.5">User-Agent</th></tr>
             </thead>
             <tbody class="divide-y divide-slate-100 font-semibold">
               <tr v-if="!relayLoading && relayRecords.length === 0"><td colspan="10" class="p-8 text-sm text-slate-500">暂无 API 使用记录</td></tr>
               <tr v-for="log in relayRecords" :key="log.id" class="align-top transition duration-200 hover:bg-sky-50/60" :class="relayLoading ? 'opacity-55' : 'opacity-100'">
-                <td class="px-5 py-4"><p class="font-black text-slate-900">{{ log.username || '未知用户' }}</p><p class="mt-1 text-xs text-slate-500">ID: {{ log.userId }}</p></td>
-                <td class="py-4"><p class="max-w-[170px] truncate font-black text-slate-900">{{ log.tokenName || '-' }}</p><p class="mt-1 max-w-[175px] truncate font-mono text-xs text-slate-500">{{ log.model || '-' }}</p><span v-if="log.thinkingEffort" class="mt-1 inline-flex max-w-[175px] items-center rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-black text-violet-700">思考 {{ log.thinkingEffort }}</span><p class="mt-1 max-w-[175px] truncate text-xs text-slate-400">{{ log.channelName || '-' }}</p></td>
-                <td class="py-4"><p class="max-w-[145px] truncate font-mono text-xs text-slate-600">{{ log.endpoint || '-' }}</p><span class="mt-2 inline-flex rounded bg-blue-50 px-2 py-1 text-xs font-black text-blue-600">{{ log.modelType || '-' }}</span></td>
-                <td class="py-4"><div class="w-48" :title="cacheHitTitle(log)"><p><span class="text-emerald-600">↓ {{ compact(log.promptTokens || 0) }}</span> <span class="text-violet-600">↑ {{ compact(log.completionTokens || 0) }}</span></p><div class="mt-2 flex items-center justify-between text-[11px] font-black"><span class="text-cyan-600">缓存命中</span><span class="text-slate-600">{{ cacheHitLabel(log) }}</span></div><div class="mt-1 h-2 overflow-hidden rounded-full bg-slate-100"><div class="cache-flow h-full rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-teal-500 shadow-[0_0_14px_rgba(20,184,166,0.35)] transition-all duration-700 ease-out" :style="{ width: `${cacheHitRate(log)}%` }"></div></div><p class="mt-1 text-[11px] font-bold text-slate-400">读 {{ compact(log.cachedTokens || 0) }} · 写 {{ compact(log.cacheCreationTokens || 0) }} · 总 {{ compact(log.totalTokens || 0) }}</p></div></td>
-                <td class="py-4"><p class="font-black text-emerald-600">{{ money(log.cost) }}</p><p class="mt-1 text-xs text-slate-500">组 {{ Number(log.groupRatio || 1).toFixed(3) }}x</p></td>
-                <td class="py-4"><span class="inline-flex rounded-full border px-3 py-1 text-xs font-black" :class="statusClass(log.status, log.statusCode)">HTTP {{ log.statusCode || 0 }} · {{ log.status || '-' }}</span><p v-if="log.message" class="mt-2 max-w-[160px] whitespace-pre-wrap break-words text-xs leading-5 text-rose-600">{{ log.message }}</p></td>
-                <td class="py-4"><p class="font-black" :class="Number(log.firstTokenMs || 0) > 5000 ? 'text-amber-600' : 'text-slate-800'" :title="log.firstTokenMs ? `首字延迟 ${(Number(log.firstTokenMs) / 1000).toFixed(2)}s` : '非流式请求未记录首字'">{{ firstTokenLabel(log) }}</p><p class="mt-1 text-xs font-bold text-cyan-600" :title="tokensPerSecond(log) ? `输出吞吐量 ${tokensPerSecond(log).toFixed(1)} tok/s` : '暂无吞吐数据'">{{ throughputLabel(log) }}</p></td>
-                <td class="py-4">{{ ((log.durationMs || 0) / 1000).toFixed(2) }}s</td>
-                <td class="py-4 text-slate-500">{{ formatDate(log.createdAt) }}</td>
-                <td class="py-4 pr-5"><p class="line-clamp-2 break-all text-xs leading-5 text-slate-500" :title="userAgentOf(log)">{{ userAgentOf(log) }}</p></td>
+                <td class="px-5 py-2.5"><p class="font-black text-slate-900">{{ log.username || '未知用户' }}</p><p class="mt-0.5 text-xs text-slate-500">ID: {{ log.userId }}</p></td>
+                <td class="py-2.5"><div class="flex flex-wrap items-center gap-1.5"><p class="max-w-[170px] truncate font-black text-slate-900">{{ log.tokenName || '-' }}</p><span v-if="log.thinkingEffort" class="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-black text-violet-700">思考 {{ log.thinkingEffort }}</span></div><p class="mt-0.5 max-w-[178px] truncate font-mono text-xs text-slate-500" :title="`${log.model || '-'} · ${log.channelName || '-'}`">{{ log.model || '-' }}<span class="text-slate-400"> · {{ log.channelName || '-' }}</span></p></td>
+                <td class="py-2.5"><div class="flex flex-wrap items-center gap-1.5"><p class="max-w-[145px] truncate font-mono text-xs text-slate-600" :title="log.endpoint">{{ log.endpoint || '-' }}</p><span class="rounded bg-blue-50 px-2 py-0.5 text-xs font-black text-blue-600">{{ log.modelType || '-' }}</span></div></td>
+                <td class="py-2.5"><div class="w-48" :title="cacheHitTitle(log)"><p class="flex items-center justify-between gap-2 text-sm font-black"><span><span class="text-emerald-600">↓ {{ compact(log.promptTokens || 0) }}</span> <span class="text-violet-600">↑ {{ compact(log.completionTokens || 0) }}</span></span><span class="text-[11px] font-black text-cyan-600">{{ cacheHitLabel(log) }}</span></p><div class="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div class="cache-flow h-full rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-teal-500 shadow-[0_0_14px_rgba(20,184,166,0.35)] transition-all duration-700 ease-out" :style="{ width: `${cacheHitRate(log)}%` }"></div></div><p class="mt-1 text-[11px] font-bold text-slate-400">读 {{ compact(log.cachedTokens || 0) }} · 写 {{ compact(log.cacheCreationTokens || 0) }} · 总 {{ compact(log.totalTokens || 0) }}</p></div></td>
+                <td class="py-2.5"><p class="font-black text-emerald-600">{{ money(log.cost) }}</p><p class="mt-0.5 text-xs text-slate-500">组 {{ Number(log.groupRatio || 1).toFixed(3) }}x</p></td>
+                <td class="py-2.5"><span class="inline-flex rounded-full border px-3 py-1 text-xs font-black" :class="statusClass(log.status, log.statusCode)">HTTP {{ log.statusCode || 0 }} · {{ log.status || '-' }}</span><p v-if="log.message" class="mt-1.5 max-w-[160px] whitespace-pre-wrap break-words text-xs leading-5 text-rose-600">{{ log.message }}</p></td>
+                <td class="py-2.5"><div class="flex flex-wrap items-center gap-x-2"><p class="font-black" :class="Number(log.firstTokenMs || 0) > 5000 ? 'text-amber-600' : 'text-slate-800'" :title="log.firstTokenMs ? `首字延迟 ${(Number(log.firstTokenMs) / 1000).toFixed(2)}s` : '非流式请求未记录首字'">{{ firstTokenLabel(log) }}</p><p class="text-xs font-bold text-cyan-600" :title="tokensPerSecond(log) ? `输出吞吐量 ${tokensPerSecond(log).toFixed(1)} tok/s` : '暂无吞吐数据'">{{ throughputLabel(log) }}</p></div></td>
+                <td class="py-2.5">{{ ((log.durationMs || 0) / 1000).toFixed(2) }}s</td>
+                <td class="py-2.5 text-slate-500">{{ formatDate(log.createdAt) }}</td>
+                <td class="py-2.5 pr-5"><p class="line-clamp-2 break-all text-xs leading-5 text-slate-500" :title="userAgentOf(log)">{{ userAgentOf(log) }}</p></td>
               </tr>
             </tbody>
           </table>
@@ -257,7 +264,21 @@ onMounted(() => loadRelay())
             <div class="rounded-3xl border border-white/80 bg-white/90 px-8 py-6 shadow-[0_20px_60px_rgba(15,23,42,0.14)]"><RequestLoader label="正在加载 API 使用记录" :cell-size="16" /></div>
           </div>
         </Transition>
-        <div class="border-t border-slate-100 bg-white/70 p-4"><Pagination :current="relayCurrent" :pages="relayPages" @change="loadRelay" /></div>
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-white/70 p-4">
+          <label class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+            <span class="hidden sm:inline">每页</span>
+            <select
+              :value="relayPageSize"
+              class="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-black text-slate-600 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+              aria-label="每页显示条数"
+              :disabled="relayLoading"
+              @change="changeRelayPageSize"
+            >
+              <option v-for="option in pageSizeOptions" :key="option" :value="option">{{ option }} 条</option>
+            </select>
+          </label>
+          <Pagination :current="relayCurrent" :pages="relayPages" @change="loadRelay" />
+        </div>
       </section>
     </template>
 
@@ -280,7 +301,7 @@ onMounted(() => loadRelay())
       <section class="relative mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_60px_rgba(21,32,51,0.07)]">
         <div class="hidden grid-cols-[120px_1fr_110px_110px_180px_120px] gap-4 border-b border-slate-100 bg-slate-50 px-5 py-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-500 xl:grid"><span>用户</span><span>提示词</span><span>状态</span><span>成本</span><span>时间</span><span>结果</span></div>
         <div class="divide-y divide-slate-100">
-          <div v-for="record in imageRecords" :key="record.id" class="grid gap-3 px-4 py-4 text-sm transition duration-200 hover:bg-sky-50/70 sm:gap-4 sm:px-5 xl:grid-cols-[120px_1fr_110px_110px_180px_120px] xl:items-center" :class="imageLoading ? 'opacity-55' : 'opacity-100'">
+          <div v-for="record in imageRecords" :key="record.id" class="grid gap-3 px-4 py-2.5 text-sm transition duration-200 hover:bg-sky-50/70 sm:gap-4 sm:px-5 xl:grid-cols-[120px_1fr_110px_110px_180px_120px] xl:items-center" :class="imageLoading ? 'opacity-55' : 'opacity-100'">
             <div><p class="font-black text-slate-900">{{ record.username || '未知用户' }}</p><p class="mt-1 text-xs text-slate-500">ID: {{ record.userId }}</p></div>
             <p class="line-clamp-2 leading-6 text-slate-700">{{ record.prompt }}</p>
             <span class="w-fit rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">{{ record.status }}</span>
@@ -301,5 +322,4 @@ onMounted(() => loadRelay())
     </template>
 
     <ImagePreviewModal :src="preview" @close="preview = ''" />
-  </AppLayout>
 </template>

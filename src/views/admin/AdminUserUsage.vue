@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import AppLayout from '@/components/AppLayout.vue'
 import Pagination from '@/components/Pagination.vue'
 import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
 import { adminApi } from '@/api/adminApi'
@@ -107,7 +106,6 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppLayout admin wide>
     <section class="usage-page">
       <header class="usage-header">
         <div>
@@ -217,7 +215,6 @@ onMounted(() => {
         </div>
       </Teleport>
     </section>
-  </AppLayout>
 </template>
 
 <style scoped>

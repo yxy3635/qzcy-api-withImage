@@ -21,6 +21,7 @@ import AdminPaymentCoupons from '@/views/admin/AdminPaymentCoupons.vue'
 import AdminReferral from '@/views/admin/AdminReferral.vue'
 import AdminLogs from '@/views/admin/AdminLogs.vue'
 import AdminRelay from '@/views/admin/AdminRelay.vue'
+import AdminConsoleLayout from '@/views/admin/AdminConsoleLayout.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -38,18 +39,27 @@ const router = createRouter({
     { path: '/user/payment', component: PaymentPage, meta: { requiresAuth: true } },
     { path: '/user/referral', component: ReferralPage, meta: { requiresAuth: true } },
     { path: '/user/profile', component: ProfilePage, meta: { requiresAuth: true } },
-    { path: '/admin/dashboard', component: AdminDashboard, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/announcements', component: AdminAnnouncements, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/users', component: AdminUsers, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/registration', component: () => import('@/views/admin/AdminRegistration.vue'), meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/user-usage', component: AdminUserUsage, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/pricing', component: AdminPricing, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/relay', component: AdminRelay, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/payment', component: AdminPayment, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/payment/coupons', component: AdminPaymentCoupons, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/referral', component: AdminReferral, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/mail', component: AdminMail, meta: { requiresAuth: true, admin: true } },
-    { path: '/admin/logs', component: AdminLogs, meta: { requiresAuth: true, admin: true } }
+    {
+      // 管理后台使用路由级共享布局：切换页面时顶栏与侧栏保持挂载，仅内容区更换
+      path: '/admin',
+      component: AdminConsoleLayout,
+      children: [
+        { path: '', redirect: '/admin/dashboard' },
+        { path: 'dashboard', component: AdminDashboard, meta: { requiresAuth: true, admin: true } },
+        { path: 'announcements', component: AdminAnnouncements, meta: { requiresAuth: true, admin: true } },
+        { path: 'users', component: AdminUsers, meta: { requiresAuth: true, admin: true } },
+        { path: 'registration', component: () => import('@/views/admin/AdminRegistration.vue'), meta: { requiresAuth: true, admin: true } },
+        { path: 'user-usage', component: AdminUserUsage, meta: { requiresAuth: true, admin: true } },
+        { path: 'pricing', component: AdminPricing, meta: { requiresAuth: true, admin: true } },
+        { path: 'payment', component: AdminPayment, meta: { requiresAuth: true, admin: true } },
+        { path: 'payment/coupons', component: AdminPaymentCoupons, meta: { requiresAuth: true, admin: true } },
+        { path: 'referral', component: AdminReferral, meta: { requiresAuth: true, admin: true } },
+        { path: 'mail', component: AdminMail, meta: { requiresAuth: true, admin: true } },
+        { path: 'logs', component: AdminLogs, meta: { requiresAuth: true, admin: true } }
+      ]
+    },
+    // 中转站设置是自带独立控制台布局的全屏页面，保持在共享布局之外
+    { path: '/admin/relay', component: AdminRelay, meta: { requiresAuth: true, admin: true } }
   ]
 })
 

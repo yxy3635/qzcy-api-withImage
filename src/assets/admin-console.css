@@ -1,0 +1,306 @@
+/* 管理后台控制台（/admin/*）：与中转站管理台 /admin/relay 一致的液态玻璃布局。
+   顶栏为通栏液态玻璃（不限制宽度），侧栏悬挂于顶栏下方，内容面板占满剩余宽度。 */
+
+.admin-console {
+  --admin-gap: 1rem;
+  --admin-width: 15rem;
+  --admin-header-h: 4.5rem;
+  --admin-ease: cubic-bezier(.2, .8, .2, 1);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.admin-console.console-collapsed {
+  --admin-width: 4.5rem;
+}
+
+/* ---- 顶栏：液态玻璃，左右贴边通栏，不做宽度限制 ---- */
+.admin-console > .admin-console-header {
+  position: fixed;
+  top: var(--admin-gap);
+  right: var(--admin-gap);
+  left: var(--admin-gap);
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .7rem;
+  min-height: var(--admin-header-h);
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 1.1rem;
+  background: rgba(255, 255, 255, .66);
+  box-shadow: 0 18px 52px rgba(15, 23, 42, .12), inset 0 1px 0 rgba(255, 255, 255, .78);
+  backdrop-filter: blur(26px) saturate(1.3);
+  -webkit-backdrop-filter: blur(26px) saturate(1.3);
+  padding: .7rem 1.1rem;
+  animation: adminHeaderIn .56s var(--admin-ease) backwards;
+}
+
+.admin-console-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: .7rem;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.admin-brand-logo { width: 2.7rem; height: 2.7rem; flex: 0 0 auto; object-fit: contain; }
+.admin-brand-copy { min-width: 0; }
+.admin-brand-copy strong,
+.admin-brand-copy small { display: block; }
+.admin-brand-copy strong { color: #0f172a; font-size: 1rem; font-weight: 850; }
+.admin-brand-copy small { margin-top: .12rem; color: #64748b; font-size: .64rem; font-weight: 750; letter-spacing: .1em; }
+
+.admin-console-actions { display: flex; flex: 0 0 auto; align-items: center; gap: .45rem; }
+
+.admin-logout,
+.admin-home-link {
+  min-height: 2.4rem;
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: .68rem;
+  background: rgba(255, 255, 255, .5);
+  padding: 0 .85rem;
+  color: #475569;
+  font-size: .78rem;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform .18s ease, background-color .18s ease, color .18s ease;
+}
+
+.admin-home-link { display: inline-flex; align-items: center; gap: .35rem; }
+.admin-home-link svg { width: .95rem; height: .95rem; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.admin-logout:hover,
+.admin-home-link:hover { background: rgba(255, 255, 255, .8); color: #0369a1; transform: translateY(-1px); }
+
+.admin-mobile-nav { display: none; }
+
+/* ---- 侧栏：液态玻璃，悬挂于通栏顶栏之下 ---- */
+.admin-console > .admin-console-nav {
+  position: fixed;
+  top: calc(var(--admin-gap) * 2 + var(--admin-header-h));
+  bottom: var(--admin-gap);
+  left: var(--admin-gap);
+  z-index: 20;
+  display: none;
+  width: var(--admin-width);
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, .6);
+  box-shadow: 12px 0 42px rgba(15, 23, 42, .08), inset 0 1px 0 rgba(255, 255, 255, .85);
+  backdrop-filter: blur(26px) saturate(1.25);
+  -webkit-backdrop-filter: blur(26px) saturate(1.25);
+  padding: 1rem .75rem;
+  transition: width .32s var(--admin-ease), padding .32s var(--admin-ease);
+  animation: adminNavIn .5s .08s var(--admin-ease) backwards;
+}
+
+@media (min-width: 768px) {
+  .admin-console > .admin-console-nav { display: flex; }
+}
+
+.admin-nav-user {
+  margin: 0 .15rem .85rem;
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: .95rem;
+  background: rgba(255, 255, 255, .55);
+  padding: .75rem .85rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+
+.admin-nav-user p { margin: 0; color: #0284c7; font-size: .64rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.admin-nav-user span { display: block; margin-top: .3rem; overflow: hidden; color: #0f172a; font-size: .95rem; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
+
+.admin-nav-toggle {
+  position: absolute;
+  top: .85rem;
+  right: -.85rem;
+  z-index: 5;
+  display: grid;
+  width: 1.7rem;
+  height: 1.7rem;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .9);
+  color: #64748b;
+  box-shadow: 0 6px 16px rgba(21, 32, 51, .16);
+  transition: transform .18s ease, background-color .18s ease, color .18s ease;
+}
+
+.admin-nav-toggle:hover { background: #fff; color: #0369a1; transform: translateY(-1px); }
+.admin-nav-toggle svg { width: .85rem; height: .85rem; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform .3s var(--admin-ease); }
+
+.admin-nav-list {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  gap: .35rem;
+  align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: .5rem;
+}
+
+.admin-nav-item {
+  display: flex;
+  min-height: 3.2rem;
+  align-items: center;
+  gap: .7rem;
+  border: 1px solid transparent;
+  border-radius: .9rem;
+  padding: .55rem .7rem;
+  color: #52657a;
+  text-decoration: none;
+  transition: transform .18s ease, border-color .18s ease, background-color .18s ease, box-shadow .18s ease, color .18s ease;
+}
+
+.admin-nav-item svg { width: 1.15rem; height: 1.15rem; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.admin-nav-item span { min-width: 0; }
+.admin-nav-item strong,
+.admin-nav-item small { display: block; }
+.admin-nav-item strong { color: inherit; font-size: .82rem; font-weight: 820; }
+.admin-nav-item small { margin-top: .1rem; color: #718096; font-size: .66rem; font-weight: 650; }
+.admin-nav-item:hover { border-color: rgba(186, 230, 253, .72); background: rgba(240, 249, 255, .8); color: #0369a1; transform: translateX(2px); }
+.admin-nav-item:focus-visible { outline: 2px solid #0284c7; outline-offset: -2px; }
+.admin-nav-item.is-active {
+  border-color: rgba(186, 230, 253, .74);
+  background: rgba(255, 255, 255, .96);
+  color: #0369a1;
+  box-shadow: 0 10px 24px rgba(14, 116, 144, .12), inset 0 1px 0 rgba(255, 255, 255, .94);
+}
+.admin-nav-item.is-active small { color: #0e7490; }
+
+.admin-nav-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: .45rem;
+  border-top: 1px solid rgba(255, 255, 255, .62);
+  padding: .8rem .8rem .2rem;
+  color: #64748b;
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+.admin-live-dot {
+  width: .45rem;
+  height: .45rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 .22rem rgba(16, 185, 129, .12);
+  animation: adminPulse 2s ease-in-out infinite;
+}
+
+/* ---- 主内容：玻璃面板，占满顶栏以下剩余宽度，不做宽度限制 ---- */
+.admin-console > .admin-console-main {
+  position: relative;
+  z-index: 10;
+  height: calc(100dvh - var(--admin-header-h) - var(--admin-gap) * 3);
+  margin: calc(var(--admin-header-h) + var(--admin-gap) * 2) var(--admin-gap) var(--admin-gap) calc(var(--admin-width) + var(--admin-gap) * 2);
+  border: 1px solid rgba(255, 255, 255, .76);
+  border-radius: 1.1rem;
+  background: rgba(246, 251, 250, .55);
+  box-shadow: 0 18px 52px rgba(15, 23, 42, .1), inset 0 1px 0 rgba(255, 255, 255, .82);
+  backdrop-filter: blur(22px) saturate(1.12);
+  -webkit-backdrop-filter: blur(22px) saturate(1.12);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  padding: 1.1rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, .32) transparent;
+  transition: margin-left .32s var(--admin-ease);
+  animation: adminMainIn .62s .12s var(--admin-ease) backwards;
+}
+
+.admin-console > .admin-console-main::-webkit-scrollbar { width: 6px; }
+.admin-console > .admin-console-main::-webkit-scrollbar-thumb { border-radius: 999px; background: rgba(148, 163, 184, .28); }
+
+.admin-console.console-collapsed > .admin-console-nav { padding-inline: .55rem; }
+.admin-console.console-collapsed .admin-nav-user { display: none; }
+.admin-console.console-collapsed .admin-nav-item { justify-content: center; gap: 0; padding-inline: 0; }
+.admin-console.console-collapsed .admin-nav-item span { width: 0; overflow: hidden; opacity: 0; transform: translateX(-5px); }
+.admin-console.console-collapsed .admin-nav-footer { justify-content: center; padding-inline: 0; }
+.admin-console.console-collapsed .admin-nav-footer > span:last-child { display: none; }
+
+/* ---- 移动端：顶栏吸顶，侧栏转为顶栏内的横向导航 ---- */
+@media (max-width: 767px) {
+  .admin-console { height: auto; min-height: 100dvh; overflow: visible; }
+
+  .admin-console > .admin-console-header {
+    position: sticky;
+    top: var(--admin-gap);
+    margin: var(--admin-gap) var(--admin-gap) 0;
+  }
+
+  .admin-console > .admin-console-main {
+    height: auto;
+    margin: var(--admin-gap);
+    overflow: visible;
+    padding: .85rem;
+  }
+
+  .admin-mobile-nav {
+    display: flex;
+    flex: 1 0 100%;
+    gap: .4rem;
+    overflow-x: auto;
+    border-top: 1px solid rgba(255, 255, 255, .6);
+    padding: .55rem .05rem .1rem;
+  }
+
+  .admin-mobile-nav a {
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, .7);
+    border-radius: .8rem;
+    background: rgba(255, 255, 255, .55);
+    padding: .45rem .8rem;
+    color: #475569;
+    font-size: .72rem;
+    font-weight: 800;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .admin-mobile-nav a.is-active {
+    border-color: rgba(186, 230, 253, .8);
+    background: rgba(240, 249, 255, .9);
+    color: #0369a1;
+  }
+}
+
+@keyframes adminHeaderIn {
+  from { opacity: 0; transform: translateY(-14px); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes adminNavIn {
+  from { opacity: 0; transform: translateX(-12px); filter: blur(7px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes adminMainIn {
+  from { opacity: 0; transform: translateY(18px) scale(.992); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes adminPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .58; transform: scale(.82); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-console > .admin-console-header,
+  .admin-console > .admin-console-nav,
+  .admin-console > .admin-console-main,
+  .admin-nav-item,
+  .admin-logout,
+  .admin-nav-toggle { animation: none; transition: none; }
+  .admin-live-dot { animation: none; }
+}

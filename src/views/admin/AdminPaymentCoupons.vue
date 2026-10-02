@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import AppLayout from '@/components/AppLayout.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import Pagination from '@/components/Pagination.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
@@ -192,7 +191,6 @@ onMounted(load)
 </script>
 
 <template>
-  <AppLayout admin>
     <div class="page-enter">
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div>
@@ -345,5 +343,4 @@ onMounted(load)
       @cancel="closeDelete"
       @confirm="confirmDelete"
     />
-  </AppLayout>
 </template>

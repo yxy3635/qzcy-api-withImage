@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import AppLayout from '@/components/AppLayout.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import type { RegistrationConfig } from '@/types'
@@ -46,7 +45,6 @@ onMounted(loadConfig)
 </script>
 
 <template>
-  <AppLayout admin>
     <div class="mx-auto w-full max-w-3xl space-y-6">
       <header>
         <p class="text-xs font-black tracking-[0.18em] text-sky-600">账号管理</p>
@@ -84,5 +82,4 @@ onMounted(loadConfig)
         </fieldset>
       </form>
     </div>
-  </AppLayout>
 </template>

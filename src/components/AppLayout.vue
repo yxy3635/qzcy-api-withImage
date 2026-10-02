@@ -78,7 +78,73 @@ watch(() => route.fullPath, restoreSidebarScroll)
 </script>
 
 <template>
-  <div class="page-shell" :class="{ 'fixed-console': route.path === '/admin/dashboard', 'console-collapsed': sidebarCollapsed }">
+  <!-- 管理端：与 /admin/relay 一致的控制台风格，通栏液态玻璃顶栏 -->
+  <div v-if="admin" class="page-shell admin-console" :class="{ 'console-collapsed': sidebarCollapsed }">
+    <div class="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_12%_10%,rgba(14,165,233,0.12),transparent_28%),radial-gradient(circle_at_88%_18%,rgba(45,212,191,0.11),transparent_30%),linear-gradient(180deg,#ffffff,#f6f9fd)]" />
+
+    <header class="admin-console-header">
+      <RouterLink to="/admin/dashboard" class="admin-console-brand" title="返回管理员仪表盘">
+        <img class="admin-brand-logo" src="/favicon.ico" alt="imageCreater" />
+        <span class="admin-brand-copy">
+          <strong>管理员后台</strong>
+          <small>运营与权限管理</small>
+        </span>
+      </RouterLink>
+      <div class="admin-console-actions">
+        <RouterLink class="admin-home-link" to="/" title="回到网站门户">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10.5 9-7.5 9 7.5M5.5 9.5V20a1 1 0 0 0 1 1h3.5v-6h4v6h3.5a1 1 0 0 0 1-1V9.5" /></svg>
+          首页
+        </RouterLink>
+        <button class="admin-logout" type="button" @click="logout">退出</button>
+      </div>
+      <nav class="admin-mobile-nav" aria-label="管理后台导航">
+        <RouterLink v-for="item in nav" :key="item.to" :to="item.to" active-class="is-active">{{ item.label }}</RouterLink>
+      </nav>
+    </header>
+
+    <aside class="admin-console-nav" aria-label="管理后台功能导航">
+      <section v-if="!sidebarCollapsed" class="admin-nav-user">
+        <p>管理员空间</p>
+        <span>{{ auth.userInfo?.username }}</span>
+      </section>
+
+      <button
+        type="button"
+        class="admin-nav-toggle"
+        :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+        :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+        @click="toggleSidebar"
+      >
+        <svg viewBox="0 0 24 24" :class="sidebarCollapsed ? 'rotate-180' : ''" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+      </button>
+
+      <nav ref="sidebarNav" class="app-sidebar-nav admin-nav-list" @scroll.passive="saveSidebarScroll" @click.capture="saveSidebarScroll">
+        <RouterLink
+          v-for="item in nav"
+          :key="item.to"
+          :to="item.to"
+          class="admin-nav-item"
+          active-class="is-active"
+          :title="sidebarCollapsed ? item.label : undefined"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="navIconPaths[item.icon]" /></svg>
+          <span><strong>{{ item.label }}</strong><small>{{ item.desc }}</small></span>
+        </RouterLink>
+      </nav>
+
+      <footer class="admin-nav-footer">
+        <span class="admin-live-dot" aria-hidden="true" />
+        <span>控制台已连接</span>
+      </footer>
+    </aside>
+
+    <main class="admin-console-main">
+      <div class="page-enter"><slot /></div>
+    </main>
+  </div>
+
+  <!-- 用户端：保持原有布局 -->
+  <div v-else class="page-shell">
     <div class="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_12%_10%,rgba(14,165,233,0.12),transparent_28%),radial-gradient(circle_at_88%_18%,rgba(45,212,191,0.11),transparent_30%),linear-gradient(180deg,#ffffff,#f6f9fd)]" />
     <aside
       class="fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-white/80 bg-white/76 py-6 shadow-[20px_0_70px_rgba(21,32,51,0.06)] backdrop-blur-2xl transition-[width,padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)] md:flex"
@@ -90,11 +156,11 @@ watch(() => route.fullPath, restoreSidebarScroll)
       </RouterLink>
 
       <section v-if="!sidebarCollapsed" class="mt-7 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-sky-50 p-4 shadow-sm">
-        <div class="flex" :class="admin ? '' : 'items-center gap-3'">
+        <div class="flex items-center gap-3">
           <div class="min-w-0 overflow-hidden transition-[width,opacity] duration-200" :class="sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'">
-            <p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">{{ admin ? '管理员空间' : '创作者空间' }}</p>
+            <p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">创作者空间</p>
             <p class="mt-2 truncate text-lg font-black">{{ auth.userInfo?.username }}</p>
-            <p v-if="!admin" class="mt-1 text-sm font-semibold text-slate-500">￥{{ Number(auth.userInfo?.balance || 0).toFixed(6) }} 可用余额</p>
+            <p class="mt-1 text-sm font-semibold text-slate-500">￥{{ Number(auth.userInfo?.balance || 0).toFixed(6) }} 可用余额</p>
           </div>
         </div>
       </section>
@@ -131,8 +197,8 @@ watch(() => route.fullPath, restoreSidebarScroll)
     <div class="console-column transition-[padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" :class="sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-60'">
       <header class="sticky top-0 z-20 border-b border-white/80 bg-white/76 backdrop-blur-2xl">
         <div class="flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 py-3 md:h-16 md:flex-nowrap md:px-8 md:py-0">
-          <div class="min-w-0"><p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">{{ admin ? '管理员后台' : '用户后台' }}</p><p class="text-sm font-semibold text-slate-600">{{ route.meta.admin ? '运营与权限管理' : '创作资产与余额管理' }}</p></div>
-          <div class="flex shrink-0 items-center gap-2"><RouterLink v-if="!admin" class="btn-primary rounded-full px-5" to="/create">开始创作</RouterLink><button class="btn-secondary rounded-full" @click="logout">退出</button></div>
+          <div class="min-w-0"><p class="text-xs font-bold uppercase tracking-[0.18em] text-sky-600">用户后台</p><p class="text-sm font-semibold text-slate-600">创作资产与余额管理</p></div>
+          <div class="flex shrink-0 items-center gap-2"><RouterLink class="btn-primary rounded-full px-5" to="/create">开始创作</RouterLink><button class="btn-secondary rounded-full" @click="logout">退出</button></div>
         </div>
         <nav class="flex gap-2 overflow-x-auto border-t border-slate-100 px-4 py-2 md:hidden">
           <RouterLink v-for="item in nav" :key="item.to" :to="item.to" class="shrink-0 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600" active-class="!border-sky-200 !bg-sky-50 !text-sky-700">{{ item.label }}</RouterLink>

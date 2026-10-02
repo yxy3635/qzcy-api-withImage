@@ -1,5 +1,6 @@
 import './assets/main.css'
 import './assets/console-layout.css'
+import './assets/admin-console.css'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'

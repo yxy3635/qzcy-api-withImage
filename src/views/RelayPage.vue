@@ -64,7 +64,7 @@ const logSearch = ref('')
 const logStatusFilter = ref('all')
 const logSort = ref<'latest' | 'slowest' | 'cost'>('latest')
 const logPage = ref(1)
-const logPageSize = ref(20)
+const logPageSize = ref(50)
 const logPageSizeOptions = [10, 20, 50, 100]
 const expandedLogIds = ref<Set<number>>(new Set())
 const keyActionDialog = ref<{ action: 'toggle' | 'delete'; token: RelayToken } | null>(null)
@@ -1809,7 +1809,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="relay-page fixed-console min-h-screen bg-white text-slate-950" :class="{ 'console-collapsed': sidebarCollapsed }">
+  <div class="relay-page fixed-console min-h-screen bg-white text-slate-950" :class="{ 'console-collapsed': sidebarCollapsed, 'console-compact': compactPanelActive }">
     <div
       v-if="mobileMenuOpen"
       class="fixed inset-0 z-30 bg-slate-950/30 backdrop-blur-[2px] md:hidden"
@@ -1867,8 +1867,7 @@ onMounted(async () => {
       </nav>
     </aside>
 
-    <div class="console-column transition-[padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" :class="sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-[248px]'">
-      <header class="relay-top-header sticky top-0 z-20 flex h-[72px] items-center justify-between gap-3 border-b border-slate-200/80 bg-white/92 px-3 backdrop-blur-xl sm:px-5 md:px-7" :class="{ 'is-compact': compactPanelActive }">
+    <header class="relay-top-header z-20 flex h-[72px] items-center justify-between gap-3 px-4 sm:px-5" :class="{ 'is-compact': compactPanelActive }">
         <div class="flex min-w-0 items-center gap-3">
           <button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 md:hidden" aria-label="打开导航" @click="mobileMenuOpen = true">
             <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
@@ -1881,6 +1880,15 @@ onMounted(async () => {
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 text-slate-600 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 sm:px-3"
+            title="回到网站门户"
+            @click="router.push('/')"
+          >
+            <svg viewBox="0 0 24 24" class="h-[19px] w-[19px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10.5 9-7.5 9 7.5M5.5 9.5V20a1 1 0 0 0 1 1h3.5v-6h4v6h3.5a1 1 0 0 0 1-1V9.5" /></svg>
+            <span class="hidden text-sm font-black sm:inline">首页</span>
+          </button>
           <span class="hidden rounded-full bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700 sm:inline-flex">${{ balance.toFixed(6) }}</span>
           <button
             type="button"
@@ -1904,12 +1912,13 @@ onMounted(async () => {
         </div>
       </header>
 
+      <div class="console-column">
       <main
         ref="consoleMain"
         class="relay-shell"
         :class="[
           activeMenu === 'logs' || activeMenu === 'keys' || activeMenu === 'channels' || activeMenu === 'subscription' || activeMenu === 'orders' || activeMenu === 'profile'
-            ? 'h-[calc(100dvh-72px)] overflow-hidden p-3 sm:p-4 md:p-5'
+            ? 'h-[calc(100dvh-120px)] overflow-hidden p-3 sm:p-4 md:p-5'
             : 'console-scroll-content px-4 py-8 md:px-8',
           compactPanelActive ? 'is-compact' : ''
         ]"
@@ -2183,7 +2192,7 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="hidden shrink-0 grid-cols-[minmax(220px,1.55fr)_92px_minmax(190px,1.15fr)_115px_110px_135px_32px] items-center gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:grid">
+            <div class="hidden shrink-0 grid-cols-[minmax(200px,1.5fr)_150px_minmax(170px,1.05fr)_92px_150px_140px_32px] items-center gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:grid">
               <span>请求</span><span>状态</span><span>Token / 缓存</span><span>费用</span><span>首字 / 吞吐</span><span>耗时 / 时间</span><span></span>
             </div>
 
@@ -2194,7 +2203,7 @@ onMounted(async () => {
               </div>
               <div v-else-if="filteredLogs.length" class="divide-y divide-slate-100">
                 <article v-for="(log, index) in filteredLogs" :key="log.id" class="relay-list-item group bg-white transition hover:bg-slate-50/80" :style="{ '--i': index }">
-                  <button type="button" class="relative grid w-full gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500 sm:grid-cols-2 sm:px-5 xl:grid-cols-[minmax(220px,1.55fr)_92px_minmax(190px,1.15fr)_115px_110px_135px_32px] xl:items-center xl:gap-4" :aria-expanded="expandedLogIds.has(log.id)" @click="toggleLogDetails(log.id)">
+                  <button type="button" class="relative grid w-full gap-3 px-4 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500 sm:grid-cols-2 sm:px-5 xl:grid-cols-[minmax(200px,1.5fr)_150px_minmax(170px,1.05fr)_92px_150px_140px_32px] xl:items-center xl:gap-3" :aria-expanded="expandedLogIds.has(log.id)" @click="toggleLogDetails(log.id)">
                     <div class="min-w-0 pr-9 sm:col-span-2 xl:col-span-1 xl:pr-0">
                       <div class="flex min-w-0 items-center gap-2">
                         <span class="h-2 w-2 shrink-0 rounded-full" :class="logFailed(log) ? 'bg-rose-500 shadow-[0_0_0_4px_rgba(244,63,94,0.10)]' : 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]'"></span>
@@ -2205,9 +2214,9 @@ onMounted(async () => {
                       <p class="mt-1 truncate pl-4 font-mono text-[11px] font-semibold text-slate-400" :title="`${log.tokenName || '-'} · ${log.endpoint || '-'}`">{{ log.tokenName || '-' }} · {{ log.endpoint || '-' }}</p>
                     </div>
 
-                    <div class="flex items-center gap-2 xl:block">
-                      <span class="rounded-lg px-2 py-1 text-[11px] font-black" :class="logFailed(log) ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'">{{ logFailed(log) ? `HTTP ${log.statusCode || 500}` : '成功' }}</span>
-                      <span class="text-[11px] font-semibold text-slate-400 xl:mt-1 xl:block">{{ log.channelName || '未命名渠道' }}</span>
+                    <div class="flex min-w-0 items-center gap-2">
+                      <span class="shrink-0 rounded-lg px-2 py-1 text-[11px] font-black" :class="logFailed(log) ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'">{{ logFailed(log) ? `HTTP ${log.statusCode || 500}` : '成功' }}</span>
+                      <span class="min-w-0 truncate text-[11px] font-semibold text-slate-400" :title="log.channelName || '未命名渠道'">{{ log.channelName || '未命名渠道' }}</span>
                     </div>
 
                     <div class="min-w-0" :title="cacheHitTitle(log)">
@@ -2215,7 +2224,7 @@ onMounted(async () => {
                         <span><i class="not-italic text-emerald-600">↓ {{ compact(log.promptTokens || 0) }}</i> <i class="ml-2 not-italic text-violet-600">↑ {{ compact(log.completionTokens || 0) }}</i></span>
                         <span class="text-slate-500">{{ compact(log.totalTokens || 0) }}</span>
                       </div>
-                      <div class="mt-2 flex items-center gap-2">
+                      <div class="mt-1.5 flex items-center gap-2">
                         <div class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100"><div class="cache-flow h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-500 shadow-[0_0_10px_rgba(20,184,166,0.35)] transition-[width] duration-500" :style="{ width: `${cacheHitRate(log)}%` }"></div></div>
                         <span class="w-10 text-right text-[10px] font-black text-cyan-600">{{ cacheHitLabel(log) }}</span>
                       </div>
@@ -2224,12 +2233,12 @@ onMounted(async () => {
                     <div class="col-span-full grid grid-cols-2 gap-3 sm:grid-cols-3 xl:contents">
                       <div>
                         <p class="text-sm font-black text-emerald-700">{{ money(log.cost) }}</p>
-                        <p class="mt-1 text-[10px] font-bold text-slate-400">用户消费</p>
+                        <p class="mt-1 text-[10px] font-bold text-slate-400 xl:hidden">用户消费</p>
                       </div>
 
-                      <div class="flex items-center justify-between gap-3 xl:block">
+                      <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 xl:justify-start">
                         <p class="text-sm font-black" :class="Number(log.firstTokenMs || 0) > 5000 ? 'text-amber-600' : 'text-slate-800'" :title="log.firstTokenMs ? `首字延迟 ${(Number(log.firstTokenMs) / 1000).toFixed(2)}s` : '非流式请求未记录首字'"><span class="mr-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 xl:hidden">首字</span>{{ firstTokenLabel(log) }}</p>
-                        <p class="text-[11px] font-bold text-cyan-600 xl:mt-1" :title="tokensPerSecond(log) ? `输出吞吐量 ${tokensPerSecond(log).toFixed(1)} tok/s` : '暂无吞吐数据'">{{ throughputLabel(log) }}</p>
+                        <p class="text-[11px] font-bold text-cyan-600" :title="tokensPerSecond(log) ? `输出吞吐量 ${tokensPerSecond(log).toFixed(1)} tok/s` : '暂无吞吐数据'">{{ throughputLabel(log) }}</p>
                       </div>
 
                       <div class="col-span-2 flex items-center justify-between gap-3 sm:col-span-1 xl:block">
@@ -3534,7 +3543,7 @@ onMounted(async () => {
 }
 
 .relay-shell.is-compact {
-  height: calc(100dvh - 56px) !important;
+  height: calc(100dvh - 104px) !important;
 }
 
 .relay-panel-head {
@@ -3577,7 +3586,7 @@ onMounted(async () => {
 
 .relay-list-item {
   animation: relayListIn 420ms cubic-bezier(.16, 1, .3, 1) both;
-  animation-delay: calc(var(--i, 0) * 38ms);
+  animation-delay: calc(min(var(--i, 0), 12) * 38ms);
 }
 
 .relay-list-refresh-bar {

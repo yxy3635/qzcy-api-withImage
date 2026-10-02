@@ -1,6 +1,5 @@
 ﻿<script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import AppLayout from '@/components/AppLayout.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
@@ -97,7 +96,6 @@ onMounted(load)
 </script>
 
 <template>
-  <AppLayout admin>
     <div class="page-enter">
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div>
@@ -192,5 +190,4 @@ onMounted(load)
         </section>
       </div>
     </div>
-  </AppLayout>
 </template>

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import AppLayout from '@/components/AppLayout.vue'
 import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
 import AdminMiniTrendChart from '@/components/admin/AdminMiniTrendChart.vue'
 import AdminRelayTrendChart from '@/components/admin/AdminRelayTrendChart.vue'
@@ -81,7 +80,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <AppLayout admin wide>
     <div class="dashboard-shell">
       <section class="dashboard-heading">
         <div>
@@ -215,7 +213,6 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </div>
-  </AppLayout>
 </template>
 
 <style scoped>

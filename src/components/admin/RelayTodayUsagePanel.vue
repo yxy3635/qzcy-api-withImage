@@ -10,7 +10,8 @@ const props = defineProps<{
 }>()
 const search = ref('')
 const sort = ref('requests')
-const collapsed = ref(new Set<string>())
+// 默认全部折叠：expanded 记录已展开的渠道 key，空集合 = 全部收起
+const expanded = ref(new Set<string>())
 const groups = computed(() => groupTodayUsage(props.channels, props.usage || []))
 const totals = computed(() => groups.value.reduce((sum, channel) => ({
   requests: sum.requests + channel.requests, cost: addUsageMoney(sum.cost, channel.cost), upstreamCost: addUsageMoney(sum.upstreamCost, channel.upstreamCost)
@@ -20,11 +21,15 @@ const visibleGroups = computed(() => {
   return groups.value.filter(channel => !keyword || [channel.name, ...channel.providers.map(p => p.name)].join(' ').toLowerCase().includes(keyword))
     .sort((a, b) => sort.value === 'cost' ? b.cost - a.cost : b.requests - a.requests)
 })
+const allExpanded = computed(() => visibleGroups.value.length > 0 && visibleGroups.value.every(channel => expanded.value.has(channel.key)))
 function toggle(key: string) {
-  const next = new Set(collapsed.value)
+  const next = new Set(expanded.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
-  collapsed.value = next
+  expanded.value = next
+}
+function setAll(open: boolean) {
+  expanded.value = open ? new Set(visibleGroups.value.map(channel => channel.key)) : new Set()
 }
 const number = (value: number) => value.toLocaleString('zh-CN')
 </script>
@@ -36,6 +41,7 @@ const number = (value: number) => value.toLocaleString('zh-CN')
       <div class="usage-filters">
         <input v-model="search" type="search" aria-label="搜索渠道或供应商" placeholder="搜索渠道或供应商" />
         <select v-model="sort" aria-label="用量排序"><option value="requests">按调用次数</option><option value="cost">按扣费金额</option></select>
+        <button type="button" class="usage-toggle-all" @click="setAll(!allExpanded)">{{ allExpanded ? '全部收起' : '全部展开' }}</button>
       </div>
     </div>
     <div class="usage-totals">
@@ -50,10 +56,10 @@ const number = (value: number) => value.toLocaleString('zh-CN')
           <thead><tr><th scope="col">渠道 / 供应商</th><th scope="col">调用次数</th><th scope="col">失败次数</th><th scope="col">用户扣费</th><th scope="col">上游成本</th></tr></thead>
           <tbody v-for="channel in visibleGroups" :key="channel.key">
             <tr class="channel-row">
-              <th scope="row"><button type="button" :aria-expanded="!collapsed.has(channel.key)" @click="toggle(channel.key)"><svg viewBox="0 0 20 20" :class="{ collapsed: collapsed.has(channel.key) }" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg><span>{{ channel.name }}<small>{{ channel.providers.length }} 个供应商{{ channel.archived ? ' · 渠道已移除' : '' }}</small></span></button></th>
+              <th scope="row"><button type="button" :aria-expanded="expanded.has(channel.key)" @click="toggle(channel.key)"><svg viewBox="0 0 20 20" :class="{ collapsed: !expanded.has(channel.key) }" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg><span>{{ channel.name }}<small>{{ channel.providers.length }} 个供应商{{ channel.archived ? ' · 渠道已移除' : '' }}</small></span></button></th>
               <td>{{ number(channel.requests) }}</td><td :class="{ 'usage-error': channel.errors > 0 }">{{ number(channel.errors) }}</td><td class="usage-charge">{{ money(channel.cost) }}</td><td>{{ money(channel.upstreamCost) }}</td>
             </tr>
-            <template v-if="!collapsed.has(channel.key)">
+            <template v-if="expanded.has(channel.key)">
               <tr v-for="provider in channel.providers" :key="provider.providerId ?? 'legacy'" class="provider-row">
                 <th scope="row"><span class="provider-branch" aria-hidden="true">↳</span>{{ provider.name }}<small v-if="provider.archived">已移除</small></th>
                 <td>{{ number(provider.requests) }}</td><td :class="{ 'usage-error': provider.errors > 0 }">{{ number(provider.errors) }}</td><td>{{ money(provider.cost) }}</td><td>{{ money(provider.upstreamCost) }}</td>
@@ -76,17 +82,21 @@ h3 { margin: 5px 0; font-size: 17px; font-weight: 800; color: #0f172a; }
 .usage-note, .usage-footnote { color: #64748b; font-size: 11px; line-height: 1.8; }
 .usage-filters { display: flex; gap: 8px; flex-wrap: wrap; }
 .usage-filters input, .usage-filters select { min-height: 38px; max-width: 100%; border: 1px solid #dce5ef; background: #ffffffb3; border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #475569; }
+.usage-filters .usage-toggle-all { min-height: 38px; border: 1px solid #dce5ef; background: #ffffffb3; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 700; color: #475569; cursor: pointer; transition: background-color .18s ease, color .18s ease; }
+.usage-filters .usage-toggle-all:hover { background: #f0f9ff; color: #0369a1; }
 .usage-filters :focus-visible { outline: 2px solid #0ea5e9; outline-offset: 2px; }
 .usage-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
 .usage-totals div { border-left: 2px solid #bae6fd; padding-left: 14px; }
 .usage-totals span { display: block; font-size: 11px; color: #64748b; margin-bottom: 5px; }
 .usage-totals strong { color: #0f172a; font-size: clamp(15px, 1.6vw, 22px); font-weight: 800; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .usage-totals small { font-size: 11px; color: #64748b; }
-.usage-table-wrap { overflow-x: auto; }
-.usage-table { width: 100%; min-width: 650px; border-collapse: collapse; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+/* 折叠后列表自然高度；全部展开时表格内部滚动，不再把整页撑长 */
+.usage-table-wrap { overflow: auto; max-height: 480px; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #94a3b866 transparent; }
+.usage-table { width: 100%; min-width: 650px; border-collapse: separate; border-spacing: 0; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
 .usage-table th, .usage-table td { padding: 13px 14px; border-bottom: 1px solid #e2e8f099; white-space: nowrap; }
 .usage-table th:first-child { text-align: left; white-space: normal; min-width: 230px; }
-.usage-table thead { color: #64748b; font-size: 11px; background: #f1f5f980; }
+.usage-table thead { color: #64748b; font-size: 11px; }
+.usage-table thead th { position: sticky; top: 0; z-index: 2; background: #f8fafc; box-shadow: inset 0 -1px 0 #e2e8f0; }
 .channel-row { background: #f0f9ff70; color: #0f172a; font-weight: 800; }
 .channel-row button { display: flex; align-items: center; gap: 8px; text-align: left; border-radius: 4px; }
 .channel-row button:focus-visible { outline: 2px solid #0ea5e9; outline-offset: 4px; }

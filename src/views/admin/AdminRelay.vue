@@ -927,6 +927,10 @@ async function enableSelectedUpstreamModels() {
         <span><strong>imageCreater</strong><small>API Relay Console</small></span>
       </RouterLink>
       <div class="relay-console-header-actions">
+        <RouterLink to="/" class="relay-home-link" title="回到网站门户">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10.5 9-7.5 9 7.5M5.5 9.5V20a1 1 0 0 0 1 1h3.5v-6h4v6h3.5a1 1 0 0 0 1-1V9.5" /></svg>
+          首页
+        </RouterLink>
         <RouterLink to="/admin/dashboard" class="relay-back-link">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
           返回管理后台
@@ -1390,7 +1394,8 @@ async function enableSelectedUpstreamModels() {
 
 .relay-console-brand,
 .relay-console-header-actions,
-.relay-back-link {
+.relay-back-link,
+.relay-home-link {
   display: flex;
   align-items: center;
 }
@@ -1403,6 +1408,7 @@ async function enableSelectedUpstreamModels() {
 }
 
 .relay-back-link svg,
+.relay-home-link svg,
 .relay-nav-item svg {
   fill: none;
   stroke: currentColor;
@@ -1418,6 +1424,7 @@ async function enableSelectedUpstreamModels() {
 
 .relay-console-header-actions { flex: 0 0 auto; gap: .45rem; }
 .relay-back-link,
+.relay-home-link,
 .relay-logout {
   min-height: 2.4rem;
   border: 1px solid rgba(255, 255, 255, .7);
@@ -1431,9 +1438,12 @@ async function enableSelectedUpstreamModels() {
   transition: transform .18s ease, background-color .18s ease, color .18s ease;
 }
 
-.relay-back-link { gap: .35rem; }
-.relay-back-link svg { width: .9rem; height: .9rem; stroke-width: 2.2; }
+.relay-back-link,
+.relay-home-link { gap: .35rem; }
+.relay-back-link svg,
+.relay-home-link svg { width: .9rem; height: .9rem; stroke-width: 2.2; }
 .relay-back-link:hover,
+.relay-home-link:hover,
 .relay-logout:hover { background: rgba(255, 255, 255, .76); color: #0369a1; transform: translateY(-1px); }
 
 .relay-console-body {
@@ -1697,7 +1707,7 @@ async function enableSelectedUpstreamModels() {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .relay-nav-item, .relay-back-link, .relay-logout, .relay-nav-toggle, .relay-console-nav, .relay-console-body, .relay-view-enter-active, .relay-view-leave-active { transition: none; }
+  .relay-nav-item, .relay-back-link, .relay-home-link, .relay-logout, .relay-nav-toggle, .relay-console-nav, .relay-console-body, .relay-view-enter-active, .relay-view-leave-active { transition: none; }
   .relay-live-dot { animation: none; }
   .relay-console-enter-header, .relay-console-nav, .relay-console-main { animation: none; }
 }

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import AppLayout from '@/components/AppLayout.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import Pagination from '@/components/Pagination.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
@@ -271,7 +270,6 @@ onMounted(load)
 </script>
 
 <template>
-  <AppLayout admin wide>
     <div class="page-enter">
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div>
@@ -633,5 +631,4 @@ onMounted(load)
       @cancel="closeUserActionDialog"
       @confirm="confirmUserAction"
     />
-  </AppLayout>
 </template>
