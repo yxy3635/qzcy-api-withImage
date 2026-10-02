@@ -8,7 +8,8 @@
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "build-only": "vite build",
-    "type-check": "vue-tsc --build"
+    "type-check": "vue-tsc --build",
+    "test:relay-usage": "node --test tests/relayTodayUsage.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^6.0.6",

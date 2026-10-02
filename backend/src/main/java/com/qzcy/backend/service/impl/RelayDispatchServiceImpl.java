@@ -1254,6 +1254,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         log.setUserId(access.getUserId());
         log.setTokenId(access.getId());
         log.setChannelId(channel.getId());
+        log.setProviderId(providerId(context));
+        log.setProviderName(limitForColumn(providerName(context), 80));
         log.setTokenName(limitForColumn(access.getName(), 80));
         log.setChannelName(limitForColumn(channel.getName(), 80));
         log.setGroupNames(limitForColumn(access.getGroupNames(), 160));
@@ -1303,6 +1305,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             fallback.setUserId(usageLog.getUserId());
             fallback.setTokenId(usageLog.getTokenId());
             fallback.setChannelId(usageLog.getChannelId());
+            fallback.setProviderId(usageLog.getProviderId());
+            fallback.setProviderName(limitForColumn(usageLog.getProviderName(), 80));
             fallback.setTokenName(limitForColumn(usageLog.getTokenName(), 80));
             fallback.setChannelName(limitForColumn(usageLog.getChannelName(), 80));
             fallback.setGroupNames(limitForColumn(usageLog.getGroupNames(), 160));

@@ -64,7 +64,8 @@ onBeforeUnmount(() => {
 const useLegacyUi = ref(window.localStorage.getItem(legacyUiKey) === 'true')
 const isPortalPage = computed(() => route.path === '/')
 const isGeneratePage = computed(() => route.path === '/create' || route.path === '/user/generate')
-const canSwitchUi = computed(() => !isPortalPage.value)
+const isAuthPage = computed(() => ['/login', '/register', '/forgot-password'].includes(route.path))
+const canSwitchUi = computed(() => !isPortalPage.value && !isAuthPage.value)
 const showLegacyUiToggle = computed(() => canSwitchUi.value && !isGeneratePage.value)
 
 const appStyle = computed(() =>

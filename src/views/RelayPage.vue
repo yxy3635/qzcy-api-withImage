@@ -28,6 +28,7 @@ const { sidebarCollapsed, toggleSidebar } = useSidebarPreference()
 
 const overview = ref<RelayUserOverview | null>(null)
 const activeMenu = ref('dashboard')
+const consoleMain = ref<HTMLElement | null>(null)
 const loadedSections = ref<Set<string>>(new Set())
 const loadingSections = ref<Set<string>>(new Set())
 const loading = computed(() => loadingSections.value.size > 0)
@@ -1706,9 +1707,7 @@ function selectMenu(item: { id: string; route?: string }) {
   activeMenu.value = item.id
   void loadSection(item.id)
 
-  if (window.scrollY > 0) {
-    window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
-  }
+  consoleMain.value?.scrollTo({ top: 0, behavior: 'instant' })
 }
 
 async function changeLogPage(page: number) {
@@ -1810,7 +1809,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="relay-page min-h-screen bg-white text-slate-950">
+  <div class="relay-page fixed-console min-h-screen bg-white text-slate-950" :class="{ 'console-collapsed': sidebarCollapsed }">
     <div
       v-if="mobileMenuOpen"
       class="fixed inset-0 z-30 bg-slate-950/30 backdrop-blur-[2px] md:hidden"
@@ -1868,7 +1867,7 @@ onMounted(async () => {
       </nav>
     </aside>
 
-    <div class="transition-[padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" :class="sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-[248px]'">
+    <div class="console-column transition-[padding] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" :class="sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-[248px]'">
       <header class="relay-top-header sticky top-0 z-20 flex h-[72px] items-center justify-between gap-3 border-b border-slate-200/80 bg-white/92 px-3 backdrop-blur-xl sm:px-5 md:px-7" :class="{ 'is-compact': compactPanelActive }">
         <div class="flex min-w-0 items-center gap-3">
           <button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 md:hidden" aria-label="打开导航" @click="mobileMenuOpen = true">
@@ -1906,11 +1905,12 @@ onMounted(async () => {
       </header>
 
       <main
+        ref="consoleMain"
         class="relay-shell"
         :class="[
           activeMenu === 'logs' || activeMenu === 'keys' || activeMenu === 'channels' || activeMenu === 'subscription' || activeMenu === 'orders' || activeMenu === 'profile'
             ? 'h-[calc(100dvh-72px)] overflow-hidden p-3 sm:p-4 md:p-5'
-            : 'min-h-[calc(100vh-72px)] px-4 py-8 md:px-8',
+            : 'console-scroll-content px-4 py-8 md:px-8',
           compactPanelActive ? 'is-compact' : ''
         ]"
       >

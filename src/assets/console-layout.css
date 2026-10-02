@@ -1,0 +1,143 @@
+/* Shared navigation treatment, matching the relay administration console. */
+.fixed-console {
+  --console-gap: 1rem;
+  --console-width: 15rem;
+  --console-ease: cubic-bezier(.2, .8, .2, 1);
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fixed-console.console-collapsed { --console-width: 4.5rem; }
+
+.fixed-console > .console-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  padding: var(--console-gap);
+  gap: var(--console-gap);
+  transition: padding .32s var(--console-ease);
+}
+
+.fixed-console > aside,
+.fixed-console > .console-column > header {
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 1.1rem;
+  background: rgba(255, 255, 255, .78);
+  box-shadow: 0 18px 52px rgba(15, 23, 42, .12), inset 0 1px 0 rgba(255, 255, 255, .78);
+  backdrop-filter: blur(24px) saturate(1.18);
+  -webkit-backdrop-filter: blur(24px) saturate(1.18);
+}
+
+.fixed-console > .console-column > header {
+  position: relative;
+  top: auto;
+  flex-shrink: 0;
+  animation: consoleHeaderIn .56s var(--console-ease) backwards;
+}
+
+.fixed-console > aside {
+  top: var(--console-gap);
+  bottom: var(--console-gap);
+  left: var(--console-gap);
+  transition: width .32s var(--console-ease), padding .32s var(--console-ease), transform .32s var(--console-ease);
+  animation: consoleNavIn .5s .08s var(--console-ease) backwards;
+}
+
+.fixed-console > .console-column > main {
+  flex: 1 1 0%;
+  width: 100%;
+  min-height: 0;
+  height: auto !important;
+  border: 1px solid rgba(255, 255, 255, .76);
+  border-radius: 1.1rem;
+  background: rgba(246, 251, 250, .62);
+  box-shadow: 0 18px 52px rgba(15, 23, 42, .1), inset 0 1px 0 rgba(255, 255, 255, .82);
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, .32) transparent;
+  animation: consoleContentIn .62s .12s var(--console-ease) backwards;
+}
+
+.fixed-console.page-shell > .console-column > main,
+.fixed-console > .console-column > .console-scroll-content {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Natural-height sections must contribute their full height to the scroll area. */
+.fixed-console .console-scroll-content > .relay-view-frame { height: auto; }
+
+.fixed-console .app-sidebar-nav { overscroll-behavior: contain; min-height: 0; }
+.fixed-console .app-sidebar-nav > :is(a, button) {
+  flex-shrink: 0;
+  border-radius: .8rem;
+  transition: transform .2s var(--console-ease), background-color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.fixed-console .app-sidebar-nav > :is(a, button):hover {
+  transform: translateX(2px);
+  background: rgba(240, 249, 255, .8);
+  color: #0369a1;
+}
+.fixed-console .app-sidebar-nav > :is([aria-current="page"], .ring-1) {
+  border-color: rgba(186, 230, 253, .74) !important;
+  background: rgba(255, 255, 255, .96) !important;
+  color: #0369a1;
+  box-shadow: 0 10px 24px rgba(14, 116, 144, .12), inset 0 1px 0 rgba(255, 255, 255, .94) !important;
+}
+.fixed-console .app-sidebar-nav > :is(a, button):focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: -2px;
+}
+.fixed-console > .console-column > header button {
+  border-radius: .68rem;
+  transition: transform .18s ease, background-color .18s ease, color .18s ease;
+}
+.fixed-console > .console-column > header button:hover {
+  transform: translateY(-1px);
+  background-color: rgba(255, 255, 255, .76);
+  color: #0369a1;
+}
+
+@media (min-width: 768px) {
+  .fixed-console > aside {
+    width: var(--console-width);
+    animation-name: consoleDesktopNavIn;
+  }
+  .fixed-console > .console-column {
+    padding-left: calc(var(--console-width) + var(--console-gap) * 2);
+  }
+}
+@media (max-width: 767px) {
+  .fixed-console { --console-gap: .65rem; }
+  /* Keep the off-canvas drawer fully outside the viewport when closed. */
+  .fixed-console.relay-page > aside { left: 0; }
+}
+@keyframes consoleHeaderIn {
+  from { opacity: 0; transform: translateY(-14px); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes consoleNavIn {
+  from { opacity: 0; filter: blur(7px); }
+  to { opacity: 1; filter: none; }
+}
+@keyframes consoleDesktopNavIn {
+  from { opacity: 0; transform: translateX(-12px); filter: blur(7px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes consoleContentIn {
+  from { opacity: 0; transform: translateY(18px) scale(.992); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fixed-console > aside,
+  .fixed-console > .console-column,
+  .fixed-console > .console-column > header,
+  .fixed-console > .console-column > main,
+  .fixed-console .app-sidebar-nav > :is(a, button),
+  .fixed-console > .console-column > header button {
+    animation: none;
+    transition: none;
+  }
+}

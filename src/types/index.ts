@@ -408,6 +408,18 @@ export interface RelayDashboard {
   channels: RelayDashboardChannel[]
   recentErrors: RelayDashboardError[]
   topModels: RelayModelUsage[]
+  todayUsage: RelayDashboardUsage[]
+}
+
+export interface RelayDashboardUsage {
+  channelId: number | null
+  channelName: string | null
+  providerId: number | null
+  providerName: string | null
+  requests: number
+  errors: number
+  cost: number
+  upstreamCost: number
 }
 
 export interface RelayChannelModel {

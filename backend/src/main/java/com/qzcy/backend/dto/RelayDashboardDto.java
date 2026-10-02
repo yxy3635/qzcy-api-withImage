@@ -15,4 +15,5 @@ public class RelayDashboardDto {
     private List<RelayDashboardChannelDto> channels;
     private List<RelayDashboardErrorDto> recentErrors;
     private List<RelayModelUsageDto> topModels;
+    private List<RelayDashboardUsageDto> todayUsage;
 }

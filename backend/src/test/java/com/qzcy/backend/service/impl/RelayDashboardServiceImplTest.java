@@ -70,6 +70,7 @@ class RelayDashboardServiceImplTest {
     }
 
     private void stubEmptyAggregates() {
+        when(usageLogMapper.dashboardTodayUsage()).thenReturn(List.of());
         when(usageLogMapper.dashboardChannelStats(any(LocalDateTime.class))).thenReturn(List.of());
         when(usageLogMapper.dashboardLastErrors(any(LocalDateTime.class))).thenReturn(List.of());
         when(usageLogMapper.dashboardHourlyTrend(any(LocalDateTime.class))).thenReturn(List.of());

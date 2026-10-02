@@ -36,6 +36,8 @@ docker compose ps
 
 ## 组件与数据
 
+图像模型和中转渠道的上游地址、API Key 统一在管理后台配置；部署用的 `.env` 无需填写 `OPENAI_API_KEY` 或 `OPENAI_BASE_URL`。
+
 - `web`：多阶段构建 Vue，由 Nginx 提供页面和 `/api/` 代理；支持页面刷新、最长 600 秒的上游空闲等待和 SSE 流式输出，上传请求上限 50 MB。
 - `backend`：Java 17，使用独立 `docker` Profile，不包含本地 `dev/prod` 配置，以非 root 用户运行。
 - `mysql`：MySQL 8.4，数据库名称固定为 `image_creator`，与仓库 SQL 一致。
@@ -59,7 +61,34 @@ docker compose up -d --build web
 
 ## 更新与日志
 
-更新前先备份。拉取新代码后，已有数据库不会自动重跑 Docker 初始化 SQL；当前 `schema.sql` 含兼容迁移，可在检查变更后手动执行：
+### 本次更新：登录、导航、图像调用文档与渠道供应商统计
+
+现有 Dockerfile、Compose 端口、Nginx 路由及数据卷可直接使用，不需要新增环境变量。前端的新组件、样式和调用示例均在 `src/` 内，会自动打进 Web 镜像；邮箱密码登录与供应商统计涉及后端，必须同时更新 `web` 和 `backend`，仅重启旧容器不会加载新代码。
+
+先按下文备份，再上传完整新代码（包含新增文件），或拉取已经提交了全部改动的版本。在服务器项目根目录执行：
+
+```bash
+docker compose config --quiet
+docker compose up -d --build --wait --wait-timeout 300 web backend
+docker compose ps
+docker compose logs --tail=100 backend
+```
+
+保留服务器现有 `.env`、Compose 项目名和数据卷。此次更新不需要重新生成 JWT 密钥、数据库密码或管理员密码。图像上游地址和 API Key 仍在管理后台配置。
+
+供应商统计新增 `relay_usage_log.provider_id` 和 `provider_name` 两列。全新数据库由 `schema.sql` 创建；已有正常运行的数据库由后端 `RelaySchemaInitializer` 启动时检查并补齐，已存在的列不会重复添加。因此，本次更新通常无需手动执行整份 SQL。默认 Compose 创建的数据库账号具有本库的修改表结构权限；若使用自行收紧权限的账号，需要由数据库管理员先补齐这两列。日志表很大时应预留表结构变更时间，并检查后端启动日志。
+
+更新后可检查字段是否存在（预期输出两行）：
+
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER" image_creator -e "SHOW COLUMNS FROM relay_usage_log WHERE Field IN (\"provider_id\", \"provider_name\");"'
+```
+
+历史调用日志无法准确还原供应商，将显示在“未归属 / 渠道直连”；更新后的新调用才会保存供应商归属。上线后验证邮箱密码登录、`/admin/dashboard` 和 `/relay` 导航滚动，以及中转管理页的渠道/供应商统计。
+
+### 其他版本的数据库迁移
+
+更新前先备份。已有数据库不会自动重跑 Docker 初始化 SQL；跨版本升级时应检查对应迁移要求。`schema.sql` 含兼容迁移，仅在确认确实需要且审阅整份脚本后手动执行，不能把重跑初始化脚本作为每次更新的默认步骤：
 
 ```bash
 docker compose stop web backend

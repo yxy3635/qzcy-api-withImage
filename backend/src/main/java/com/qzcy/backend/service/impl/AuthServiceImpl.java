@@ -18,6 +18,7 @@ import com.qzcy.backend.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -66,9 +67,20 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public LoginResponse login(LoginDto dto) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, dto.getUsername()));
+        String account = dto.getAccount() != null ? dto.getAccount() : dto.getUsername();
+        account = account == null ? "" : account.trim();
+        if (account.isEmpty() || dto.getPassword() == null || dto.getPassword().isEmpty()) {
+            throw new BusinessException(401, "账号或密码错误");
+        }
+        LambdaQueryWrapper<User> query = new LambdaQueryWrapper<>();
+        if (account.contains("@")) {
+            query.eq(User::getEmail, account.toLowerCase(Locale.ROOT));
+        } else {
+            query.eq(User::getUsername, account);
+        }
+        User user = userMapper.selectOne(query);
         if (user == null || !passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
-            throw new BusinessException(401, "用户名或密码错误");
+            throw new BusinessException(401, "账号或密码错误");
         }
         if (Boolean.TRUE.equals(user.getBanned())) {
             throw new BusinessException(423, "账号已被封禁，无法登录和使用网站功能");
@@ -96,7 +108,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private String normalizeEmail(String email) {
-        String normalized = email == null ? "" : email.trim().toLowerCase();
+        String normalized = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
         if (!normalized.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) {
             throw new BusinessException(400, "邮箱格式不正确");
         }

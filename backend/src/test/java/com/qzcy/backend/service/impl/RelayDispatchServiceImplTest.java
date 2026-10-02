@@ -286,6 +286,8 @@ class RelayDispatchServiceImplTest {
         RelayUsageLog original = new RelayUsageLog();
         original.setUserId(3L);
         original.setTokenId(7L);
+        original.setProviderId(11L);
+        original.setProviderName("actual-provider");
         original.setPromptTokens(120);
         original.setCompletionTokens(45);
         original.setCachedTokens(20);
@@ -306,6 +308,40 @@ class RelayDispatchServiceImplTest {
         assertEquals(165, fallback.getTotalTokens());
         assertEquals(new BigDecimal("0.165000"), fallback.getCost());
         assertEquals("success", fallback.getStatus());
+        assertEquals(11L, fallback.getProviderId());
+        assertEquals("actual-provider", fallback.getProviderName());
+    }
+
+    @Test
+    void usageLogRecordsSelectedProviderForBothSuccessAndFailure() {
+        RelayUsageLogMapper logs = mock(RelayUsageLogMapper.class);
+        RelayTokenMapper tokens = mock(RelayTokenMapper.class);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(
+                null, new RelayProviderScheduler(), logs, tokens, null, null, OBJECT_MAPPER);
+        var token = new com.qzcy.backend.entity.RelayToken();
+        token.setId(7L);
+        token.setUserId(3L);
+        RelayChannel channel = new RelayChannel();
+        channel.setId(5L);
+        RelayChannelProvider provider = new RelayChannelProvider();
+        provider.setId(11L);
+        provider.setName("actual-provider");
+        RelayContext context = new RelayContext(token, null, null, channel, provider, null, "image");
+        RelayCostBreakdown zero = new RelayCostBreakdown(BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        for (int status : java.util.List.of(200, 502)) {
+            ReflectionTestUtils.invokeMethod(service, "saveUsage", context, "/v1/images/generations",
+                    "test-client", "", status, OBJECT_MAPPER.createObjectNode(), zero, 100L);
+        }
+        var captor = org.mockito.ArgumentCaptor.forClass(RelayUsageLog.class);
+        verify(logs, org.mockito.Mockito.times(2)).insert(captor.capture());
+        for (RelayUsageLog usage : captor.getAllValues()) {
+            assertEquals(5L, usage.getChannelId());
+            assertEquals(11L, usage.getProviderId());
+            assertEquals("actual-provider", usage.getProviderName());
+        }
+        assertEquals("success", captor.getAllValues().get(0).getStatus());
+        assertEquals("failed", captor.getAllValues().get(1).getStatus());
     }
     @Test
     void blockedUserAgentStopsBothStreamingAndNonStreamingBeforeUpstreamOrBilling() {

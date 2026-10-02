@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ApiCodeBlock from '@/components/docs/ApiCodeBlock.vue'
+import { relayImageExamples } from '@/content/relayImageExamples'
 
 type Product = 'image' | 'relay'
 type Language = 'curl' | 'javascript' | 'python'
@@ -16,6 +17,7 @@ const route = useRoute()
 const router = useRouter()
 const product = ref<Product>(route.query.type === 'relay' ? 'relay' : 'image')
 const language = ref<Language>('curl')
+const imageLanguage = ref<Language>('curl')
 const mobileMenuOpen = ref(false)
 const copiedValue = ref('')
 let copiedTimer: ReturnType<typeof setTimeout> | undefined
@@ -43,12 +45,15 @@ const relaySections: DocSection[] = [
   { id: 'relay-auth', label: 'API Key 鉴权', eyebrow: '03' },
   { id: 'relay-endpoints', label: '接口清单', eyebrow: '04' },
   { id: 'relay-openai', label: 'OpenAI 格式', eyebrow: '05' },
-  { id: 'relay-anthropic', label: 'Anthropic 格式', eyebrow: '06' },
-  { id: 'relay-formats', label: '数据格式', eyebrow: '07' },
-  { id: 'relay-suffixes', label: '路径与兼容后缀', eyebrow: '08' }
+  { id: 'relay-images', label: 'GPT Image 2 图像调用', eyebrow: '06' },
+  { id: 'relay-anthropic', label: 'Anthropic 格式', eyebrow: '07' },
+  { id: 'relay-formats', label: '数据格式', eyebrow: '08' },
+  { id: 'relay-suffixes', label: '路径与兼容后缀', eyebrow: '09' }
 ]
 
 const currentSections = computed(() => product.value === 'image' ? imageSections : relaySections)
+const relayImageCode = relayImageExamples(relayApiBase)
+const relayImageResponse = JSON.stringify({ created: 1780000000, data: [{ b64_json: 'iVBORw0KGgo...' }] }, null, 2)
 const activeSection = ref(currentSections.value[0]!.id)
 
 const imageExamples = computed<Record<Language, string>>(() => ({
@@ -257,7 +262,7 @@ const anthropicRequest = `curl -X POST "${imageApiBase}/v1/messages" \\
 
 const imageEditRequest = `curl -X POST "${relayApiBase}/images/edits" \\
   -H "Authorization: Bearer YOUR_RELAY_API_KEY" \\
-  -F "model=YOUR_IMAGE_MODEL" \\
+  -F "model=gpt-image-2" \\
   -F "prompt=将天空改为日落" \\
   -F "image=@reference.png"`
 
@@ -689,6 +694,42 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
+          <section id="relay-images" class="doc-section" data-doc-section>
+            <div class="section-kicker">IMAGE GENERATION · GPT IMAGE 2</div>
+            <h2>用 gpt-image-2 生成与编辑图像</h2>
+            <p class="section-lead">以 <code>gpt-image-2</code> 为模板，通过中转 API Key 调用标准 Images 接口。先在中转站创建可访问该模型的令牌，并用 <code>GET /api/v1/models</code> 确认模型已开放。其他图像模型可沿用同一调用方式，按供应商能力调整参数。</p>
+            <div class="notice notice-info"><strong>开始前的配置</strong><p>Base URL 使用 <code>{{ relayApiBase }}</code>。以下示例从环境变量 <code>RELAY_API_KEY</code> 读取密钥；在你的服务端或本地脚本运行，公开网页应通过自己的后端调用。Windows PowerShell 可用 <code>$env:RELAY_API_KEY = '你的中转密钥'</code>，cURL 多行示例使用 Bash 语法。</p></div>
+            <div class="language-tabs" aria-label="图像示例语言">
+              <button v-for="item in (['curl', 'javascript', 'python'] as Language[])" :key="item" type="button" :aria-pressed="imageLanguage === item" :class="{ active: imageLanguage === item }" @click="imageLanguage = item">{{ item === 'javascript' ? 'JavaScript' : item === 'python' ? 'Python' : 'cURL' }}</button>
+            </div>
+            <h3>1. 文生图：用提示词创建图片</h3>
+            <div class="endpoint-title"><span class="method method-post">POST</span><code>/api/v1/images/generations</code><em>application/json</em></div>
+            <ApiCodeBlock :code="relayImageCode.generate[imageLanguage]" :language="imageLanguage" label="GPT Image 2 · 文生图与保存结果" />
+            <h3>2. 参考图编辑：上传图片与修改指令</h3>
+            <p class="section-lead">把 <code>reference.png</code> 放在脚本运行目录，使用 Multipart 上传。本站接受 <code>image</code> 或 <code>image[]</code>，多张图片可重复对应字段；编辑能力、格式和文件大小以所选供应商为准。</p>
+            <div class="endpoint-title"><span class="method method-post">POST</span><code>/api/v1/images/edits</code><em>multipart/form-data</em></div>
+            <ApiCodeBlock :code="relayImageCode.edit[imageLanguage]" :language="imageLanguage" label="GPT Image 2 · 参考图编辑" />
+            <div class="table-wrap"><table><thead><tr><th>参数</th><th>填写方式</th><th>说明</th></tr></thead><tbody>
+              <tr><td><code>model</code></td><td><code>gpt-image-2</code></td><td>必须与模型列表中的 id 一致，且当前令牌有访问权限。</td></tr>
+              <tr><td><code>prompt</code></td><td>场景、主体、风格、构图或修改指令</td><td>必填；编辑时描述需要保留和修改的内容。</td></tr>
+              <tr><td><code>image</code></td><td>实际图片文件</td><td>编辑时通过 Multipart 上传，不填本机路径字符串或站内任务的 referenceImages 字段。</td></tr>
+              <tr><td><code>size</code></td><td>示例为 <code>1024x1024</code></td><td>可选；支持尺寸由供应商决定，报参数错误时先使用默认值。</td></tr>
+              <tr><td><code>n</code></td><td>示例为 <code>1</code></td><td>可选；批量数量限制与计费规则由服务端配置和供应商决定。</td></tr>
+              <tr><td><code>quality</code> / <code>output_format</code></td><td>按供应商文档选择</td><td>可选且透传；不同供应商的可用值可能不同，首次调用可以省略。</td></tr>
+            </tbody></table></div>
+            <h3>3. 读取与保存结果</h3>
+            <p class="section-lead">中转接口直接返回上游响应，常见结构为 <code>{ "created": ..., "data": [...] }</code>。遍历 <code>data</code>：有 <code>b64_json</code> 时进行 Base64 解码，有 <code>url</code> 时下载图片；没有站内业务接口的 <code>code / message / data</code> 包装，也无需轮询图像任务 id。响应字段和格式以供应商实际返回为准。</p>
+            <ApiCodeBlock :code="relayImageResponse" language="json" label="常见响应示意 · Base64 内容已省略" />
+            <div class="notice notice-info"><strong>文件扩展名与计费</strong><p>示例按 PNG 保存；若请求或供应商返回 JPEG / WebP，请使用实际格式的扩展名。金额以中转日志实际扣费为准，受模型价格、渠道与分组倍率等配置影响；文档不固定价格。</p></div>
+            <h3>4. 排查调用失败</h3>
+            <div class="table-wrap"><table><thead><tr><th>现象</th><th>排查方式</th></tr></thead><tbody>
+              <tr><td><code>401 / 403</code></td><td>确认使用中转 API Key，检查令牌开关、额度、过期时间与模型权限。</td></tr>
+              <tr><td><code>400 / 404</code></td><td>检查模型 id、路径、尺寸和上传格式；核对供应商是否支持对应 Images 接口。</td></tr>
+              <tr><td><code>429 / 502 / 503</code></td><td>查看响应的 error.message 和中转日志，确认限流、供应商状态或上游错误。</td></tr>
+              <tr><td>等待时间长或超时</td><td>示例客户端等待上限为 300 秒；反向代理与上游超时也会影响结果。超时后先检查用量日志，避免盲目重复 POST 导致重复生成或扣费。</td></tr>
+            </tbody></table></div>
+          </section>
+
           <section id="relay-anthropic" class="doc-section" data-doc-section>
             <div class="section-kicker">ANTHROPIC COMPATIBLE</div>
             <h2>Anthropic Messages 格式</h2>
@@ -967,6 +1008,8 @@ h1, h2, h3, p { letter-spacing: 0; }
 h1 { max-width: 720px; margin: 0; font-size: 45px; font-weight: 900; line-height: 1.1; }
 h2 { margin: 0; font-size: 29px; font-weight: 900; line-height: 1.25; }
 h3 { margin: 0; font-size: 15px; font-weight: 850; }
+#relay-images > h3 { margin-top: 32px; font-size: 17px; line-height: 1.6; }
+#relay-images > .endpoint-title { margin-top: 16px; }
 .intro-copy { max-width: 700px; margin: 20px 0 0; color: #475569; font-size: 16px; line-height: 1.85; }
 .section-lead { max-width: 720px; margin: 14px 0 0; color: #64748b; font-size: 14px; line-height: 1.85; }
 code { border-radius: 4px; color: #0e7490; font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; font-size: 0.9em; }

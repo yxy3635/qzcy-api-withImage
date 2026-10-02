@@ -164,7 +164,8 @@ public class RelayDashboardServiceImpl implements RelayDashboardService {
                 buildTrend(usageLogMapper.dashboardHourlyTrend(since24h)),
                 channelDtos,
                 usageLogMapper.dashboardRecentErrors(RECENT_ERROR_LIMIT),
-                usageLogMapper.dashboardModelTop(TOP_MODEL_LIMIT)
+                usageLogMapper.dashboardModelTop(TOP_MODEL_LIMIT),
+                usageLogMapper.dashboardTodayUsage()
         );
     }
 

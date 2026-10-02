@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import RelayModal from '@/components/RelayModal.vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import RelayDashboardPanel from '@/components/admin/RelayDashboardPanel.vue'
+import RelayTodayUsagePanel from '@/components/admin/RelayTodayUsagePanel.vue'
 import RelayChannelTestDialog from '@/components/admin/RelayChannelTestDialog.vue'
 import RelayChannelDrawer from '@/components/admin/RelayChannelDrawer.vue'
 import RelayModelDrawer from '@/components/admin/RelayModelDrawer.vue'
@@ -1235,10 +1236,13 @@ async function enableSelectedUpstreamModels() {
         </div>
       </section>
 
-      <section v-else-if="activeTab === 'usage'" key="usage" class="relay-usage-metrics mt-6 grid gap-4 sm:grid-cols-3">
+      <section v-else-if="activeTab === 'usage'" key="usage" class="mt-6 space-y-5">
+        <RelayTodayUsagePanel :channels="dashboard?.channels || []" :usage="dashboard?.todayUsage" :loading="dashboardLoading" />
+        <div class="relay-usage-metrics grid gap-4 sm:grid-cols-3">
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">请求数</p><p class="mt-2 text-3xl font-black">{{ stats?.totalRequests || 0 }}</p></div>
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">Token 用量</p><p class="mt-2 text-3xl font-black">{{ compactToken(stats?.totalTokensUsed) }}</p></div>
-        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">成本</p><p class="mt-2 text-3xl font-black text-sky-600">￥{{ Number(stats?.totalCost || 0).toFixed(4) }}</p></div>
+        <div class="panel p-5"><p class="text-sm font-bold text-slate-500">累计用户扣费 · USD</p><p class="mt-2 text-3xl font-black text-sky-600">${{ Number(stats?.totalCost || 0).toFixed(6) }}</p></div>
+        </div>
       </section>
 
       <section v-else-if="activeTab === 'policy'" key="policy" class="mt-6 space-y-3">

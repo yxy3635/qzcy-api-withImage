@@ -13,6 +13,7 @@ import com.qzcy.backend.dto.RelayDashboardChannelStatsDto;
 import com.qzcy.backend.dto.RelayDashboardErrorDto;
 import com.qzcy.backend.dto.RelayDashboardLastErrorDto;
 import com.qzcy.backend.dto.RelayDashboardTrendPointDto;
+import com.qzcy.backend.dto.RelayDashboardUsageDto;
 import com.qzcy.backend.dto.RelayModelUsageDto;
 import com.qzcy.backend.dto.RelayModelRecentCallDto;
 import com.qzcy.backend.dto.RelayTrendDto;
@@ -407,6 +408,26 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
             GROUP BY channel_id
             """)
     List<RelayDashboardChannelStatsDto> dashboardChannelStats(@Param("since") LocalDateTime since);
+
+    /** 与首页今日总量使用相同的数据库自然日；按 ID 分组，重命名不会拆分用量。 */
+    @Select("""
+            SELECT channel_id AS channelId,
+                   MAX(channel_name) AS channelName,
+                   provider_id AS providerId,
+                   MAX(provider_name) AS providerName,
+                   COUNT(*) AS requests,
+                   COALESCE(SUM(CASE WHEN status = 'failed' OR status_code >= 400 THEN 1 ELSE 0 END), 0) AS errors,
+                   COALESCE(SUM(cost), 0) AS cost,
+                   COALESCE(SUM((COALESCE(input_cost, 0) + COALESCE(output_cost, 0)
+                       + COALESCE(cache_read_cost, 0) + COALESCE(cache_creation_cost, 0)
+                       + COALESCE(request_cost, 0)) * COALESCE(channel_ratio, 1)), 0) AS upstreamCost
+            FROM relay_usage_log
+            WHERE created_at >= CURDATE()
+              AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+            GROUP BY channel_id, provider_id
+            ORDER BY requests DESC, cost DESC
+            """)
+    List<RelayDashboardUsageDto> dashboardTodayUsage();
 
     @Select("""
             SELECT l.channel_id AS channelId,

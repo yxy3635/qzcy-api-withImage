@@ -202,6 +202,8 @@ public class RelaySchemaInitializer implements CommandLineRunner {
             jdbcTemplate.update("UPDATE relay_model SET long_context_billing_mode = 'price' WHERE long_context_billing_mode IS NULL OR long_context_billing_mode = ''");
         }
         if (tableExists("relay_usage_log")) {
+            addColumnIfMissing("relay_usage_log", "provider_id", "BIGINT NULL");
+            addColumnIfMissing("relay_usage_log", "provider_name", "VARCHAR(80) NULL");
             addColumnIfMissing("relay_usage_log", "thinking_effort", "VARCHAR(40) NOT NULL DEFAULT ''");
             addColumnIfMissing("relay_usage_log", "first_token_ms", "BIGINT NULL");
             addColumnIfMissing("relay_usage_log", "message", "VARCHAR(1000)");

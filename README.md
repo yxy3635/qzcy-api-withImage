@@ -155,8 +155,6 @@ npm run dev
 | 变量 | 说明 |
 | --- | --- |
 | `JWT_SECRET` | JWT 签名密钥；生产环境必须设置为随机长字符串 |
-| `OPENAI_API_KEY` | Spring AI 默认 OpenAI Key；实际图像/中转渠道通常在管理端单独配置 |
-| `OPENAI_BASE_URL` | 默认 OpenAI 兼容服务地址 |
 | `MAIL_HOST` | SMTP 主机 |
 | `MAIL_PORT` | SMTP 端口，默认 `587` |
 | `MAIL_USERNAME` | SMTP 用户名 |
@@ -166,6 +164,8 @@ npm run dev
 | `REDIS_USERNAME` / `REDIS_PASSWORD` | Redis 认证信息（如服务端启用） |
 | `RELAY_MODEL_STATUS_CACHE_REDIS_ENABLED` | 是否启用模型状态调用条缓存，默认 `false` |
 | `RELAY_MODEL_STATUS_CACHE_TTL_SECONDS` | 调用条缓存秒数，默认 `30` |
+
+图像模型和中转渠道的上游地址、API Key 统一在管理后台配置，Docker 部署无需填写 OpenAI 环境变量。
 
 ### 注册设置
 

@@ -453,6 +453,8 @@ CREATE TABLE IF NOT EXISTS relay_usage_log (
                                                user_id BIGINT NOT NULL,
                                                token_id BIGINT,
                                                channel_id BIGINT,
+                                               provider_id BIGINT NULL,
+                                               provider_name VARCHAR(80) NULL,
                                                token_name VARCHAR(80),
     channel_name VARCHAR(80),
     group_names VARCHAR(160) NOT NULL DEFAULT 'default',
@@ -486,6 +488,12 @@ CREATE TABLE IF NOT EXISTS relay_usage_log (
     INDEX idx_relay_usage_model_created (model, created_at),
     INDEX idx_relay_usage_channel_created (channel_id, created_at)
     );
+
+-- 旧日志保留 NULL，无法准确还原的供应商归入「未归属 / 渠道直连」。
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'provider_id') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN provider_id BIGINT NULL AFTER channel_id', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'provider_name') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN provider_name VARCHAR(80) NULL AFTER provider_id', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'token_name') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN token_name VARCHAR(80) AFTER channel_id', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

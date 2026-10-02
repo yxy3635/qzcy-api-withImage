@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import RelayDashboardTrend from './RelayDashboardTrend.vue'
+import RelayTodayUsagePanel from './RelayTodayUsagePanel.vue'
 import type { RelayDashboard, RelayDashboardChannel, RelayDashboardError } from '@/types'
 
 const props = withDefaults(defineProps<{
@@ -167,6 +168,8 @@ function shortMessage(message?: string | null) {
 
       <!-- 24h 趋势 -->
       <RelayDashboardTrend :points="data.trend || []" :loading="loading" />
+
+      <RelayTodayUsagePanel :channels="channels" :usage="data.todayUsage" :loading="loading" />
 
       <!-- 渠道状态墙 -->
       <section>

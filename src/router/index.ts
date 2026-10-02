@@ -3,8 +3,7 @@ import { useAuthStore } from '@/store/authStore'
 import { tokenExpired } from '@/utils/jwt'
 import HomePage from '@/views/HomePage.vue'
 import RelayPage from '@/views/RelayPage.vue'
-import LoginPage from '@/views/LoginPage.vue'
-import RegisterPage from '@/views/RegisterPage.vue'
+import AuthPage from '@/views/AuthPage.vue'
 import UserDashboard from '@/views/user/DashboardPage.vue'
 import GeneratePage from '@/views/user/GeneratePage.vue'
 import HistoryPage from '@/views/user/HistoryPage.vue'
@@ -29,8 +28,9 @@ const router = createRouter({
     { path: '/', component: HomePage },
     { path: '/docs', component: () => import('@/views/ApiDocsPage.vue') },
     { path: '/relay', component: RelayPage, meta: { requiresAuth: true } },
-    { path: '/login', component: LoginPage },
-    { path: '/register', component: RegisterPage },
+    { path: '/login', component: AuthPage },
+    { path: '/register', component: AuthPage },
+    { path: '/forgot-password', component: AuthPage },
     { path: '/create', component: GeneratePage, meta: { requiresAuth: true } },
     { path: '/user/dashboard', component: UserDashboard, meta: { requiresAuth: true } },
     { path: '/user/generate', component: GeneratePage, meta: { requiresAuth: true } },
@@ -64,7 +64,7 @@ router.beforeEach((to) => {
   if (to.meta.admin && auth.role !== 'ADMIN') {
     return '/user/dashboard'
   }
-  if ((to.path === '/login' || to.path === '/register') && auth.isAuthenticated) {
+  if (['/login', '/register', '/forgot-password'].includes(to.path) && auth.isAuthenticated) {
     return auth.role === 'ADMIN' ? '/admin/dashboard' : '/create'
   }
 })

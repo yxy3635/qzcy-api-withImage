@@ -13,6 +13,8 @@ public class RelayUsageLog {
     private Long userId;
     private Long tokenId;
     private Long channelId;
+    private Long providerId;
+    private String providerName;
     private String tokenName;
     private String channelName;
     @com.baomidou.mybatisplus.annotation.TableField("group_names")
