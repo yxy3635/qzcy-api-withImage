@@ -16,4 +16,5 @@ public interface PaymentService {
     void cancelRecharge(Long userId, Long paymentRecordId);
     String handleNotify(Map<String, String> params);
     Page<PaymentRecord> history(Long userId, long page, long size);
+    Page<PaymentRecord> completedRecharges(Long userId, long page, long size);
 }

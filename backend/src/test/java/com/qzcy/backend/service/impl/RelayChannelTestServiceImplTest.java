@@ -150,6 +150,28 @@ class RelayChannelTestServiceImplTest {
     }
 
     @Test
+    void skipsUnsupportedHighPriorityProviderAndFailsOverAmongSupportingProviders() {
+        when(channelMapper.selectById(1L)).thenReturn(channel(1L, "main", "https://legacy.example.com", "key"));
+        when(channelModelMapper.selectByChannelAndModel(1L, 5L)).thenReturn(binding(1L, 5L, "upstream"));
+        when(modelMapper.selectById(5L)).thenReturn(model(5L, "public"));
+        RelayChannelProvider unsupported = provider(1, "unsupported", 0, 10, "available");
+        unsupported.setModelIds("6");
+        RelayChannelProvider first = provider(2, "first", 1, 10, "available");
+        first.setModelIds("5");
+        RelayChannelProvider fallback = provider(3, "fallback", 2, 10, "available");
+        fallback.setModelIds("5,6");
+        when(providerMapper.selectByChannelId(1L)).thenReturn(List.of(unsupported, fallback, first));
+        java.util.List<Long> called = new java.util.ArrayList<>();
+        var service = serviceWithUpstream((p, r, u, prompt) -> {
+            called.add(p.getId());
+            if (p.getId() == 2L) throw new IllegalStateException("temporary failure");
+            return "ok";
+        });
+        assertTrue(service.test(1L, request(5L, "hi")).isSuccess());
+        assertEquals(List.of(2L, 3L), called);
+    }
+
+    @Test
     void missingModelIdIsRejected() {
         when(channelMapper.selectById(1L)).thenReturn(channel(1L, "main", "https://x.example.com", "sk-x"));
         RelayChannelTestServiceImpl service = serviceWithUpstream((p, r, u, prompt) -> "ok");

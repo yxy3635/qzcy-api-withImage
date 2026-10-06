@@ -22,6 +22,12 @@ const emit = defineEmits<{ save: []; cancel: []; delete: [] }>()
 const advancedOpen = ref(false)
 const modelSearch = ref('')
 const modelTypeFilter = ref('all')
+const providerModelSearch = ref<Record<number, string>>({})
+const boundModels = computed(() => props.models.filter(model => props.draft.models.some(row => row.modelId === model.id && row.enabled)))
+function providerModels(index: number) {
+  const keyword = (providerModelSearch.value[index] || '').trim().toLowerCase()
+  return boundModels.value.filter(model => modelOptionLabel(model).toLowerCase().includes(keyword))
+}
 
 const enabledModelCount = computed(() => props.draft.models.filter((item) => item.enabled).length)
 const modelTypes = computed(() => Array.from(new Set(props.models.map((model) => model.modelType).filter(Boolean))))
@@ -62,6 +68,7 @@ function setAllModels(enabled: boolean, type?: string) {
 function addProvider() {
   const last = props.draft.providers[props.draft.providers.length - 1]
   props.draft.providers.push({
+    modelIds: null,
     id: null,
     name: '',
     apiBaseUrl: '',
@@ -156,13 +163,40 @@ function removeProvider(index: number) {
                 <input v-model="provider.keyValue" class="input mt-1 h-9 rounded-lg text-sm" type="password" :placeholder="provider.id != null && provider.apiKeyMasked ? `留空保持 ${provider.apiKeyMasked} 不变` : '上游 API Key'" />
               </label>
               <label class="block">
-                <span class="text-xs font-black text-slate-600">优先级</span>
+                <span class="text-xs font-black text-slate-600">优先级（数值越小越优先）</span>
                 <input v-model.number="provider.priority" class="input mt-1 h-9 rounded-lg text-sm" type="number" placeholder="10" />
               </label>
               <label class="block">
                 <span class="text-xs font-black text-slate-600">权重</span>
                 <input v-model.number="provider.weight" class="input mt-1 h-9 rounded-lg text-sm" type="number" placeholder="10" />
               </label>
+            </div>
+            <div class="mt-3 rounded-xl border border-sky-100 bg-white p-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-sm font-black text-slate-800">支持的渠道模型</span>
+                <select class="rounded-lg border border-slate-200 px-2 py-1 text-xs" aria-label="供应商模型范围" :value="provider.modelIds === null ? 'all' : 'selected'" @change="provider.modelIds = ($event.target as HTMLSelectElement).value === 'all' ? null : []">
+                  <option value="all">全部渠道模型（兼容旧配置）</option>
+                  <option value="selected">仅选中的模型</option>
+                </select>
+              </div>
+              <p class="mt-2 text-xs leading-5 text-slate-500">先筛选支持请求模型的供应商，再按优先级与调度策略调用。</p>
+              <div v-if="provider.modelIds !== null" class="mt-3 space-y-2">
+                <div class="flex items-center gap-2">
+                  <input v-model="providerModelSearch[index]" class="input h-8 min-w-0 flex-1 text-xs" placeholder="搜索渠道模型" aria-label="搜索供应商可选模型" />
+                  <button type="button" class="text-xs font-bold text-sky-700" @click="provider.modelIds = boundModels.map(model => model.id)">全选</button>
+                  <button type="button" class="text-xs font-bold text-slate-500" @click="provider.modelIds = []">清空</button>
+                </div>
+                <div class="grid max-h-48 gap-2 overflow-y-auto sm:grid-cols-2">
+                  <label v-for="model in providerModels(index)" :key="model.id" class="flex items-start gap-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-2 text-xs text-slate-700">
+                    <input v-model="provider.modelIds" type="checkbox" :value="model.id" class="mt-0.5 accent-sky-600" />
+                    <span class="break-all">{{ modelOptionLabel(model) }}</span>
+                  </label>
+                </div>
+                <p v-if="!boundModels.length" class="text-xs text-slate-500">请先在下方为渠道绑定模型。</p>
+                <p v-else-if="!providerModels(index).length" class="text-xs text-slate-500">没有匹配的模型。</p>
+                <p class="text-xs" :class="provider.modelIds.length ? 'text-slate-500' : 'text-amber-700'">已选择 {{ provider.modelIds.length }} 个模型；未选择时此供应商不接收模型请求。</p>
+              </div>
+              <p v-else class="mt-2 text-xs text-sky-700">自动支持渠道当前及后续新增的模型。</p>
             </div>
             <div class="mt-2 flex items-center justify-between">
               <label class="flex items-center gap-2 text-xs font-black text-slate-600">

@@ -133,6 +133,7 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 CREATE TABLE IF NOT EXISTS relay_channel_provider (
                                                      id BIGINT PRIMARY KEY AUTO_INCREMENT,
     channel_id BIGINT NOT NULL,
+    model_ids TEXT NULL,
     name VARCHAR(80) NOT NULL DEFAULT '',
     api_base_url VARCHAR(255) NOT NULL DEFAULT '',
     openai_base_url VARCHAR(255) NULL,

@@ -20,6 +20,9 @@ export const paymentApi = {
   config() {
     return http.get<ApiResponse<PaymentConfig>>('/payment/config')
   },
+  completedRecharges(page = 1, size = 10) {
+    return http.get<ApiResponse<PageResult<PaymentRecord>>>('/payment/completed-recharges', { params: { page, size } })
+  },
   history(page = 1, size = 10) {
     return http.get<ApiResponse<PageResult<PaymentRecord>>>('/payment/history', { params: { page, size } })
   }

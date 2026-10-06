@@ -120,6 +120,7 @@ public class RelayServiceImpl implements RelayService {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public RelayChannelDto createChannel(RelayChannelUpdateDto dto) {
         RelayChannel channel = new RelayChannel();
         apply(channel, dto);
@@ -143,6 +144,7 @@ public class RelayServiceImpl implements RelayService {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public RelayChannelDto updateChannel(Long id, RelayChannelUpdateDto dto) {
         RelayChannel channel = channelMapper.selectById(id);
         if (channel == null) throw new BusinessException(404, "Relay channel not found");
@@ -191,6 +193,8 @@ public class RelayServiceImpl implements RelayService {
             }
         }
         List<RelayChannelProvider> existing = channelProviderMapper.selectByChannelId(channelId);
+        Set<Long> channelModelIds = channelModelMapper.modelsForChannel(channelId).stream()
+                .map(com.qzcy.backend.dto.RelayChannelModelDto::getModelId).collect(java.util.stream.Collectors.toSet());
         Set<Long> keptIds = new HashSet<>();
         for (RelayProviderUpdateDto item : items) {
             if (item == null) continue;
@@ -209,6 +213,12 @@ public class RelayServiceImpl implements RelayService {
                 target.setStatus("unknown");
             }
             target.setName(isBlank(item.getName()) ? "" : item.getName().trim());
+            if (item.isModelSelectionProvided()) {
+                if (item.getModelIds() != null && item.getModelIds().stream().anyMatch(id -> id == null || !channelModelIds.contains(id))) {
+                    throw new BusinessException(400, "供应商只能选择当前渠道已绑定的模型");
+                }
+                target.setModelIds(com.qzcy.backend.service.RelayProviderModels.encode(item.getModelIds()));
+            }
             target.setApiBaseUrl(normalizeBaseUrl(item.getApiBaseUrl()));
             if (!isBlank(item.getApiKey())) {
                 target.setApiKey(item.getApiKey().trim());
@@ -669,20 +679,28 @@ public class RelayServiceImpl implements RelayService {
     }
 
     private List<RelayPublicChannelDto> loadPublicChannels() {
+        Set<Long> enabledModelIds = loadSystemModels().stream().filter(model -> Boolean.TRUE.equals(model.getEnabled()))
+                .map(RelayModel::getId).collect(java.util.stream.Collectors.toSet());
         List<RelayChannel> enabledChannels = channelMapper.selectList(new QueryWrapper<RelayChannel>()
                 .eq("enabled", true)
                 .orderByAsc("priority")
                 .orderByDesc("weight"));
         return IntStream.range(0, enabledChannels.size())
                 .mapToObj(index -> toPublicChannelDto(enabledChannels.get(index), index + 1))
+                .peek(channel -> channel.getModels().forEach(model -> model.setEnabled(
+                        Boolean.TRUE.equals(model.getEnabled()) && enabledModelIds.contains(model.getModelId()))))
                 .toList();
     }
 
     private List<RelayGroupDto> loadGroups() {
+        Set<Long> enabledModelIds = loadSystemModels().stream().filter(model -> Boolean.TRUE.equals(model.getEnabled()))
+                .map(RelayModel::getId).collect(java.util.stream.Collectors.toSet());
         return groupMapper.selectList(new QueryWrapper<RelayGroup>()
                         .eq("enabled", true)
                         .orderByAsc("id"))
-                .stream().map(this::toGroupDto).toList();
+                .stream().map(this::toGroupDto)
+                .peek(group -> group.setModelIds(group.getModelIds().stream().filter(enabledModelIds::contains).toList()))
+                .toList();
     }
 
     private Map<String, String> publicModelNames(List<RelayModel> systemModels) {
@@ -1041,7 +1059,7 @@ public class RelayServiceImpl implements RelayService {
     private RelayProviderDto toProviderDto(RelayChannelProvider provider) {
         return new RelayProviderDto(provider.getId(), provider.getChannelId(), provider.getName(), provider.getApiBaseUrl(),
                 provider.getOpenaiBaseUrl(), provider.getAnthropicBaseUrl(), mask(provider.getApiKey()), provider.getChannelRule(), provider.getPriority(), provider.getWeight(),
-                provider.getStatus(), provider.getEnabled());
+                provider.getStatus(), provider.getEnabled(), com.qzcy.backend.service.RelayProviderModels.decode(provider.getModelIds()));
     }
 
     private RelayPublicChannelDto toPublicChannelDto(RelayChannel channel, int position) {
@@ -1071,6 +1089,12 @@ public class RelayServiceImpl implements RelayService {
                 })
                 .toList();
         List<RelayChannelProvider> providers = channelProviderMapper.selectByChannelId(channel.getId());
+        if (!providers.isEmpty()) {
+            publicModels = publicModels.stream().filter(model -> providers.stream().anyMatch(provider ->
+                    !Boolean.FALSE.equals(provider.getEnabled())
+                    && com.qzcy.backend.service.RelayProviderModels.supports(provider, model.getModelId())))
+                    .toList();
+        }
         List<String> formats = providers.isEmpty() ? List.of(normalizeChannelRule(channel.getChannelRule()))
                 : providers.stream().filter(p -> !Boolean.FALSE.equals(p.getEnabled()))
                     .flatMap(p -> RelayProviderFormats.urls(p).keySet().stream()).distinct().sorted().toList();

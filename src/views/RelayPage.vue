@@ -17,6 +17,8 @@ import AnimatedNumber from '@/components/relay/AnimatedNumber.vue'
 import RelayTrendChart from '@/components/relay/RelayTrendChart.vue'
 import RelayModelDistribution from '@/components/relay/RelayModelDistribution.vue'
 import RelayRecentCalls from '@/components/relay/RelayRecentCalls.vue'
+import RelayOrdersPanel from '@/components/relay/RelayOrdersPanel.vue'
+import { groupCallableModels } from '@/utils/relayGroupModels'
 import RelayModelSelect from '@/components/relay/RelayModelSelect.vue'
 import { relayModelOptions } from '@/utils/relayModelOptions'
 import type { Announcement, ErrorRequestLog, PaymentRecord, RechargeCouponPreview, RelayModel, RelayModelRecentCall, RelayPublicChannelModel, RelayToken, RelayUsageLog, RelayUserOverview } from '@/types'
@@ -28,6 +30,7 @@ const { sidebarCollapsed, toggleSidebar } = useSidebarPreference()
 
 const overview = ref<RelayUserOverview | null>(null)
 const activeMenu = ref('dashboard')
+const ordersPanel = ref<InstanceType<typeof RelayOrdersPanel> | null>(null)
 const consoleMain = ref<HTMLElement | null>(null)
 const loadedSections = ref<Set<string>>(new Set())
 const loadingSections = ref<Set<string>>(new Set())
@@ -60,6 +63,14 @@ const keySearch = ref('')
 const keyGroupFilter = ref('')
 const keyStatusFilter = ref('')
 const channelSearch = ref('')
+const selectedModelGroup = ref('')
+const groupModelSearch = ref('')
+const selectedGroupModels = computed(() => groupCallableModels(selectedModelGroup.value, groups.value, channels.value))
+const filteredGroupModels = computed(() => selectedGroupModels.value.filter(item => item.name.toLowerCase().includes(groupModelSearch.value.trim().toLowerCase())))
+function openGroupModels(code: string) {
+  groupModelSearch.value = ''
+  selectedModelGroup.value = code
+}
 const logSearch = ref('')
 const logStatusFilter = ref('all')
 const logSort = ref<'latest' | 'slowest' | 'cost'>('latest')
@@ -231,7 +242,7 @@ const errorLogs = computed<ErrorRequestLog[]>(() => overview.value?.errorLogs ||
   })))
 const models = computed(() => overview.value?.models || [])
 const modelsById = computed(() => new Map(models.value.map((model) => [model.id, model])))
-const groups = computed(() => overview.value?.groups || [{ id: 0, code: 'default', name: '默认分组', ratio: 1, enabled: true }])
+const groups = computed(() => overview.value?.groups || [{ id: 0, code: 'default', name: '默认分组', ratio: 1, enabled: true, modelIds: [] }])
 const trend = computed(() => overview.value?.trend || [])
 const modelUsage = computed(() => overview.value?.modelUsage || [])
 const modelRecentCalls = computed(() => overview.value?.modelRecentCalls || [])
@@ -309,21 +320,13 @@ const menus = [
   { id: 'referral', label: '邀请返利', icon: 'gift', route: '/user/referral' }
 ]
 
-const comingSoonPanel = computed(() => activeMenu.value === 'orders'
-  ? {
-      title: '我的订单',
-      subtitle: '查看订单与支付记录',
-      description: '订单查询功能正在准备中，开放后完整记录会显示在这里。',
-      icon: 'file',
-      columns: ['订单号', '订单类型', '金额', '状态', '创建时间']
-    }
-  : {
+const comingSoonPanel = computed(() => ({
       title: '我的订阅',
       subtitle: '管理当前套餐与订阅周期',
       description: '订阅管理功能正在准备中，开放后套餐信息会显示在这里。',
       icon: 'card',
       columns: ['套餐名称', '计费周期', '生效时间', '状态', '操作']
-    })
+    }))
 
 const menuTransitionName = computed(() => menuDirection.value === 'backward' ? 'relay-view-back' : 'relay-view-forward')
 
@@ -461,6 +464,10 @@ function mergeOverview(partial: RelayUserOverview) {
 
 async function loadSection(section: string, force = false, silent = false) {
   if (!auth.isAuthenticated || section === 'referral') return
+  if (section === 'orders') {
+    if (force) await ordersPanel.value?.refresh()
+    return
+  }
   if (!force && loadedSections.value.has(section)) {
     if (section === 'billing') await loadBillingExtras(false)
     if (section === 'dashboard') await loadAnnouncements(false)
@@ -2381,9 +2388,9 @@ onMounted(async () => {
 
                   <div class="mt-4">
                     <div class="min-w-0">
-                      <p class="text-xs font-medium text-slate-500">可用分组</p>
+                      <p class="text-xs font-medium text-slate-500">可用分组 <span class="ml-2 text-[11px] text-slate-400">点击查看模型</span></p>
                       <div class="mt-2 flex flex-wrap gap-1.5">
-                        <span v-for="group in channel.groups" :key="group" class="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600">{{ group }}<b class="ml-1 border-l border-slate-200 pl-2 font-semibold text-slate-500">{{ groupRatioLabel(group) }}</b></span>
+                        <button v-for="group in channel.groups" :key="group" type="button" class="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" :aria-label="`查看 ${group} 分组可调用模型`" aria-haspopup="dialog" @click="openGroupModels(group)">{{ group }}<b class="ml-1 border-l border-slate-200 pl-2 font-semibold text-slate-500">{{ groupRatioLabel(group) }}</b><span class="ml-1" aria-hidden="true">↗</span></button>
                       </div>
                     </div>
                   </div>
@@ -2532,10 +2539,11 @@ onMounted(async () => {
             </div>
           </section>
 
+          <RelayOrdersPanel v-if="activeMenu === 'orders'" ref="ordersPanel" />
+
           <section
-            v-if="activeMenu === 'subscription' || activeMenu === 'orders'"
-            class="relay-pending-page h-full min-h-[420px] overflow-hidden rounded-[22px] border border-slate-200/80"
-            :class="activeMenu === 'orders' ? 'is-orders' : 'is-subscription'"
+            v-if="activeMenu === 'subscription'"
+            class="relay-pending-page is-subscription h-full min-h-[420px] overflow-hidden rounded-[22px] border border-slate-200/80"
             :aria-labelledby="`pending-page-${activeMenu}`"
           >
             <header class="pending-page-header">
@@ -2694,6 +2702,20 @@ onMounted(async () => {
         </Transition>
       </main>
     </div>
+
+    <RelayModal :open="Boolean(selectedModelGroup)" :title="`${selectedModelGroup} · 可调用模型`" :subtitle="`${selectedGroupModels.length} 个模型 · 分组倍率 ${groupRatioLabel(selectedModelGroup)}`" width="min(640px, calc(100vw - 32px))" @close="selectedModelGroup = ''">
+      <div class="space-y-4 p-5 sm:p-6">
+        <input v-model="groupModelSearch" type="search" aria-label="搜索分组模型" placeholder="搜索模型名称" class="w-full rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" />
+        <p class="text-xs leading-relaxed text-slate-500">汇总该分组下已启用且未标记异常的渠道模型，并按分组权限筛选。实际调用还受密钥限制、余额及上游实时状态影响。</p>
+        <div class="max-h-[50dvh] space-y-2 overflow-y-auto overscroll-contain" aria-live="polite">
+          <article v-for="item in filteredGroupModels" :key="item.name" class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <h3 class="break-all text-sm font-bold text-slate-800">{{ item.name }}</h3>
+            <p class="mt-2 break-words text-xs text-slate-500">渠道：{{ item.channels.join('、') }}</p>
+          </article>
+          <p v-if="!filteredGroupModels.length" class="py-10 text-center text-sm text-slate-500">{{ groupModelSearch ? '没有匹配的模型' : '该分组暂无可用模型' }}</p>
+        </div>
+      </div>
+    </RelayModal>
 
     <RelayModal :open="Boolean(keyNameDialog)" title="修改密钥名称" :subtitle="keyNameDialog?.tokenPreview" width="min(440px, calc(100vw - 32px))" @close="closeKeyNameDialog">
       <form class="space-y-5 p-5 sm:p-6" @submit.prevent="saveKeyName">

@@ -22,6 +22,8 @@ public class RelayChannelProvider {
     private Integer weight;
     private String status;
     private Boolean enabled;
+    @TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
+    private String modelIds;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

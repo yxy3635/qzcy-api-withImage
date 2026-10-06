@@ -239,6 +239,7 @@ function setChannelDraft(channel: RelayChannel) {
   const providers: ProviderDraft[] = (channel.providers && channel.providers.length
     ? channel.providers.map((provider) => ({
         id: provider.id,
+        modelIds: provider.modelIds == null ? null : [...provider.modelIds],
         name: provider.name || '',
         apiBaseUrl: provider.apiBaseUrl || '',
         openaiBaseUrl: provider.openaiBaseUrl ?? (provider.anthropicBaseUrl == null && provider.channelRule !== 'anthropic' ? provider.apiBaseUrl : '') ?? '',
@@ -358,6 +359,7 @@ function channelPayload(draft: ChannelDraft) {
     providers: draft.providers.map((provider) => {
       const item: Record<string, unknown> = {
         name: provider.name,
+        modelIds: provider.modelIds === null ? null : provider.modelIds.filter(id => draft.models.some(model => model.modelId === id)),
         apiBaseUrl: provider.openaiBaseUrl.trim() || provider.anthropicBaseUrl.trim(),
         openaiBaseUrl: provider.openaiBaseUrl.trim(),
         anthropicBaseUrl: provider.anthropicBaseUrl.trim(),
@@ -445,6 +447,7 @@ function providerBadgeClass() {
 
 function newProviderDraft(): ProviderDraft {
   return {
+    modelIds: null,
     id: null,
     name: '',
     apiBaseUrl: '',

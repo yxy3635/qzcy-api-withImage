@@ -231,6 +231,19 @@ public class PaymentServiceImpl implements PaymentService {
         );
     }
 
+    @Override
+    public Page<PaymentRecord> completedRecharges(Long userId, long page, long size) {
+        return paymentRecordMapper.selectPage(
+                Page.of(Math.max(1, page), Math.max(1, Math.min(100, size))),
+                new LambdaQueryWrapper<PaymentRecord>()
+                        .eq(PaymentRecord::getUserId, userId)
+                        .eq(PaymentRecord::getStatus, "completed")
+                        .in(PaymentRecord::getType, "third_party", "alipay", "wxpay", "qqpay", "wechat")
+                        .orderByDesc(PaymentRecord::getCreatedAt)
+                        .orderByDesc(PaymentRecord::getId)
+        );
+    }
+
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }

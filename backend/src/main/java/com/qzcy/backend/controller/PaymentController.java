@@ -79,6 +79,12 @@ public class PaymentController {
         return ApiResponse.success(paymentService.history(SecurityUtil.current().userId(), page, size));
     }
 
+    @GetMapping("/completed-recharges")
+    public ApiResponse<Page<PaymentRecord>> completedRecharges(@RequestParam(defaultValue = "1") long page,
+                                                              @RequestParam(defaultValue = "10") long size) {
+        return ApiResponse.success(paymentService.completedRecharges(SecurityUtil.current().userId(), page, size));
+    }
+
     private String backendBaseUrl(HttpServletRequest request) {
         String scheme = headerOrDefault(request, "X-Forwarded-Proto", request.getScheme());
         String host = headerOrDefault(request, "X-Forwarded-Host", request.getHeader("Host"));

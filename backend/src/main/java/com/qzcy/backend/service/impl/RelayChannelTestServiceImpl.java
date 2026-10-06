@@ -82,9 +82,10 @@ public class RelayChannelTestServiceImpl implements RelayChannelTestService {
             throw new BusinessException(400, "不支持的 API 格式");
         }
         List<RelayChannelProvider> providers = usableProviders(channel).stream()
+                .filter(p -> com.qzcy.backend.service.RelayProviderModels.supports(p, modelId))
                 .filter(p -> requestedFormat == null || requestedFormat.isBlank()
                         || com.qzcy.backend.service.RelayProviderFormats.urls(p).containsKey(requestedFormat)).toList();
-        if (providers.isEmpty()) throw new BusinessException(400, "该渠道没有支持此格式的可用供应商");
+        if (providers.isEmpty()) throw new BusinessException(400, "该渠道没有支持此模型和格式的可用供应商");
         List<RelayChannelTestAttemptDto> attempts = new ArrayList<>();
         for (RelayChannelProvider provider : providerScheduler.order(channel, providers)) {
             String rule = requestedFormat == null || requestedFormat.isBlank() ? resolveRule(channel, provider) : requestedFormat;

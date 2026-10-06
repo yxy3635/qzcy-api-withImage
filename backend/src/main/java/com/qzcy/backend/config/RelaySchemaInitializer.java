@@ -85,6 +85,7 @@ public class RelaySchemaInitializer implements CommandLineRunner {
                 """);
         addColumnIfMissing("relay_channel_provider", "channel_rule", "VARCHAR(40) NOT NULL DEFAULT 'openai'");
         addColumnIfMissing("relay_channel_provider", "openai_base_url", "VARCHAR(255) NULL");
+        addColumnIfMissing("relay_channel_provider", "model_ids", "TEXT NULL");
         addColumnIfMissing("relay_channel_provider", "anthropic_base_url", "VARCHAR(255) NULL");
         addColumnIfMissing("relay_channel_provider", "priority", "INT NOT NULL DEFAULT 10");
         addColumnIfMissing("relay_channel_provider", "weight", "INT NOT NULL DEFAULT 10");

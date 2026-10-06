@@ -238,6 +238,7 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         for (RelayChannel channel : ordered) {
             List<RelayChannelProvider> allProviders = channelProviderMapper.selectByChannelId(channel.getId());
             List<RelayChannelProvider> providers = allProviders.stream()
+                    .filter(item -> com.qzcy.backend.service.RelayProviderModels.supports(item, model.getId()))
                     .filter(item -> item.getEnabled() == null || item.getEnabled())
                     .filter(item -> item.getStatus() == null || !"failed".equalsIgnoreCase(item.getStatus()))
                     .filter(item -> !isBlank(item.getApiBaseUrl()) && !isBlank(item.getApiKey()))

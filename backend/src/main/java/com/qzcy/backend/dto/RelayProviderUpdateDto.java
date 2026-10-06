@@ -4,6 +4,14 @@ import lombok.Data;
 
 @Data
 public class RelayProviderUpdateDto {
+    private java.util.List<Long> modelIds;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private boolean modelSelectionProvided;
+
+    public void setModelIds(java.util.List<Long> modelIds) {
+        this.modelIds = modelIds;
+        this.modelSelectionProvided = true;
+    }
     private Long id;
     private String name;
     private String apiBaseUrl;

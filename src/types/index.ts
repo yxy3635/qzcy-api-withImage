@@ -325,6 +325,7 @@ export interface RelayChannel {
 }
 
 export interface RelayChannelProvider {
+  modelIds?: number[] | null
   openaiBaseUrl?: string | null
   anthropicBaseUrl?: string | null
   id: number

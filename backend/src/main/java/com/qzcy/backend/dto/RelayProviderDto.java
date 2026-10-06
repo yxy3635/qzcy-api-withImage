@@ -20,4 +20,5 @@ public class RelayProviderDto {
     private Integer weight;
     private String status;
     private Boolean enabled;
+    private java.util.List<Long> modelIds;
 }

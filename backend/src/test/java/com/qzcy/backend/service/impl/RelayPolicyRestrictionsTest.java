@@ -3,6 +3,7 @@ package com.qzcy.backend.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayChannel;
+import com.qzcy.backend.entity.RelayChannelProvider;
 import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayChannelMapper;
@@ -33,23 +34,59 @@ class RelayPolicyRestrictionsTest {
     private RelayTokenMapper tokenMapper;
     private RelayUsageLogMapper usageLogMapper;
     private RelayPolicyServiceImpl service;
+    private RelayChannelMapper channelMapper;
+    private RelayChannelProviderMapper providerMapper;
 
     @BeforeEach
     void setUp() {
         tokenMapper = mock(RelayTokenMapper.class);
         usageLogMapper = mock(RelayUsageLogMapper.class);
+        channelMapper = mock(RelayChannelMapper.class);
+        providerMapper = mock(RelayChannelProviderMapper.class);
         service = new RelayPolicyServiceImpl(
                 tokenMapper,
                 mock(RelayModelMapper.class),
                 mock(RelayGroupMapper.class),
                 mock(RelayGroupModelMapper.class),
-                mock(RelayChannelMapper.class),
+                channelMapper,
                 mock(RelayChannelModelMapper.class),
-                mock(RelayChannelProviderMapper.class),
+                providerMapper,
                 new RelayProviderScheduler(),
                 usageLogMapper,
                 mock(UserMapper.class)
         );
+    }
+
+    @Test
+    void supplierModelFilteringPrecedesEverySchedulingStrategyAndPreventsLegacyFallback() {
+        RelayModel model = new RelayModel();
+        model.setId(12L);
+        RelayChannel channel = new RelayChannel();
+        channel.setId(9L);
+        channel.setApiBaseUrl("https://legacy.example/v1");
+        channel.setApiKey("legacy-key");
+        RelayChannelProvider unsupported = new RelayChannelProvider();
+        unsupported.setId(1L);
+        unsupported.setPriority(0);
+        unsupported.setModelIds("112");
+        unsupported.setApiBaseUrl("https://unsupported.example/v1");
+        unsupported.setApiKey("test-key");
+        RelayChannelProvider supported = new RelayChannelProvider();
+        supported.setId(2L);
+        supported.setPriority(10);
+        supported.setModelIds("12");
+        supported.setApiBaseUrl("https://supported.example/v1");
+        supported.setApiKey("test-key");
+        when(channelMapper.selectDispatchCandidates(12L, "default")).thenReturn(java.util.List.of(channel));
+        when(providerMapper.selectByChannelId(9L)).thenReturn(java.util.List.of(unsupported, supported));
+        for (String strategy : java.util.List.of("priority", "weighted_random", "smooth_rr", "least_conn")) {
+            channel.setScheduleStrategy(strategy);
+            assertEquals(2L, service.chooseChannel(new RelayToken(), model, null, "chat").provider().getId());
+        }
+        supported.setModelIds("");
+        assertThrows(BusinessException.class, () -> service.chooseChannel(new RelayToken(), model, null, "chat"));
+        supported.setModelIds(null);
+        assertEquals(2L, service.chooseChannel(new RelayToken(), model, null, "chat").provider().getId());
     }
 
     @Test
