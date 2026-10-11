@@ -9,6 +9,7 @@ import RelayChannelTestDialog from '@/components/admin/RelayChannelTestDialog.vu
 import RelayChannelDrawer from '@/components/admin/RelayChannelDrawer.vue'
 import RelayModelDrawer from '@/components/admin/RelayModelDrawer.vue'
 import RelayGroupDrawer from '@/components/admin/RelayGroupDrawer.vue'
+import RelayCompressionSettings from '@/components/admin/RelayCompressionSettings.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/store/authStore'
@@ -18,7 +19,7 @@ import type { ChannelDraft, GroupDraft, ModelDraft, ProviderDraft } from '@/type
 const toast = useToast()
 const auth = useAuthStore()
 const router = useRouter()
-type Tab = 'overview' | 'channels' | 'tokens' | 'models' | 'usage' | 'policy'
+type Tab = 'overview' | 'channels' | 'tokens' | 'models' | 'usage' | 'policy' | 'compression'
 
 const overview = ref<RelayAdminOverview | null>(null)
 const dashboard = ref<RelayDashboard | null>(null)
@@ -104,6 +105,7 @@ const newGroup = reactive<GroupDraft>({
 })
 
 const tabs: Array<{ id: Tab; label: string; description: string; icon: string }> = [
+  { id: 'compression', label: '请求压缩', description: '格式与内存预算', icon: 'M4 7h16M4 17h16M12 3v7m-3-3 3 3 3-3M12 21v-7m-3 3 3-3 3 3' },
   { id: 'overview', label: '总览', description: '运行概况', icon: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z' },
   { id: 'channels', label: '渠道', description: '上游连接', icon: 'M6 3v4m0 10v4m12-18v4m0 10v4M6 7h12v10H6zM10 12h4' },
   { id: 'tokens', label: '令牌', description: '访问密钥', icon: 'M12 2 4 6v5c0 5 3.4 9.5 8 11 4.6-1.5 8-6 8-11V6l-8-4Zm-3 10 2 2 4-4' },
@@ -1251,6 +1253,8 @@ async function enableSelectedUpstreamModels() {
         <div class="panel p-5"><p class="text-sm font-bold text-slate-500">累计用户扣费 · USD</p><p class="mt-2 text-3xl font-black text-sky-600">${{ Number(stats?.totalCost || 0).toFixed(6) }}</p></div>
         </div>
       </section>
+
+      <RelayCompressionSettings v-else-if="activeTab === 'compression'" key="compression" class="mt-6" />
 
       <section v-else-if="activeTab === 'policy'" key="policy" class="mt-6 space-y-3">
         <button class="panel flex w-full items-center justify-between gap-4 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/40" type="button" @click="newGroupEditor">

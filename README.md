@@ -246,6 +246,10 @@ curl https://your-domain.example/api/v1/models \
 
 完整的在线请求参数与示例请访问前端 `/docs` 页面。
 
+中转的 Chat Completions、Responses、Anthropic Messages 支持 gzip / zstd 请求解压（包括 Compact、count_tokens 与已有别名）。管理员在 `/admin/relay` 的“请求压缩”中开关格式、动态设置解压内存预算，默认 128 MB；单次解压后最大 16 MiB。设置保存在数据库，无需重启当前实例。
+
+余额查询接口：`GET /api/v1/user/balance`（兼容 `/api/v1/dashboard/billing/balance`），使用中转 API Key，直接返回 `balance`、`todayCost`、`todayRequests`、`unit`。完整示例、预算限制与错误处理见 [中转压缩与余额 API 文档](docs/relay-api.md)。
+
 ### CCSwitch 导入
 
 在 `/relay` 的 API 密钥卡片中点击“导入 CCSwitch”，确认后会通过 `ccswitch://` 协议唤起客户端，并按密钥分组和可用上游协议自动导入为：

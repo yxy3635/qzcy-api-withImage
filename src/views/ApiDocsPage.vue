@@ -48,12 +48,32 @@ const relaySections: DocSection[] = [
   { id: 'relay-images', label: 'GPT Image 2 图像调用', eyebrow: '06' },
   { id: 'relay-anthropic', label: 'Anthropic 格式', eyebrow: '07' },
   { id: 'relay-formats', label: '数据格式', eyebrow: '08' },
-  { id: 'relay-suffixes', label: '路径与兼容后缀', eyebrow: '09' }
+  { id: 'relay-suffixes', label: '路径与兼容后缀', eyebrow: '09' },
+  { id: 'relay-compression', label: 'gzip / zstd 请求压缩', eyebrow: '10' },
+  { id: 'relay-balance', label: '余额与今日用量', eyebrow: '11' }
 ]
 
 const currentSections = computed(() => product.value === 'image' ? imageSections : relaySections)
 const relayImageCode = relayImageExamples(relayApiBase)
 const relayImageResponse = JSON.stringify({ created: 1780000000, data: [{ b64_json: 'iVBORw0KGgo...' }] }, null, 2)
+const compressedRequest = `# Bash：request.json 中放入普通 Chat Completions JSON 请求体
+gzip -c request.json > request.json.gz
+curl "${relayApiBase}/chat/completions" \\
+  -H "Authorization: Bearer $RELAY_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -H "Content-Encoding: gzip" \\
+  --data-binary @request.json.gz
+
+# zstd CLI：默认窗口即可，服务端最多接收 8 MiB 窗口
+zstd -q -f request.json -o request.json.zst
+curl "${relayApiBase}/responses" \\
+  -H "Authorization: Bearer $RELAY_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -H "Content-Encoding: zstd" \\
+  --data-binary @request.json.zst`
+const balanceRequest = `curl "${relayApiBase}/user/balance" \\
+  -H "Authorization: Bearer $RELAY_API_KEY"`
+const balanceResponse = JSON.stringify({ balance: 12.345678, todayCost: 0.123456, todayRequests: 42, unit: 'USD' }, null, 2)
 const activeSection = ref(currentSections.value[0]!.id)
 
 const imageExamples = computed<Record<Language, string>>(() => ({
@@ -664,6 +684,7 @@ onBeforeUnmount(() => {
                 <thead><tr><th>方法</th><th>接口</th><th>请求格式</th><th>用途</th></tr></thead>
                 <tbody>
                   <tr><td><span class="method method-get">GET</span></td><td><code>/v1/models</code></td><td>HTTP</td><td>列出当前令牌可用模型</td></tr>
+                  <tr><td><span class="method method-get">GET</span></td><td><code>/v1/user/balance</code></td><td>JSON 响应</td><td>密钥所属账户余额与今日用量</td></tr>
                   <tr><td><span class="method method-post">POST</span></td><td><code>/v1/chat/completions</code></td><td>JSON / SSE</td><td>OpenAI Chat Completions</td></tr>
                   <tr><td><span class="method method-post">POST</span></td><td><code>/v1/responses</code></td><td>JSON / SSE</td><td>OpenAI Responses API</td></tr>
                   <tr><td><span class="method method-post">POST</span></td><td><code>/v1/responses/compact</code></td><td>JSON</td><td>压缩 Responses 上下文</td></tr>
@@ -773,6 +794,52 @@ onBeforeUnmount(() => {
               <strong>接口路径没有文件扩展名。</strong>
               <p><code>.json</code>、<code>.html</code> 等后缀均不需要。响应格式由 <code>Content-Type</code> 和 <code>stream</code> 参数决定。</p>
             </div>
+          </section>
+          <section id="relay-compression" class="doc-section" data-doc-section>
+            <div class="section-kicker">REQUEST COMPRESSION</div>
+            <h2>gzip 与 zstd 请求体</h2>
+            <p class="section-lead">Chat Completions、Responses、Anthropic Messages 支持单层 gzip 或 zstd 压缩 JSON 请求体，流式与非流式均适用。两个格式默认开启，管理员可在「中转站设置 → 请求压缩」分别关闭。</p>
+            <div class="table-wrap"><table>
+              <thead><tr><th>项目</th><th>约定</th></tr></thead>
+              <tbody>
+                <tr><td>接口范围</td><td><code>/api/v1/chat/completions</code>、<code>/api/v1/responses</code>、<code>/api/v1/messages</code>，以及 Responses Compact、Messages count_tokens 和已有兼容别名。</td></tr>
+                <tr><td>请求头</td><td><code>Content-Type: application/json</code>，<code>Content-Encoding: gzip</code> 或 <code>zstd</code>；请求体必须发送压缩后的二进制字节。</td></tr>
+                <tr><td>大小限制</td><td>压缩体最多 18 MiB，解压后最多 16 MiB，zstd 窗口最多 8 MiB；不支持外部字典和多层压缩。</td></tr>
+                <tr><td>解压预算</td><td>默认 128 MB，管理员可调整为 32–1024 MB。当前后端实例全局共用，每个请求按 32 MB 计入，可容纳 4 个并发解压请求；JSON 解析后释放名额。</td></tr>
+                <tr><td>转发</td><td>中转解压后向上游发送普通 JSON，上游号池无需支持请求解压；上游接口和模型仍须支持相应协议。</td></tr>
+              </tbody>
+            </table></div>
+            <ApiCodeBlock :code="compressedRequest" language="bash" label="发送压缩 JSON（Bash / gzip / zstd CLI）" />
+            <div class="notice notice-info"><strong>Content-Encoding 描述请求体压缩。</strong><p><code>Accept-Encoding</code> 和 cURL 的 <code>--compressed</code> 协商的是响应压缩。<code>responses/compact</code> 是上下文精简接口；HTTP 压缩支持不会让上游新增该接口。未压缩 JSON 可继续正常使用。</p></div>
+            <div class="table-wrap"><table>
+              <thead><tr><th>HTTP 状态</th><th>错误码</th><th>处理方式</th></tr></thead>
+              <tbody>
+                <tr><td>400</td><td><code>invalid_compressed_body</code> / <code>invalid_json</code></td><td>检查压缩文件完整性、zstd 窗口和解压后的 JSON。</td></tr>
+                <tr><td>413</td><td><code>compressed_body_too_large</code> / <code>decompressed_body_too_large</code></td><td>缩小请求或拆分输入。</td></tr>
+                <tr><td>415</td><td><code>unsupported_content_encoding</code> / <code>unsupported_media_type</code></td><td>格式被管理员关闭、编码不支持，或 Content-Type 非 JSON；可改用普通 JSON。</td></tr>
+                <tr><td>503</td><td><code>decompression_budget_exhausted</code></td><td>预算已用满，按 <code>Retry-After: 1</code> 等待后退避重试。</td></tr>
+              </tbody>
+            </table></div>
+            <p>错误信息位于 <code>error.code</code> 和 <code>error.message</code>；Messages 另包含 <code>type: error</code>。预算按需使用，不预分配常驻内存，应用、JSON 对象和转发还有额外开销。反向代理可能设置更小的请求体限制。</p>
+          </section>
+
+          <section id="relay-balance" class="doc-section" data-doc-section>
+            <div class="section-kicker">BALANCE &amp; USAGE</div>
+            <h2>查询余额和今日用量</h2>
+            <div class="endpoint-title"><span class="method method-get">GET</span><code>/api/v1/user/balance</code><em>JSON</em></div>
+            <p class="section-lead">使用中转 API Key 查询密钥所属用户的账户余额与全账户今日用量。兼容路径为 <code>/api/v1/dashboard/billing/balance</code>。不需要账户 JWT，也不需要请求体。</p>
+            <ApiCodeBlock :code="balanceRequest" language="bash" label="查询余额" />
+            <ApiCodeBlock :code="balanceResponse" language="json" label="成功响应示例（直接返回，无 data 包装）" />
+            <div class="table-wrap"><table>
+              <thead><tr><th>字段</th><th>类型</th><th>含义</th></tr></thead>
+              <tbody>
+                <tr><td><code>balance</code></td><td>number</td><td>账户当前余额，不是该密钥独立剩余额度。</td></tr>
+                <tr><td><code>todayCost</code></td><td>number</td><td>账户今日中转消费，按数据库当前日期汇总。</td></tr>
+                <tr><td><code>todayRequests</code></td><td>number</td><td>账户今日中转请求数。</td></tr>
+                <tr><td><code>unit</code></td><td>string</td><td>金额单位，固定为 <code>USD</code>。</td></tr>
+              </tbody>
+            </table></div>
+            <div class="notice notice-info"><strong>鉴权与缓存</strong><p>推荐 <code>Authorization: Bearer YOUR_RELAY_KEY</code>，也支持 <code>x-api-key</code>。密钥状态、所属账户、IP 和客户端限制仍生效。响应禁止缓存；失败返回相应 HTTP 状态和 <code>{ "error": "错误信息" }</code>，请先检查 HTTP 状态。</p></div>
           </section>
         </template>
 

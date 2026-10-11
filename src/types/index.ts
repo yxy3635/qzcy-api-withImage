@@ -700,3 +700,16 @@ export interface RegistrationConfig {
   registrationClosed: boolean
   invitationOnly: boolean
 }
+export interface RelayCompressionConfig {
+  gzipEnabled: boolean
+  zstdEnabled: boolean
+  memoryBudgetMb: number
+}
+
+export interface RelayCompressionStatus extends RelayCompressionConfig {
+  reservedMb: number
+  activeRequests: number
+  requestBudgetMb: number
+  maxBodyMb: number
+  zstdWindowMb: number
+}

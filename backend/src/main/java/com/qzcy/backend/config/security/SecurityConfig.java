@@ -31,6 +31,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/**", "/api/images/**", "/api/payment/notify", "/api/v1/**").permitAll()
+                        // Relay aliases use RelayPolicyService for API-key authentication.
+                        .requestMatchers("/api/models", "/api/messages", "/api/messages/count_tokens",
+                                "/api/responses", "/api/responses/compact").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )

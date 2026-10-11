@@ -2,6 +2,16 @@
 
 适用于全新 Linux 服务器，需安装 Docker Engine 和 Docker Compose v2（`docker compose version` 可用）。建议至少 2 核、4 GB 内存，并留出图片与数据库空间。服务器只需 Docker，无需安装 Node、Java 或 Maven；首次构建需要联网下载镜像和依赖。
 
+## 本次更新：中转请求压缩与余额文档
+
+上传最新代码后，在项目根目录重新构建前后端（保留数据库和图片数据卷）：
+
+```bash
+docker compose up -d --build --no-deps --wait --wait-timeout 300 backend web
+```
+
+后端启动自动创建 `relay_compression_config` 表，默认开启 gzip / zstd，解压预算为 128 MB。管理员进入 `/admin/relay` → “请求压缩”可独立开关格式和修改预算。这里是解压并发资源预算，不是整个 Java 应用的内存限制；号池无需更新。完整限制和余额接口见 [中转 API 文档](relay-api.md)，线上 `/docs?type=relay` 也已补充压缩和余额查询示例。
+
 ## 首次启动
 
 在服务器上传或克隆完整仓库，进入项目根目录：

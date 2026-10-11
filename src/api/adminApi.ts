@@ -1,5 +1,5 @@
 import http from './http'
-import type { RegistrationConfig } from '@/types'
+import type { RegistrationConfig, RelayCompressionConfig, RelayCompressionStatus } from '@/types'
 import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserModelUsage, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayChannelProvider, RelayChannelTestResult, RelayDashboard, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
 /** 渠道保存 payload：供应商 apiKey 留空表示保留原值，id 为空表示新增。 */
@@ -9,6 +9,12 @@ export type RelayChannelPayload = Partial<Omit<RelayChannel, 'id' | 'apiKeyMaske
 }
 
 export const adminApi = {
+  relayCompressionConfig() {
+    return http.get<ApiResponse<RelayCompressionStatus>>('/admin/relay/compression-config')
+  },
+  updateRelayCompressionConfig(payload: RelayCompressionConfig) {
+    return http.put<ApiResponse<RelayCompressionStatus>>('/admin/relay/compression-config', payload)
+  },
   registrationConfig() {
     return http.get<ApiResponse<RegistrationConfig>>('/admin/registration-config')
   },
