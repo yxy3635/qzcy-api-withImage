@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.qzcy.backend.dto.relay.RelayContext;
 import com.qzcy.backend.dto.relay.RelayCostBreakdown;
+import com.qzcy.backend.dto.relay.RelayUsage;
 import com.qzcy.backend.entity.RelayChannel;
 import com.qzcy.backend.entity.RelayChannelModel;
 import com.qzcy.backend.entity.RelayChannelProvider;
@@ -333,18 +334,16 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
     }
 
     @Override
-    public RelayCostBreakdown estimateCost(RelayModel model, RelayChannel channel, RelayGroup group, JsonNode responseBody) {
-        JsonNode usage = responseBody.path("usage");
-        BigDecimal promptTokens = BigDecimal.valueOf(inputTokens(usage));
-        BigDecimal completionTokens = BigDecimal.valueOf(outputTokens(usage));
-        BigDecimal cachedTokens = BigDecimal.valueOf(cacheReadTokens(usage));
-        BigDecimal cacheCreationTokens = BigDecimal.valueOf(cacheCreationTokens(usage));
-        BigDecimal billableInputTokens = claudeSeparateCacheUsage(usage)
-                ? promptTokens
-                : promptTokens.subtract(cachedTokens).subtract(cacheCreationTokens).max(BigDecimal.ZERO);
+    public RelayCostBreakdown estimateCost(RelayModel model, RelayChannel channel, RelayGroup group,
+                                          JsonNode responseBody, String upstreamPath) {
+        RelayUsage usage = RelayUsage.fromResponse(responseBody, upstreamPath);
+        BigDecimal completionTokens = BigDecimal.valueOf(usage.outputTokens());
+        BigDecimal cachedTokens = BigDecimal.valueOf(usage.cacheReadTokens());
+        BigDecimal cacheCreationTokens = BigDecimal.valueOf(usage.cacheCreationTokens());
+        BigDecimal billableInputTokens = BigDecimal.valueOf(usage.billableInputTokens());
         boolean longContext = model.getLongContextThreshold() != null
                 && model.getLongContextThreshold() > 0
-                && promptTokens.longValue() >= model.getLongContextThreshold();
+                && usage.inputTokens() >= model.getLongContextThreshold();
         BigDecimal inputPrice = longContextPrice(model, model.getInputPrice(), model.getLongContextInputPrice());
         BigDecimal outputPrice = longContextPrice(model, model.getOutputPrice(), model.getLongContextOutputPrice());
         BigDecimal cacheReadPrice = longContextPrice(model, model.getCachedInputPrice(), model.getLongContextCachedInputPrice());
@@ -386,42 +385,6 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
 
     private BigDecimal channelRatio(RelayChannel channel) {
         return channel == null || channel.getPriceMultiplier() == null ? BigDecimal.ONE : channel.getPriceMultiplier();
-    }
-
-    private long inputTokens(JsonNode usage) {
-        return firstLong(usage, "prompt_tokens", "input_tokens", "input_tokens_total");
-    }
-
-    private long outputTokens(JsonNode usage) {
-        return firstLong(usage, "completion_tokens", "output_tokens");
-    }
-
-    private long cacheReadTokens(JsonNode usage) {
-        long nested = firstLong(usage.path("prompt_tokens_details"), "cached_tokens", "cache_read_tokens");
-        if (nested > 0) return nested;
-        nested = firstLong(usage.path("input_tokens_details"), "cached_tokens", "cache_read_tokens");
-        if (nested > 0) return nested;
-        return firstLong(usage, "cache_read_input_tokens", "cache_read_tokens", "cached_tokens", "prompt_cache_hit_tokens");
-    }
-
-    private long cacheCreationTokens(JsonNode usage) {
-        long nested = firstLong(usage.path("prompt_tokens_details"), "cache_creation_tokens", "cached_creation_tokens");
-        if (nested > 0) return nested;
-        nested = firstLong(usage.path("input_tokens_details"), "cache_creation_tokens", "cached_creation_tokens");
-        if (nested > 0) return nested;
-        return firstLong(usage, "cache_creation_input_tokens", "cache_creation_tokens", "cached_creation_tokens");
-    }
-
-    private boolean claudeSeparateCacheUsage(JsonNode usage) {
-        return usage.has("cache_read_input_tokens") || usage.has("cache_creation_input_tokens");
-    }
-
-    private long firstLong(JsonNode node, String... names) {
-        for (String name : names) {
-            JsonNode value = node.path(name);
-            if (value.isNumber()) return value.asLong();
-        }
-        return 0;
     }
 
     private RelayChannel weightedPick(List<RelayChannel> channels) {

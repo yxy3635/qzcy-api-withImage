@@ -13,6 +13,11 @@ public class AdminImageRecordDto {
     private String prompt;
     private String generatedImageUrl;
     private String status;
+    private String generationModel;
+    private String requestUrl;
+    private Integer errorStatusCode;
+    private String errorType;
+    private String errorMessage;
     private BigDecimal cost;
     private LocalDateTime createdAt;
 }

@@ -12,6 +12,8 @@ import com.qzcy.backend.mapper.ImageRecordMapper;
 import com.qzcy.backend.service.ImageGenerationConfigService;
 import com.qzcy.backend.service.ImageService;
 import com.qzcy.backend.service.PaymentService;
+import com.qzcy.backend.service.UpstreamErrors;
+import org.springframework.beans.BeanUtils;
 import com.qzcy.backend.util.UploadPathUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
@@ -112,7 +114,7 @@ public class ImageServiceImpl implements ImageService {
             paymentService.deductBalance(userId, config.getPrice());
             balanceDeducted = true;
             imageGenerationExecutor.execute(() -> runGeneration(record.getId(), username, prompt.trim(), config, resolvedSize, normalizedReferenceImages));
-            return record;
+            return publicRecord(record);
         } catch (BusinessException ex) {
             record.setStatus("failed");
             imageRecordMapper.updateById(record);
@@ -136,17 +138,19 @@ public class ImageServiceImpl implements ImageService {
         if (!userId.equals(record.getUserId())) {
             throw new BusinessException(403, "只能查看自己的图像记录");
         }
-        return record;
+        return publicRecord(record);
     }
 
     @Override
     public Page<ImageRecord> history(Long userId, long page, long size) {
-        return imageRecordMapper.selectPage(
+        Page<ImageRecord> records = imageRecordMapper.selectPage(
                 Page.of(page, size),
                 new LambdaQueryWrapper<ImageRecord>()
                         .eq(ImageRecord::getUserId, userId)
                         .orderByDesc(ImageRecord::getCreatedAt)
         );
+        records.setRecords(records.getRecords().stream().map(this::publicRecord).toList());
+        return records;
     }
 
     @Override
@@ -262,13 +266,27 @@ public class ImageServiceImpl implements ImageService {
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
                 .build();
 
-        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        HttpResponse<InputStream> response;
+        try {
+            response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        } catch (IOException ex) {
+            persistImageError(recordId, ex instanceof java.net.http.HttpTimeoutException ? 504 : 502,
+                    errorType(ex), requestUrl, ex.getMessage());
+            throw ex;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            persistImageError(recordId, 502, "connection_error", requestUrl, "Image upstream request interrupted");
+            throw ex;
+        }
         log.info("OpenAI图像接口收到响应头，url={}, status={}, durationMs={}",
                 requestUrl, response.statusCode(), System.currentTimeMillis() - requestStartedAt);
 
         String responseBody;
         try (InputStream responseStream = response.body()) {
             responseBody = readJsonBodyUntilComplete(responseStream, requestStartedAt, requestUrl);
+        } catch (Exception ex) {
+            persistImageError(recordId, 502, "invalid_response", requestUrl, ex.getMessage());
+            throw ex;
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -282,25 +300,41 @@ public class ImageServiceImpl implements ImageService {
             throw new IllegalStateException("OpenAI接口返回错误：" + response.statusCode() + " " + responseBody);
         }
 
-        JsonNode json = objectMapper.readTree(responseBody);
+        JsonNode json;
+        try {
+            json = objectMapper.readTree(responseBody);
+        } catch (Exception ex) {
+            persistImageError(recordId, 502, "invalid_response", requestUrl, responseBody);
+            throw ex;
+        }
+        if (UpstreamErrors.isError(json)) {
+            int status = UpstreamErrors.status(response.statusCode(), json);
+            persistImageError(recordId, status, responseErrorType(status, responseBody), requestUrl, responseBody);
+            throw new IllegalStateException("Image upstream returned an error: " + responseBody);
+        }
+        if (json == null || !json.isObject()) {
+            persistImageError(recordId, 502, "invalid_response", requestUrl, responseBody);
+            throw new IllegalStateException("图像接口返回格式异常");
+        }
         JsonNode first = json.path("data").path(0);
         if (first != null && !first.isMissingNode() && first.hasNonNull("b64_json")) {
-            return saveBase64Image(username, first.get("b64_json").asText());
+            return saveBase64Image(recordId, username, first.get("b64_json").asText());
         }
         if (first != null && !first.isMissingNode() && first.hasNonNull("url")) {
-            return saveRemoteImage(username, first.get("url").asText());
+            return saveRemoteImage(recordId, username, first.get("url").asText());
         }
         String imageData = recursiveText(json, "b64_json");
         if (!isBlank(imageData)) {
-            return saveBase64Image(username, imageData);
+            return saveBase64Image(recordId, username, imageData);
         }
         String imageUrl = recursiveText(json, "url");
         if (isBlank(imageUrl)) {
             imageUrl = recursiveText(json, "image_url");
         }
         if (!isBlank(imageUrl)) {
-            return saveRemoteImage(username, imageUrl);
+            return saveRemoteImage(recordId, username, imageUrl);
         }
+        persistImageError(recordId, 502, "invalid_response", requestUrl, responseBody);
         throw new IllegalStateException("OpenAI接口返回中没有 url 或 b64_json");
     }
 
@@ -608,18 +642,39 @@ public class ImageServiceImpl implements ImageService {
         ImageRecord record = imageRecordMapper.selectById(recordId);
         if (record == null) return;
         record.setGenerationModel(model);
-        record.setRequestUrl(requestUrl);
+        if (requestUrl != null) record.setRequestUrl(requestUrl);
         imageRecordMapper.updateById(record);
     }
 
     private void persistImageError(Long recordId, Integer statusCode, String errorType, String requestUrl, String message) {
         ImageRecord record = imageRecordMapper.selectById(recordId);
         if (record == null) return;
-        record.setRequestUrl(requestUrl);
+        if (requestUrl != null) record.setRequestUrl(requestUrl);
         record.setErrorStatusCode(statusCode);
         record.setErrorType(errorType);
-        record.setErrorMessage(truncateErrorMessage(readableErrorMessage(message)));
+        record.setErrorMessage(truncateErrorMessage(message));
         imageRecordMapper.updateById(record);
+    }
+
+    private ImageRecord publicRecord(ImageRecord stored) {
+        ImageRecord result = new ImageRecord();
+        BeanUtils.copyProperties(stored, result);
+        result.setRequestUrl("");
+        // Only upstream failures have an HTTP status. Local validation/storage errors stay unchanged.
+        if (stored.getErrorStatusCode() != null) {
+            JsonNode raw;
+            try {
+                raw = objectMapper.readTree(stored.getErrorMessage() == null ? "" : stored.getErrorMessage());
+            } catch (Exception ignored) {
+                var wrapper = objectMapper.createObjectNode();
+                wrapper.putObject("error").put("type", stored.getErrorType());
+                raw = wrapper;
+            }
+            int status = UpstreamErrors.status(stored.getErrorStatusCode(), raw);
+            result.setErrorType(UpstreamErrors.type(status));
+            result.setErrorMessage(UpstreamErrors.message(status));
+        }
+        return result;
     }
 
     private String responseErrorType(int statusCode, String body) {
@@ -676,43 +731,45 @@ public class ImageServiceImpl implements ImageService {
         return text.length() <= max ? text : text.substring(0, max - 3) + "...";
     }
 
-    private String readableErrorMessage(String text) {
-        if (text == null || text.isBlank()) return "";
-        try {
-            JsonNode root = objectMapper.readTree(text);
-            JsonNode error = root.path("error");
-            JsonNode message = error.isMissingNode() || error.isNull() ? root.path("message") : error.path("message");
-            if (!message.isMissingNode() && !message.isNull() && !message.asText("").isBlank()) {
-                return message.asText();
-            }
-        } catch (Exception ignored) {
-            return text;
-        }
-        return text;
-    }
-
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
 
-    private String saveRemoteImage(String username, String remoteUrl) throws Exception {
+    private String saveRemoteImage(Long recordId, String username, String remoteUrl) throws Exception {
         log.info("开始下载远程图片，urlHost={}", remoteUrl == null ? "" : remoteUrl.replaceFirst("^(https?://[^/]+).*$", "$1"));
         RestTemplate restTemplate = restTemplateBuilder
                 .setConnectTimeout(IMAGE_TIMEOUT)
                 .setReadTimeout(IMAGE_TIMEOUT)
                 .build();
         long downloadStartedAt = System.currentTimeMillis();
-        byte[] bytes = restTemplate.getForObject(remoteUrl, byte[].class);
+        byte[] bytes;
+        try {
+            bytes = restTemplate.getForObject(remoteUrl, byte[].class);
+        } catch (org.springframework.web.client.RestClientResponseException ex) {
+            persistImageError(recordId, ex.getStatusCode().value(), "image_download_error", remoteUrl, ex.getResponseBodyAsString());
+            throw ex;
+        } catch (org.springframework.web.client.RestClientException ex) {
+            persistImageError(recordId, 502, "image_download_error", remoteUrl, ex.getMessage());
+            throw ex;
+        }
         log.info("远程图片下载完成，durationMs={}, bytes={}", System.currentTimeMillis() - downloadStartedAt, bytes == null ? 0 : bytes.length);
         if (bytes == null || bytes.length == 0) {
+            persistImageError(recordId, 502, "invalid_response", remoteUrl, "远程图片为空");
             throw new IllegalStateException("远程图片为空");
         }
         return saveImageBytes(username, bytes);
     }
 
-    private String saveBase64Image(String username, String base64) throws Exception {
-        byte[] bytes = Base64.getDecoder().decode(base64);
+    private String saveBase64Image(Long recordId, String username, String base64) throws Exception {
+        byte[] bytes;
+        try {
+            bytes = Base64.getDecoder().decode(base64);
+        } catch (IllegalArgumentException ex) {
+            persistImageError(recordId, 502, "invalid_response", null, ex.getMessage());
+            throw ex;
+        }
         if (bytes.length == 0) {
+            persistImageError(recordId, 502, "invalid_response", null, "Base64图片为空");
             throw new IllegalStateException("Base64图片为空");
         }
         return saveImageBytes(username, bytes);

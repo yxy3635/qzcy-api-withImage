@@ -309,6 +309,11 @@ onMounted(() => loadRelay())
             <span class="text-slate-500">{{ formatDate(record.createdAt) }}</span>
             <button v-if="record.generatedImageUrl" class="group w-fit overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-sm" @click="preview = record.generatedImageUrl || ''"><img :src="record.generatedImageUrl" class="h-16 w-24 rounded-lg object-cover transition duration-300 group-hover:scale-105" alt="生成结果" /></button>
             <span v-else class="text-xs text-slate-400">暂无图像</span>
+            <details v-if="record.status === 'failed' && record.errorMessage" class="rounded-xl border border-red-100 bg-red-50 p-3 xl:col-span-6">
+              <summary class="cursor-pointer font-semibold text-red-700">查看真实错误<span v-if="record.errorStatusCode"> · {{ record.errorStatusCode }}</span><span v-if="record.errorType"> · {{ record.errorType }}</span></summary>
+              <p v-if="record.requestUrl" class="mt-2 break-all text-xs text-slate-500">{{ record.requestUrl }}</p>
+              <pre class="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs leading-6 text-red-700">{{ record.errorMessage }}</pre>
+            </details>
           </div>
           <div v-if="!imageLoading && imageRecords.length === 0" class="p-8 text-sm text-slate-500">暂无生图记录</div>
         </div>

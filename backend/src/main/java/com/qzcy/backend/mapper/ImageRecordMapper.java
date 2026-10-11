@@ -24,6 +24,11 @@ public interface ImageRecordMapper extends BaseMapper<ImageRecord> {
                    ir.prompt,
                    ir.generated_image_url AS generatedImageUrl,
                    ir.status,
+                   ir.generation_model AS generationModel,
+                   ir.request_url AS requestUrl,
+                   ir.error_status_code AS errorStatusCode,
+                   ir.error_type AS errorType,
+                   ir.error_message AS errorMessage,
                    ir.cost,
                    ir.created_at AS createdAt
             FROM image_record ir

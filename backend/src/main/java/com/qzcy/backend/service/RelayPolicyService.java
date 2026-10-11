@@ -26,5 +26,12 @@ public interface RelayPolicyService {
     void enforceQuota(RelayToken access, BigDecimal nextCost);
     RelayContext buildContext(String authorization, String apiKeyHeader, String queryKey, String clientIp, String endpointType, String requestedModel);
     List<RelayContext> buildContexts(String authorization, String apiKeyHeader, String queryKey, String clientIp, String endpointType, String requestedModel);
-    RelayCostBreakdown estimateCost(RelayModel model, RelayChannel channel, RelayGroup group, com.fasterxml.jackson.databind.JsonNode responseBody);
+    default RelayCostBreakdown estimateCost(RelayModel model, RelayChannel channel, RelayGroup group,
+                                           com.fasterxml.jackson.databind.JsonNode responseBody) {
+        String path = channel != null && "anthropic".equalsIgnoreCase(channel.getChannelRule())
+                ? "/v1/messages" : null;
+        return estimateCost(model, channel, group, responseBody, path);
+    }
+    RelayCostBreakdown estimateCost(RelayModel model, RelayChannel channel, RelayGroup group,
+                                   com.fasterxml.jackson.databind.JsonNode responseBody, String upstreamPath);
 }

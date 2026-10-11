@@ -9,9 +9,21 @@ public final class RelayProviderModels {
     private RelayProviderModels() {}
     // NULL inherits all channel models; an empty selection supports no models.
     public static boolean supports(RelayChannelProvider provider, Long modelId) {
-        if (provider.getModelIds() == null) return true;
+        String selectedModels = selectedModels(provider);
+        if (selectedModels == null) return true;
         if (modelId == null) return false;
-        return Arrays.stream(provider.getModelIds().split(",")).anyMatch(id -> id.trim().equals(modelId.toString()));
+        return Arrays.stream(selectedModels.split(",")).anyMatch(id -> id.trim().equals(modelId.toString()));
+    }
+
+    /** Partial deployments may still use the entity from before per-provider model selection. */
+    private static String selectedModels(RelayChannelProvider provider) {
+        try {
+            return (String) provider.getClass().getMethod("getModelIds").invoke(provider);
+        } catch (NoSuchMethodException ignored) {
+            return null;
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException("Cannot read provider model selection", ex);
+        }
     }
     public static List<Long> decode(String value) {
         if (value == null) return null;
