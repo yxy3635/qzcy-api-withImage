@@ -23,6 +23,8 @@ public class RelayUsageLogDto {
     private Integer completionTokens;
     private Integer cachedTokens;
     private Integer cacheCreationTokens;
+    private Integer cacheCreation5mTokens;
+    private Integer cacheCreation1hTokens;
     private Integer totalTokens;
     private BigDecimal cost;
     private Integer statusCode;

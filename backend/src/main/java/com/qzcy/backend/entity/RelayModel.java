@@ -19,6 +19,8 @@ public class RelayModel {
     private BigDecimal outputPrice;
     private BigDecimal cachedInputPrice;
     private BigDecimal cacheCreationPrice;
+    @TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
+    private BigDecimal cacheCreation1hPrice;
     private BigDecimal requestPrice;
     private Boolean fixedRequestBilling;
     private Long longContextThreshold;
@@ -28,6 +30,8 @@ public class RelayModel {
     private BigDecimal longContextOutputPrice;
     private BigDecimal longContextCachedInputPrice;
     private BigDecimal longContextCacheCreationPrice;
+    @TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
+    private BigDecimal longContextCacheCreation1hPrice;
     private String status;
     private Boolean enabled;
     private Integer sortOrder;

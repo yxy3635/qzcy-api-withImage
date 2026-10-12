@@ -82,6 +82,7 @@ const newModel = reactive<ModelDraft>({
   outputPrice: 10,
   cachedInputPrice: 0,
   cacheCreationPrice: 0,
+  cacheCreation1hPrice: null,
   requestPrice: 0,
   fixedRequestBilling: false,
   longContextThreshold: 0,
@@ -91,6 +92,7 @@ const newModel = reactive<ModelDraft>({
   longContextOutputPrice: null,
   longContextCachedInputPrice: null,
   longContextCacheCreationPrice: null,
+  longContextCacheCreation1hPrice: null,
   status: 'available',
   enabled: true,
   sortOrder: 10
@@ -159,6 +161,7 @@ const pricedModelsCount = computed(() => models.value.filter((model) => {
     || Number(draft.outputPrice || 0) > 0
     || Number(draft.cachedInputPrice || 0) > 0
     || Number(draft.cacheCreationPrice || 0) > 0
+    || Number(draft.cacheCreation1hPrice || 0) > 0
     || Number(draft.requestPrice || 0) > 0
 }).length)
 const editingModel = computed(() => {
@@ -301,6 +304,7 @@ function setModelDraft(model: RelayModel) {
     outputPrice: Number(model.outputPrice || 0),
     cachedInputPrice: Number(model.cachedInputPrice || 0),
     cacheCreationPrice: Number(model.cacheCreationPrice || 0),
+    cacheCreation1hPrice: model.cacheCreation1hPrice == null ? null : Number(model.cacheCreation1hPrice),
     requestPrice: Number(model.requestPrice || 0),
     fixedRequestBilling: Boolean(model.fixedRequestBilling),
     longContextThreshold: Number(model.longContextThreshold || 0),
@@ -310,6 +314,7 @@ function setModelDraft(model: RelayModel) {
     longContextOutputPrice: model.longContextOutputPrice == null ? null : Number(model.longContextOutputPrice),
     longContextCachedInputPrice: model.longContextCachedInputPrice == null ? null : Number(model.longContextCachedInputPrice),
     longContextCacheCreationPrice: model.longContextCacheCreationPrice == null ? null : Number(model.longContextCacheCreationPrice),
+    longContextCacheCreation1hPrice: model.longContextCacheCreation1hPrice == null ? null : Number(model.longContextCacheCreation1hPrice),
     status: model.status || 'available',
     enabled: model.enabled,
     sortOrder: Number(model.sortOrder || 0)
@@ -888,6 +893,7 @@ function modelTotalPrice(draft: ModelDraft) {
     + Number(draft.outputPrice || 0)
     + Number(draft.cachedInputPrice || 0)
     + Number(draft.cacheCreationPrice || 0)
+    + Number(draft.cacheCreation1hPrice ?? draft.inputPrice * 2)
     + Number(draft.requestPrice || 0)
 }
 

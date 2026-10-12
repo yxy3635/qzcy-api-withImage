@@ -27,11 +27,15 @@ public class RelayUsageLog {
     private Integer completionTokens;
     private Integer cachedTokens;
     private Integer cacheCreationTokens;
+    private Integer cacheCreation5mTokens;
+    private Integer cacheCreation1hTokens;
     private Integer totalTokens;
     private BigDecimal inputCost;
     private BigDecimal outputCost;
     private BigDecimal cacheReadCost;
     private BigDecimal cacheCreationCost;
+    private BigDecimal cacheCreation5mCost;
+    private BigDecimal cacheCreation1hCost;
     private BigDecimal requestCost;
     private BigDecimal groupRatio;
     private BigDecimal channelRatio;

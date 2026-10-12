@@ -434,6 +434,7 @@ export interface RelayChannelModel {
   outputPrice?: number
   cachedInputPrice?: number
   cacheCreationPrice?: number
+  cacheCreation1hPrice?: number | null
   requestPrice?: number
   fixedRequestBilling?: boolean
   longContextThreshold?: number
@@ -443,6 +444,7 @@ export interface RelayChannelModel {
   longContextOutputPrice?: number | null
   longContextCachedInputPrice?: number | null
   longContextCacheCreationPrice?: number | null
+  longContextCacheCreation1hPrice?: number | null
   upstreamModel: string
   enabled: boolean
 }
@@ -470,6 +472,7 @@ export interface RelayPublicChannelModel {
   outputPrice?: number
   cachedInputPrice?: number
   cacheCreationPrice?: number
+  cacheCreation1hPrice?: number | null
   requestPrice?: number
   fixedRequestBilling?: boolean
   longContextThreshold?: number
@@ -479,6 +482,7 @@ export interface RelayPublicChannelModel {
   longContextOutputPrice?: number | null
   longContextCachedInputPrice?: number | null
   longContextCacheCreationPrice?: number | null
+  longContextCacheCreation1hPrice?: number | null
   enabled: boolean
 }
 
@@ -585,6 +589,7 @@ export interface RelayModel {
   outputPrice: number
   cachedInputPrice: number
   cacheCreationPrice: number
+  cacheCreation1hPrice?: number | null
   requestPrice: number
   fixedRequestBilling: boolean
   longContextThreshold: number
@@ -594,6 +599,7 @@ export interface RelayModel {
   longContextOutputPrice?: number | null
   longContextCachedInputPrice?: number | null
   longContextCacheCreationPrice?: number | null
+  longContextCacheCreation1hPrice?: number | null
   status: string
   enabled: boolean
   sortOrder: number
@@ -618,6 +624,8 @@ export interface RelayUsageLog {
   completionTokens: number
   cachedTokens: number
   cacheCreationTokens: number
+  cacheCreation5mTokens?: number | null
+  cacheCreation1hTokens?: number | null
   totalTokens: number
   cost: number
   statusCode: number
@@ -637,6 +645,8 @@ export interface AdminRelayUsageLog extends RelayUsageLog {
   outputCost: number
   cacheReadCost: number
   cacheCreationCost: number
+  cacheCreation5mCost?: number | null
+  cacheCreation1hCost?: number | null
   requestCost: number
   groupRatio: number
   channelRatio: number

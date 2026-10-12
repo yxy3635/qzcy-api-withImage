@@ -192,6 +192,8 @@ public class RelaySchemaInitializer implements CommandLineRunner {
 
     private void ensureRelayPrecision() {
         if (tableExists("relay_model")) {
+            addColumnIfMissing("relay_model", "cache_creation1h_price", "DECIMAL(12, 6) NULL");
+            addColumnIfMissing("relay_model", "long_context_cache_creation1h_price", "DECIMAL(12, 6) NULL");
             addColumnIfMissing("relay_model", "fixed_request_billing", "TINYINT(1) NOT NULL DEFAULT 0");
             addColumnIfMissing("relay_model", "long_context_threshold", "BIGINT NOT NULL DEFAULT 0");
             addColumnIfMissing("relay_model", "long_context_billing_mode", "VARCHAR(20) NOT NULL DEFAULT 'price'");
@@ -203,6 +205,10 @@ public class RelaySchemaInitializer implements CommandLineRunner {
             jdbcTemplate.update("UPDATE relay_model SET long_context_billing_mode = 'price' WHERE long_context_billing_mode IS NULL OR long_context_billing_mode = ''");
         }
         if (tableExists("relay_usage_log")) {
+            addColumnIfMissing("relay_usage_log", "cache_creation5m_tokens", "INT NULL");
+            addColumnIfMissing("relay_usage_log", "cache_creation1h_tokens", "INT NULL");
+            addColumnIfMissing("relay_usage_log", "cache_creation5m_cost", "DECIMAL(12, 6) NULL");
+            addColumnIfMissing("relay_usage_log", "cache_creation1h_cost", "DECIMAL(12, 6) NULL");
             addColumnIfMissing("relay_usage_log", "provider_id", "BIGINT NULL");
             addColumnIfMissing("relay_usage_log", "provider_name", "VARCHAR(80) NULL");
             addColumnIfMissing("relay_usage_log", "thinking_effort", "VARCHAR(40) NOT NULL DEFAULT ''");

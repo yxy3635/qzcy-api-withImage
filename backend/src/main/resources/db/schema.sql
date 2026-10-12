@@ -199,6 +199,7 @@ CREATE TABLE IF NOT EXISTS relay_model (
     output_price DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     cached_input_price DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     cache_creation_price DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
+    cache_creation1h_price DECIMAL(12, 6) NULL,
     request_price DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     fixed_request_billing TINYINT(1) NOT NULL DEFAULT 0,
     long_context_threshold BIGINT NOT NULL DEFAULT 0,
@@ -208,6 +209,7 @@ CREATE TABLE IF NOT EXISTS relay_model (
     long_context_output_price DECIMAL(12, 6) NULL,
     long_context_cached_input_price DECIMAL(12, 6) NULL,
     long_context_cache_creation_price DECIMAL(12, 6) NULL,
+    long_context_cache_creation1h_price DECIMAL(12, 6) NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'available',
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     sort_order INT NOT NULL DEFAULT 10,
@@ -292,6 +294,11 @@ SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHE
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'long_context_cache_creation_price') = 0, 'ALTER TABLE relay_model ADD COLUMN long_context_cache_creation_price DECIMAL(12, 6) NULL AFTER long_context_cached_input_price', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'cache_creation1h_price') = 0, 'ALTER TABLE relay_model ADD COLUMN cache_creation1h_price DECIMAL(12, 6) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_model' AND COLUMN_NAME = 'long_context_cache_creation1h_price') = 0, 'ALTER TABLE relay_model ADD COLUMN long_context_cache_creation1h_price DECIMAL(12, 6) NULL', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 INSERT INTO relay_model
@@ -467,11 +474,15 @@ CREATE TABLE IF NOT EXISTS relay_usage_log (
     completion_tokens INT NOT NULL DEFAULT 0,
     cached_tokens INT NOT NULL DEFAULT 0,
     cache_creation_tokens INT NOT NULL DEFAULT 0,
+    cache_creation5m_tokens INT NULL,
+    cache_creation1h_tokens INT NULL,
     total_tokens INT NOT NULL DEFAULT 0,
     input_cost DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     output_cost DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     cache_read_cost DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     cache_creation_cost DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
+    cache_creation5m_cost DECIMAL(12, 6) NULL,
+    cache_creation1h_cost DECIMAL(12, 6) NULL,
     request_cost DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     group_ratio DECIMAL(10, 4) NOT NULL DEFAULT 1.0000,
     channel_ratio DECIMAL(10, 4) NOT NULL DEFAULT 1.0000,
@@ -553,6 +564,15 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND COLUMN_NAME = 'coupon_code') = 0, 'ALTER TABLE payment_record ADD COLUMN coupon_code VARCHAR(255) NULL AFTER coupon_id', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_record' AND COLUMN_NAME = 'coupon_discount_percent') = 0, 'ALTER TABLE payment_record ADD COLUMN coupon_discount_percent DECIMAL(5, 2) NULL AFTER coupon_code', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'cache_creation5m_tokens') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN cache_creation5m_tokens INT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'cache_creation1h_tokens') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN cache_creation1h_tokens INT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'cache_creation5m_cost') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN cache_creation5m_cost DECIMAL(12, 6) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'cache_creation1h_cost') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN cache_creation1h_cost DECIMAL(12, 6) NULL', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS recharge_coupon (

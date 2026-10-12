@@ -629,6 +629,7 @@ function channelModelDetail(binding: RelayPublicChannelModel): RelayModel {
     outputPrice: Number(binding.outputPrice ?? exact?.outputPrice ?? 0),
     cachedInputPrice: Number(binding.cachedInputPrice ?? exact?.cachedInputPrice ?? 0),
     cacheCreationPrice: Number(binding.cacheCreationPrice ?? exact?.cacheCreationPrice ?? 0),
+    cacheCreation1hPrice: binding.cacheCreation1hPrice ?? exact?.cacheCreation1hPrice,
     requestPrice: Number(binding.requestPrice ?? exact?.requestPrice ?? 0),
     fixedRequestBilling: Boolean(binding.fixedRequestBilling ?? exact?.fixedRequestBilling),
     longContextThreshold: Number(binding.longContextThreshold ?? exact?.longContextThreshold ?? 0),
@@ -638,24 +639,27 @@ function channelModelDetail(binding: RelayPublicChannelModel): RelayModel {
     longContextOutputPrice: binding.longContextOutputPrice ?? exact?.longContextOutputPrice,
     longContextCachedInputPrice: binding.longContextCachedInputPrice ?? exact?.longContextCachedInputPrice,
     longContextCacheCreationPrice: binding.longContextCacheCreationPrice ?? exact?.longContextCacheCreationPrice,
+    longContextCacheCreation1hPrice: binding.longContextCacheCreation1hPrice ?? exact?.longContextCacheCreation1hPrice,
     status: exact?.status || '',
     enabled: binding.enabled,
     sortOrder: exact?.sortOrder || 0
   }
 }
 
-function modelHasConfiguredPricing(model?: Pick<RelayModel, 'inputPrice' | 'outputPrice' | 'cachedInputPrice' | 'cacheCreationPrice' | 'requestPrice' | 'longContextThreshold' | 'longContextInputPrice' | 'longContextOutputPrice' | 'longContextCachedInputPrice' | 'longContextCacheCreationPrice' | 'longContextMultiplier'>) {
+function modelHasConfiguredPricing(model?: Pick<RelayModel, 'inputPrice' | 'outputPrice' | 'cachedInputPrice' | 'cacheCreationPrice' | 'cacheCreation1hPrice' | 'requestPrice' | 'longContextThreshold' | 'longContextInputPrice' | 'longContextOutputPrice' | 'longContextCachedInputPrice' | 'longContextCacheCreationPrice' | 'longContextCacheCreation1hPrice' | 'longContextMultiplier'>) {
   if (!model) return false
   return Number(model.inputPrice || 0) > 0
     || Number(model.outputPrice || 0) > 0
     || Number(model.cachedInputPrice || 0) > 0
     || Number(model.cacheCreationPrice || 0) > 0
+    || Number(model.cacheCreation1hPrice || 0) > 0
     || Number(model.requestPrice || 0) > 0
     || Number(model.longContextThreshold || 0) > 0
     || Number(model.longContextInputPrice || 0) > 0
     || Number(model.longContextOutputPrice || 0) > 0
     || Number(model.longContextCachedInputPrice || 0) > 0
     || Number(model.longContextCacheCreationPrice || 0) > 0
+    || Number(model.longContextCacheCreation1hPrice || 0) > 0
     || Number(model.longContextMultiplier || 0) > 0
 }
 
@@ -680,6 +684,20 @@ function longContextPrice(model: RelayModel, ordinaryPrice?: number, configuredP
     return Number(ordinaryPrice || 0) * Number(model.longContextMultiplier || 1)
   }
   return configuredPrice == null ? Number(ordinaryPrice || 0) : Number(configuredPrice)
+}
+
+function cacheCreation1hPrice(model: RelayModel, longContext = false) {
+  const ordinary = model.cacheCreation1hPrice == null ? model.inputPrice * 2 : Number(model.cacheCreation1hPrice)
+  if (!longContext) return ordinary
+  if (!longContextUsesMultiplier(model) && model.cacheCreation1hPrice == null && model.longContextCacheCreation1hPrice == null) {
+    return longContextPrice(model, model.inputPrice, model.longContextInputPrice) * 2
+  }
+  return longContextPrice(model, ordinary, model.longContextCacheCreation1hPrice)
+}
+
+function cacheWriteDetail(log: Pick<RelayUsageLog, 'cacheCreationTokens' | 'cacheCreation5mTokens' | 'cacheCreation1hTokens'>) {
+  if (log.cacheCreation5mTokens == null || log.cacheCreation1hTokens == null) return '写入 ' + compact(log.cacheCreationTokens || 0)
+  return '写入 ' + compact(log.cacheCreationTokens || 0) + '（5 分钟 ' + compact(log.cacheCreation5mTokens) + ' · 1 小时 ' + compact(log.cacheCreation1hTokens) + '）'
 }
 
 function groupDetail(code: string) {
@@ -726,8 +744,8 @@ function cacheHitLabel(log: Pick<RelayUsageLog, 'promptTokens' | 'cachedTokens'>
   return `${cacheHitRate(log).toFixed(1)}%`
 }
 
-function cacheHitTitle(log: Pick<RelayUsageLog, 'promptTokens' | 'cachedTokens' | 'cacheCreationTokens'>) {
-  return `缓存命中率 ${cacheHitLabel(log)}，缓存读 ${compact(log.cachedTokens || 0)}，缓存写 ${compact(log.cacheCreationTokens || 0)}`
+function cacheHitTitle(log: Pick<RelayUsageLog, 'promptTokens' | 'cachedTokens' | 'cacheCreationTokens' | 'cacheCreation5mTokens' | 'cacheCreation1hTokens'>) {
+  return `缓存命中率 ${cacheHitLabel(log)}，缓存读 ${compact(log.cachedTokens || 0)}，${cacheWriteDetail(log)}`
 }
 
 function logFailed(log: Pick<RelayUsageLog, 'status' | 'statusCode'>) {
@@ -793,6 +811,8 @@ function exportUsageCsv() {
     '输出 Token',
     '缓存读 Token',
     '缓存写 Token',
+    '缓存写 5 分钟 Token',
+    '缓存写 1 小时 Token',
     '总 Token',
     '消费金额',
     '状态码',
@@ -815,6 +835,8 @@ function exportUsageCsv() {
     log.completionTokens || 0,
     log.cachedTokens || 0,
     log.cacheCreationTokens || 0,
+    log.cacheCreation5mTokens ?? '',
+    log.cacheCreation1hTokens ?? '',
     log.totalTokens || 0,
     Number(log.cost || 0).toFixed(6),
     log.statusCode || '',
@@ -2264,7 +2286,7 @@ onMounted(async () => {
                       <div><p class="font-black text-slate-400">思考强度</p><p class="mt-1.5 text-slate-700">{{ log.thinkingEffort || '-' }}</p></div>
                       <div><p class="font-black text-slate-400">渠道 / 分组</p><p class="mt-1.5 break-all text-slate-700">{{ log.channelName || '-' }} · {{ log.groupNames || '-' }}</p></div>
                       <div><p class="font-black text-slate-400">请求端点</p><p class="mt-1.5 break-all font-mono text-slate-700">{{ log.endpoint || '-' }}</p></div>
-                      <div><p class="font-black text-slate-400">缓存明细</p><p class="mt-1.5 text-slate-700">读取 {{ compact(log.cachedTokens || 0) }} · 写入 {{ compact(log.cacheCreationTokens || 0) }}</p></div>
+                      <div><p class="font-black text-slate-400">缓存明细</p><p class="mt-1.5 text-slate-700">读取 {{ compact(log.cachedTokens || 0) }} · {{ cacheWriteDetail(log) }}</p></div>
                       <div><p class="font-black text-slate-400">首字延迟</p><p class="mt-1.5 text-slate-700">{{ firstTokenLabel(log) }}<span v-if="!Number(log.firstTokenMs || 0)" class="text-slate-400">（非流式未记录）</span></p></div>
                       <div><p class="font-black text-slate-400">输出吞吐量</p><p class="mt-1.5 text-slate-700">{{ throughputLabel(log) }}<span v-if="!tokensPerSecond(log)" class="text-slate-400">（暂无数据）</span></p></div>
                       <div><p class="font-black text-slate-400">完整时间</p><p class="mt-1.5 text-slate-700">{{ log.createdAt?.replace('T', ' ').slice(0, 19) || '-' }}</p></div>
@@ -3049,7 +3071,8 @@ onMounted(async () => {
               <p class="flex justify-between gap-3"><span>输入 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.inputPrice) }}</span></p>
               <p class="flex justify-between gap-3"><span>输出 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.outputPrice) }}</span></p>
               <p class="flex justify-between gap-3"><span>缓存读 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.cachedInputPrice) }}</span></p>
-              <p class="flex justify-between gap-3"><span>缓存写 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.cacheCreationPrice) }}</span></p>
+              <p class="flex justify-between gap-3"><span>缓存写 · 默认 / 5 分钟 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(activePricingTooltip.detail.cacheCreationPrice) }}</span></p>
+              <p class="flex justify-between gap-3"><span>缓存写 · 1 小时 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(cacheCreation1hPrice(activePricingTooltip.detail)) }}</span></p>
             </template>
             <div v-if="longContextEnabled(activePricingTooltip.detail)" class="mt-3 border-t border-slate-100 pt-3">
               <div class="flex items-center justify-between gap-3">
@@ -3063,7 +3086,8 @@ onMounted(async () => {
                 <p class="flex justify-between gap-3"><span>输入 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(longContextPrice(activePricingTooltip.detail, activePricingTooltip.detail.inputPrice, activePricingTooltip.detail.longContextInputPrice)) }}</span></p>
                 <p class="flex justify-between gap-3"><span>输出 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(longContextPrice(activePricingTooltip.detail, activePricingTooltip.detail.outputPrice, activePricingTooltip.detail.longContextOutputPrice)) }}</span></p>
                 <p class="flex justify-between gap-3"><span>缓存读 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(longContextPrice(activePricingTooltip.detail, activePricingTooltip.detail.cachedInputPrice, activePricingTooltip.detail.longContextCachedInputPrice)) }}</span></p>
-                <p class="flex justify-between gap-3"><span>缓存写 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(longContextPrice(activePricingTooltip.detail, activePricingTooltip.detail.cacheCreationPrice, activePricingTooltip.detail.longContextCacheCreationPrice)) }}</span></p>
+                <p class="flex justify-between gap-3"><span>缓存写 · 默认 / 5 分钟 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(longContextPrice(activePricingTooltip.detail, activePricingTooltip.detail.cacheCreationPrice, activePricingTooltip.detail.longContextCacheCreationPrice)) }}</span></p>
+                <p class="flex justify-between gap-3"><span>缓存写 · 1 小时 / 1M</span><span class="font-mono font-black text-slate-700">{{ priceValue(cacheCreation1hPrice(activePricingTooltip.detail, true)) }}</span></p>
               </div>
             </div>
           </div>

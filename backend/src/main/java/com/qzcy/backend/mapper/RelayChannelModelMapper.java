@@ -23,6 +23,7 @@ public interface RelayChannelModelMapper extends BaseMapper<RelayChannelModel> {
                    m.output_price,
                    m.cached_input_price,
                    m.cache_creation_price,
+                   m.cache_creation1h_price,
                    m.request_price,
                    m.fixed_request_billing,
                    m.long_context_threshold,
@@ -32,6 +33,7 @@ public interface RelayChannelModelMapper extends BaseMapper<RelayChannelModel> {
                    m.long_context_output_price,
                    m.long_context_cached_input_price,
                    m.long_context_cache_creation_price,
+                   m.long_context_cache_creation1h_price,
                    cm.upstream_model,
                    cm.enabled
             FROM relay_channel_model cm

@@ -18,6 +18,7 @@ public class RelayPublicChannelModelDto {
     private BigDecimal outputPrice;
     private BigDecimal cachedInputPrice;
     private BigDecimal cacheCreationPrice;
+    private BigDecimal cacheCreation1hPrice;
     private BigDecimal requestPrice;
     private Boolean fixedRequestBilling;
     private Long longContextThreshold;
@@ -27,5 +28,6 @@ public class RelayPublicChannelModelDto {
     private BigDecimal longContextOutputPrice;
     private BigDecimal longContextCachedInputPrice;
     private BigDecimal longContextCacheCreationPrice;
+    private BigDecimal longContextCacheCreation1hPrice;
     private Boolean enabled;
 }

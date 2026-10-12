@@ -19,6 +19,16 @@ const emit = defineEmits<{ save: []; cancel: []; delete: [] }>()
 
 const advancedBillingOpen = ref(false)
 
+function nullablePrice(event: Event): number | null {
+  const input = event.target as HTMLInputElement
+  return input.value === '' ? null : input.valueAsNumber
+}
+
+function applyClaudeCacheWritePrices() {
+  props.draft.cacheCreationPrice = Number((props.draft.inputPrice * 1.25).toFixed(6))
+  props.draft.cacheCreation1hPrice = null
+}
+
 const modelTypeOptions = ['chat', 'image', 'embedding', 'audio', 'code']
 </script>
 
@@ -81,8 +91,12 @@ const modelTypeOptions = ['chat', 'image', 'embedding', 'audio', 'code']
             <input v-model.number="draft.cachedInputPrice" class="input mt-1 h-10 rounded-lg text-sm" type="number" step="0.0001" />
           </label>
           <label class="block">
-            <span class="text-xs font-black text-slate-600">缓存创建</span>
+            <span class="text-xs font-black text-slate-600">缓存创建 · 默认 / 5 分钟</span>
             <input v-model.number="draft.cacheCreationPrice" class="input mt-1 h-10 rounded-lg text-sm" type="number" step="0.0001" />
+          </label>
+          <label class="block">
+            <span class="text-xs font-black text-slate-600">缓存创建 · 1 小时</span>
+            <input :value="draft.cacheCreation1hPrice" class="input mt-1 h-10 rounded-lg text-sm" type="number" min="0" step="0.000001" placeholder="留空按输入价 × 2" @input="draft.cacheCreation1hPrice = nullablePrice($event)" />
           </label>
           <label class="block">
             <span class="text-xs font-black text-slate-600">每请求价格</span>
@@ -97,6 +111,11 @@ const modelTypeOptions = ['chat', 'image', 'embedding', 'audio', 'code']
           </label>
         </div>
       </section>
+
+      <div class="rounded-lg bg-sky-50 px-3 py-2.5 text-[11px] font-semibold text-sky-800">
+        <p>Claude 标准缓存写入价：5 分钟为输入价 × 1.25；1 小时为输入价 × 2。缓存读取价请按具体模型配置。</p>
+        <button class="mt-2 font-black underline underline-offset-2" type="button" @click="applyClaudeCacheWritePrices">按 Claude 标准设置缓存写入价</button>
+      </div>
 
       <!-- 高级计费（默认折叠） -->
       <section>
@@ -138,8 +157,12 @@ const modelTypeOptions = ['chat', 'image', 'embedding', 'audio', 'code']
                 <input v-model.number="draft.longContextCachedInputPrice" class="input mt-1 h-10 rounded-lg text-sm" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存读价" />
               </label>
               <label class="block">
-                <span class="text-xs font-black text-slate-600">长上下文缓存写 / 1M</span>
+                <span class="text-xs font-black text-slate-600">长上下文缓存写 · 默认 / 5 分钟</span>
                 <input v-model.number="draft.longContextCacheCreationPrice" class="input mt-1 h-10 rounded-lg text-sm" type="number" min="0" step="0.0001" placeholder="留空沿用普通缓存写价" />
+              </label>
+              <label class="block">
+                <span class="text-xs font-black text-slate-600">长上下文缓存写 · 1 小时</span>
+                <input :value="draft.longContextCacheCreation1hPrice" class="input mt-1 h-10 rounded-lg text-sm" type="number" min="0" step="0.000001" placeholder="留空沿用小时价；自动价按该档输入 × 2" @input="draft.longContextCacheCreation1hPrice = nullablePrice($event)" />
               </label>
             </div>
           </template>

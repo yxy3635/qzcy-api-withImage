@@ -340,6 +340,19 @@ server {
 - [ ] 如启用 Redis，已配置连接信息和合理的缓存 TTL
 - [ ] 已检查充值异步通知地址可从支付服务访问
 
+## Claude 缓存计费
+
+计费依据 [Claude 官方 Prompt caching 文档](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)。输入、输出和缓存读取价格按具体型号配置；缓存读取倍率存在型号差异，不统一硬编码。
+
+- 现有 `cacheCreationPrice` 是默认 / 5 分钟缓存创建价。后台模型编辑提供“按 Claude 标准设置缓存写入价”，将其设为输入价 × 1.25。
+- 新增 `cacheCreation1hPrice`：1 小时缓存创建价；留空（JSON null）按输入价 × 2 自动计算，显式 0 表示该项免费。
+- 长上下文倍率模式同时作用于两种创建价；独立价格模式可配置 `longContextCacheCreation1hPrice`。留空时沿用普通小时价；如果普通小时价也留空，则使用该档输入价 × 2。原长上下文 5 分钟单价仍单独配置。
+- 根据 `usage.cache_creation.ephemeral_5m_input_tokens` 和 `ephemeral_1h_input_tokens` 分别结算。输入总量包含普通输入、缓存读取和缓存创建，三项不会重复收费。
+- 返回创建总量时以总量为准；未返回总量时合计两个时长明细。仅有旧版总量、缺少时长明细时仍按默认创建价结算，不能从请求的 TTL 推断真实命中或混合缓存写入量。
+- 流式用量从消息事件合并；转发保留块级及顶层 `cache_control`、`ttl`。日志保存两种时长的 Token 数与费用，用户日志详情、CSV 和后台日志展示时长明细；旧日志的时长字段为 null，不回填猜测值。
+
+升级时，后端启动初始化器会自动添加模型和日志字段，`schema.sql` 也包含可重复执行的升级语句。现有模型价格不自动覆盖；需要标准定价的 Claude 模型请使用后台设置按钮并保存。历史账单不重算。
+
 ## 开发与验证
 
 前端类型检查：

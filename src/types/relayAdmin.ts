@@ -50,6 +50,7 @@ export interface ModelDraft {
   outputPrice: number
   cachedInputPrice: number
   cacheCreationPrice: number
+  cacheCreation1hPrice: number | null
   requestPrice: number
   fixedRequestBilling: boolean
   longContextThreshold: number
@@ -59,6 +60,7 @@ export interface ModelDraft {
   longContextOutputPrice: number | null
   longContextCachedInputPrice: number | null
   longContextCacheCreationPrice: number | null
+  longContextCacheCreation1hPrice: number | null
   status: string
   enabled: boolean
   sortOrder: number

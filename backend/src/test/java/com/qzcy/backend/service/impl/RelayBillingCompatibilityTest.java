@@ -199,7 +199,7 @@ class RelayBillingCompatibilityTest {
 
     @ParameterizedTest
     @MethodSource("formats")
-    void detailedAnthropicCacheWriteCountersDoNotDuplicateAggregateCharge(String path, String json) throws Exception {
+    void detailedAnthropicCacheWritesUseDifferentRatesWithoutDuplicateCharge(String path, String json) throws Exception {
         var body = response(json);
         var usage = (com.fasterxml.jackson.databind.node.ObjectNode) body.path("usage");
         usage.put("cache_creation_input_tokens", 1000);
@@ -207,8 +207,10 @@ class RelayBillingCompatibilityTest {
                 .put("ephemeral_1h_input_tokens", 400);
         if (!MESSAGES.equals(path)) usage.put(CHAT.equals(path) ? "prompt_tokens" : "input_tokens", 288555);
         var cost = policy().estimateCost(model(), channel(), group(), body, path);
-        assertMoney("0.0015", cost.cacheCreation());
-        assertMoney("0.000140564", cost.total());
+        assertMoney("0.0009", cost.cacheCreation5m());
+        assertMoney("0.0016", cost.cacheCreation1h());
+        assertMoney("0.0025", cost.cacheCreation());
+        assertMoney("0.000150564", cost.total());
     }
 
     @Test
@@ -237,12 +239,28 @@ class RelayBillingCompatibilityTest {
                 Arguments.of(args.get()[0], args.get()[1], "json"),
                 Arguments.of(args.get()[0], args.get()[1], "cache_updates"),
                 Arguments.of(args.get()[0], args.get()[1], "protocol_events"),
-                Arguments.of(args.get()[0], args.get()[1], "fragmented_events")));
+                Arguments.of(args.get()[0], args.get()[1], "fragmented_events"),
+                Arguments.of(args.get()[0], args.get()[1], "ttl_json"),
+                Arguments.of(args.get()[0], args.get()[1], "ttl_cache_updates"),
+                Arguments.of(args.get()[0], args.get()[1], "ttl_protocol_events"),
+                Arguments.of(args.get()[0], args.get()[1], "ttl_fragmented_events")));
     }
 
     @ParameterizedTest
     @MethodSource("dispatchFormats")
     void realDispatchChargesOnceAndRecordsNormalizedUsage(String path, String json, String scenario) throws Exception {
+        boolean ttl = scenario.startsWith("ttl_");
+        if (ttl) {
+            scenario = scenario.substring(4);
+            var ttlUsage = (com.fasterxml.jackson.databind.node.ObjectNode) MAPPER.readTree(json);
+            ttlUsage.put("cache_creation_input_tokens", 1000);
+            ttlUsage.putObject("cache_creation").put("ephemeral_5m_input_tokens", 600)
+                    .put("ephemeral_1h_input_tokens", 400);
+            if (!MESSAGES.equals(path)) ttlUsage.put(CHAT.equals(path) ? "prompt_tokens" : "input_tokens", 288555);
+            json = ttlUsage.toString();
+        }
+        final String eventScenario = scenario;
+        final var forwardedBody = new java.util.concurrent.atomic.AtomicReference<String>();
         boolean stream = !"json".equals(scenario);
         String payload = switch (scenario) {
             case "json" -> response(json).toString();
@@ -253,11 +271,11 @@ class RelayBillingCompatibilityTest {
         byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
         HttpServer upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         upstream.createContext("/", exchange -> {
-            exchange.getRequestBody().readAllBytes();
+            forwardedBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             exchange.getResponseHeaders().set("Content-Type", stream ? "text/event-stream" : "application/json");
             exchange.sendResponseHeaders(200, bytes.length);
             try (var out = exchange.getResponseBody()) {
-                if ("fragmented_events".equals(scenario)) {
+                if ("fragmented_events".equals(eventScenario)) {
                     for (int offset = 0; offset < bytes.length; offset += 17) {
                         out.write(bytes, offset, Math.min(17, bytes.length - offset));
                         out.flush();
@@ -287,8 +305,15 @@ class RelayBillingCompatibilityTest {
             doReturn(List.of(context)).when(policy).buildContexts(any(), any(), any(), any(), any(), any());
             var dispatch = new RelayDispatchServiceImpl(policy, new RelayProviderScheduler(), logs, tokens,
                     mock(UserMapper.class), payments, MAPPER);
+            var requestBody = MAPPER.createObjectNode().put("model", "test-model").put("stream", stream);
+            if (ttl && MESSAGES.equals(path)) {
+                requestBody.putObject("cache_control").put("type", "ephemeral").put("ttl", "1h");
+                requestBody.putArray("messages").addObject().put("role", "user")
+                        .putArray("content").addObject().put("type", "text").put("text", "hello")
+                        .putObject("cache_control").put("type", "ephemeral").put("ttl", "5m");
+            }
             var request = new RelayDispatchRequest("Bearer test-only", "", "", "test-client", "127.0.0.1",
-                    "chat", path, MAPPER.createObjectNode().put("model", "test-model").put("stream", stream));
+                    "chat", path, requestBody);
             if (stream) {
                 var result = dispatch.dispatchStream(request);
                 assertEquals(200, result.statusCode());
@@ -302,15 +327,25 @@ class RelayBillingCompatibilityTest {
             }
             var amount = ArgumentCaptor.forClass(BigDecimal.class);
             verify(payments).deductBalanceOnly(eq(3L), amount.capture());
-            assertMoney("0.000125564", amount.getValue());
+            String expectedCost = ttl ? "0.000150564" : "0.000125564";
+            assertMoney(expectedCost, amount.getValue());
             var saved = ArgumentCaptor.forClass(RelayUsageLog.class);
             verify(logs).insert(saved.capture());
-            assertEquals(287555, saved.getValue().getPromptTokens());
+            assertEquals(ttl ? 288555 : 287555, saved.getValue().getPromptTokens());
             assertEquals(287360, saved.getValue().getCachedTokens());
             assertEquals(168, saved.getValue().getCompletionTokens());
-            assertEquals(287723, saved.getValue().getTotalTokens());
-            assertMoney("0.000125564", saved.getValue().getCost());
-            verify(tokens).incrementUsage(eq(7L), eq(1L), eq(287723L), any(), any(), any());
+            assertEquals(ttl ? 288723 : 287723, saved.getValue().getTotalTokens());
+            assertMoney(expectedCost, saved.getValue().getCost());
+            assertEquals(ttl ? 600 : 0, saved.getValue().getCacheCreation5mTokens());
+            assertEquals(ttl ? 400 : 0, saved.getValue().getCacheCreation1hTokens());
+            assertMoney(ttl ? "0.0009" : "0", saved.getValue().getCacheCreation5mCost());
+            assertMoney(ttl ? "0.0016" : "0", saved.getValue().getCacheCreation1hCost());
+            verify(tokens).incrementUsage(eq(7L), eq(1L), eq(ttl ? 288723L : 287723L), any(), any(), any());
+            if (ttl && MESSAGES.equals(path)) {
+                var outbound = MAPPER.readTree(forwardedBody.get());
+                assertEquals(requestBody.path("cache_control"), outbound.path("cache_control"));
+                assertEquals(requestBody.path("messages"), outbound.path("messages"));
+            }
         } finally {
             upstream.stop(0);
         }

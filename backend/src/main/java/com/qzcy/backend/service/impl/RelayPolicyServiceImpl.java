@@ -339,7 +339,6 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         RelayUsage usage = RelayUsage.fromResponse(responseBody, upstreamPath);
         BigDecimal completionTokens = BigDecimal.valueOf(usage.outputTokens());
         BigDecimal cachedTokens = BigDecimal.valueOf(usage.cacheReadTokens());
-        BigDecimal cacheCreationTokens = BigDecimal.valueOf(usage.cacheCreationTokens());
         BigDecimal billableInputTokens = BigDecimal.valueOf(usage.billableInputTokens());
         boolean longContext = model.getLongContextThreshold() != null
                 && model.getLongContextThreshold() > 0
@@ -351,16 +350,32 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
         BigDecimal input = perMillion(billableInputTokens).multiply(longContext ? inputPrice : zeroIfNull(model.getInputPrice()));
         BigDecimal output = perMillion(completionTokens).multiply(longContext ? outputPrice : zeroIfNull(model.getOutputPrice()));
         BigDecimal cacheRead = perMillion(cachedTokens).multiply(longContext ? cacheReadPrice : zeroIfNull(model.getCachedInputPrice()));
-        BigDecimal cacheCreation = perMillion(cacheCreationTokens).multiply(longContext ? cacheCreationPrice : zeroIfNull(model.getCacheCreationPrice()));
+        BigDecimal hourlyPrice = model.getCacheCreation1hPrice() == null
+                ? zeroIfNull(model.getInputPrice()).multiply(BigDecimal.valueOf(2)) : model.getCacheCreation1hPrice();
+        if (longContext) {
+            // Automatic hourly pricing follows the effective input tier. An
+            // explicit hourly price follows the existing long-context rules.
+            hourlyPrice = model.getCacheCreation1hPrice() == null
+                    && !"multiplier".equalsIgnoreCase(model.getLongContextBillingMode())
+                    && model.getLongContextCacheCreation1hPrice() == null
+                    ? inputPrice.multiply(BigDecimal.valueOf(2))
+                    : longContextPrice(model, hourlyPrice, model.getLongContextCacheCreation1hPrice());
+        }
+        BigDecimal cacheCreation5m = perMillion(BigDecimal.valueOf(usage.cacheCreation5mTokens()))
+                .multiply(longContext ? cacheCreationPrice : zeroIfNull(model.getCacheCreationPrice()));
+        BigDecimal cacheCreation1h = perMillion(BigDecimal.valueOf(usage.cacheCreation1hTokens())).multiply(hourlyPrice);
+        BigDecimal cacheCreation = cacheCreation5m.add(cacheCreation1h);
         BigDecimal request = zeroIfNull(model.getRequestPrice());
         if (Boolean.TRUE.equals(model.getFixedRequestBilling())) {
-            return new RelayCostBreakdown(input, output, cacheRead, cacheCreation, request, request);
+            return new RelayCostBreakdown(input, output, cacheRead, cacheCreation,
+                    cacheCreation5m, cacheCreation1h, request, request);
         }
         BigDecimal base = input.add(output).add(cacheRead).add(cacheCreation).add(request);
         BigDecimal upstreamCost = base.multiply(channelRatio(channel));
         BigDecimal userCost = base.multiply(groupRatio(group));
         BigDecimal total = userCost.max(upstreamCost);
-        return new RelayCostBreakdown(input, output, cacheRead, cacheCreation, request, total);
+        return new RelayCostBreakdown(input, output, cacheRead, cacheCreation,
+                cacheCreation5m, cacheCreation1h, request, total);
     }
 
     private BigDecimal perMillion(BigDecimal value) {

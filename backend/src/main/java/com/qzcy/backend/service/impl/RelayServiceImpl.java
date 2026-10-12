@@ -880,6 +880,13 @@ public class RelayServiceImpl implements RelayService {
         if (dto.getOutputPrice() != null) model.setOutputPrice(nonNegative(dto.getOutputPrice()));
         if (dto.getCachedInputPrice() != null) model.setCachedInputPrice(nonNegative(dto.getCachedInputPrice()));
         if (dto.getCacheCreationPrice() != null) model.setCacheCreationPrice(nonNegative(dto.getCacheCreationPrice()));
+        if (dto.isCacheCreation1hPriceSet()) {
+            model.setCacheCreation1hPrice(dto.getCacheCreation1hPrice() == null ? null : nonNegative(dto.getCacheCreation1hPrice()));
+        }
+        if (dto.isLongContextCacheCreation1hPriceSet()) {
+            model.setLongContextCacheCreation1hPrice(dto.getLongContextCacheCreation1hPrice() == null
+                    ? null : nonNegative(dto.getLongContextCacheCreation1hPrice()));
+        }
         if (dto.getRequestPrice() != null) model.setRequestPrice(nonNegative(dto.getRequestPrice()));
         if (dto.getFixedRequestBilling() != null) model.setFixedRequestBilling(dto.getFixedRequestBilling());
         if (dto.getLongContextThreshold() != null) {
@@ -1074,7 +1081,7 @@ public class RelayServiceImpl implements RelayService {
                             model.getInputPrice(),
                             model.getOutputPrice(),
                             model.getCachedInputPrice(),
-                            model.getCacheCreationPrice(),
+                            model.getCacheCreationPrice(), model.getCacheCreation1hPrice(),
                             model.getRequestPrice(),
                             model.getFixedRequestBilling(),
                             model.getLongContextThreshold(),
@@ -1083,7 +1090,7 @@ public class RelayServiceImpl implements RelayService {
                             model.getLongContextInputPrice(),
                             model.getLongContextOutputPrice(),
                             model.getLongContextCachedInputPrice(),
-                            model.getLongContextCacheCreationPrice(),
+                            model.getLongContextCacheCreationPrice(), model.getLongContextCacheCreation1hPrice(),
                             model.getEnabled()
                     );
                 })
@@ -1115,21 +1122,21 @@ public class RelayServiceImpl implements RelayService {
 
     private RelayModelDto toModelDto(RelayModel model) {
         return new RelayModelDto(model.getId(), model.getModel(), model.getDisplayName(), model.getModelType(),
-                model.getInputPrice(), model.getOutputPrice(), model.getCachedInputPrice(), model.getCacheCreationPrice(),
+                model.getInputPrice(), model.getOutputPrice(), model.getCachedInputPrice(), model.getCacheCreationPrice(), model.getCacheCreation1hPrice(),
                 model.getRequestPrice(), model.getFixedRequestBilling(), model.getLongContextThreshold(),
                 model.getLongContextBillingMode(), model.getLongContextMultiplier(),
                 model.getLongContextInputPrice(), model.getLongContextOutputPrice(), model.getLongContextCachedInputPrice(),
-                model.getLongContextCacheCreationPrice(), model.getStatus(), model.getEnabled(), model.getSortOrder());
+                model.getLongContextCacheCreationPrice(), model.getLongContextCacheCreation1hPrice(), model.getStatus(), model.getEnabled(), model.getSortOrder());
     }
 
     private RelayModelDto toPublicModelDto(RelayModel model) {
         String publicName = publicModelName(model);
         return new RelayModelDto(model.getId(), publicName, publicName, model.getModelType(),
-                model.getInputPrice(), model.getOutputPrice(), model.getCachedInputPrice(), model.getCacheCreationPrice(),
+                model.getInputPrice(), model.getOutputPrice(), model.getCachedInputPrice(), model.getCacheCreationPrice(), model.getCacheCreation1hPrice(),
                 model.getRequestPrice(), model.getFixedRequestBilling(), model.getLongContextThreshold(),
                 model.getLongContextBillingMode(), model.getLongContextMultiplier(),
                 model.getLongContextInputPrice(), model.getLongContextOutputPrice(), model.getLongContextCachedInputPrice(),
-                model.getLongContextCacheCreationPrice(), model.getStatus(), model.getEnabled(), model.getSortOrder());
+                model.getLongContextCacheCreationPrice(), model.getLongContextCacheCreation1hPrice(), model.getStatus(), model.getEnabled(), model.getSortOrder());
     }
 
     private RelayGroupDto toGroupDto(RelayGroup group) {
@@ -1162,7 +1169,7 @@ public class RelayServiceImpl implements RelayService {
     private RelayUsageLogDto toUsageDto(RelayUsageLog item, String publicModel) {
         return new RelayUsageLogDto(item.getId(), item.getTokenName(), item.getChannelName(), item.getGroupNames(),
                 item.getEndpoint(), publicModel, item.getModelType(), item.getThinkingEffort(), item.getPromptTokens(),
-                item.getCompletionTokens(), item.getCachedTokens(), item.getCacheCreationTokens(), item.getTotalTokens(),
+                item.getCompletionTokens(), item.getCachedTokens(), item.getCacheCreationTokens(), item.getCacheCreation5mTokens(), item.getCacheCreation1hTokens(), item.getTotalTokens(),
                 item.getCost(), item.getStatusCode(), item.getDurationMs(), item.getFirstTokenMs(), item.getUserAgent(), item.getStatus(),
                 publicUsageMessage(item.getStatusCode()), item.getCreatedAt());
     }
