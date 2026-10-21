@@ -16,6 +16,7 @@ const nav = computed(() =>
   props.admin
     ? [
         { to: '/admin/dashboard', label: '仪表盘', desc: '运营总览', icon: 'dashboard' },
+        { to: '/admin/relay-reports', label: '中转报表', desc: '用量与模型分析', icon: 'chart' },
         { to: '/admin/announcements', label: '公告发布', desc: '站内通知', icon: 'bell' },
         { to: '/admin/users', label: '用户管理', desc: '账号权限', icon: 'users' },
         { to: '/admin/registration', label: '注册设置', desc: '注册与邀请限制', icon: 'profile' },

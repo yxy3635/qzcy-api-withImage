@@ -1,6 +1,7 @@
 package com.qzcy.backend.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.qzcy.backend.service.RelayPromptRuleService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qzcy.backend.dto.relay.*;
 import com.qzcy.backend.entity.*;
@@ -167,7 +168,7 @@ class UpstreamErrorPrivacyTest {
         var policy = mock(RelayPolicyService.class);
         when(policy.buildContexts(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new BusinessException(402, "你的账户余额不足，请充值"));
-        var relay = new RelayDispatchServiceImpl(policy, new RelayProviderScheduler(), null, null, null, null, MAPPER);
+        var relay = new RelayDispatchServiceImpl(policy, new RelayProviderScheduler(), null, null, null, null, MAPPER, new RelayPromptRuleService(null));
         var request = request("/v1/chat/completions", false);
         assertEquals("你的账户余额不足，请充值", assertThrows(BusinessException.class, () -> relay.dispatch(request)).getMessage());
         assertEquals("你的账户余额不足，请充值", assertThrows(BusinessException.class, () -> relay.dispatchStream(request)).getMessage());
@@ -197,7 +198,7 @@ class UpstreamErrorPrivacyTest {
                 return 1;
             }).when(records).insert(any(ImageRecord.class));
             var service = new ImageServiceImpl(records, mock(ImageGenerationMetricMapper.class), payments,
-                    configService, new RestTemplateBuilder(), MAPPER, Runnable::run);
+                    configService, new RestTemplateBuilder(), MAPPER, Runnable::run, new RelayPromptRuleService(null));
             service.submit(3L, "test", "draw", "test", "1024x1024", List.of());
             var stored = records.selectById(9L);
             assertEquals("failed", stored.getStatus());
@@ -230,7 +231,7 @@ class UpstreamErrorPrivacyTest {
 
     private static ImageServiceImpl image(ImageRecordMapper records) {
         return new ImageServiceImpl(records, mock(ImageGenerationMetricMapper.class), mock(PaymentService.class),
-                mock(ImageGenerationConfigService.class), new RestTemplateBuilder(), MAPPER, Runnable::run);
+                mock(ImageGenerationConfigService.class), new RestTemplateBuilder(), MAPPER, Runnable::run, new RelayPromptRuleService(null));
     }
 
     private static RelayDispatchRequest request(String path, boolean stream) {
@@ -256,7 +257,7 @@ class UpstreamErrorPrivacyTest {
         when(policy.buildContexts(any(), any(), any(), any(), any(), any())).thenReturn(List.of(context));
         when(policy.estimateCost(any(), any(), any(), any(), any())).thenReturn(ZERO);
         return new RelayDispatchServiceImpl(policy, new RelayProviderScheduler(), logs, mock(RelayTokenMapper.class),
-                mock(UserMapper.class), mock(PaymentService.class), MAPPER);
+                mock(UserMapper.class), mock(PaymentService.class), MAPPER, new RelayPromptRuleService(null));
     }
 
     private static HttpServer upstream(int status, String type, String body) throws Exception {

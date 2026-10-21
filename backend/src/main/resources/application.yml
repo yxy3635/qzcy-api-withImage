@@ -30,7 +30,8 @@ spring:
       port: ${REDIS_PORT:6379}
       username: ${REDIS_USERNAME:}
       password: ${REDIS_PASSWORD:}
-      timeout: ${REDIS_TIMEOUT:2s}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:500ms}
+      timeout: ${REDIS_TIMEOUT:500ms}
   ai:
     openai:
       api-key: ${OPENAI_API_KEY:replace-me}
@@ -48,6 +49,7 @@ mybatis-plus:
 
 app:
   admin:
+    initial-password: ${ADMIN_INITIAL_PASSWORD:}
     user-ranking-cache:
       redis-enabled: ${ADMIN_USER_RANKING_CACHE_REDIS_ENABLED:true}
       ttl-seconds: ${ADMIN_USER_RANKING_CACHE_TTL_SECONDS:60}
@@ -55,7 +57,7 @@ app:
     pending-cleanup:
       interval-ms: ${PENDING_PAYMENT_CLEANUP_INTERVAL_MS:900000}
   jwt:
-    secret: ${JWT_SECRET:imageCreater-development-secret-key-change-me-please-32}
+    secret: ${JWT_SECRET:}
     expiration-ms: 86400000
   upload:
     image-path: userImage/
@@ -65,7 +67,7 @@ app:
       interval-ms: ${IMAGE_RETENTION_CLEANUP_INTERVAL_MS:21600000}
   mail:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}
-    dev-return-code: true
+    dev-return-code: false
   relay:
     model-status-cache:
       # 仅缓存模型状态页的全站最近调用条；仪表盘余额、用量等仍实时查询。

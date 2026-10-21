@@ -13,7 +13,13 @@ import com.qzcy.backend.mapper.ReferralWithdrawQrCodeMapper;
 import com.qzcy.backend.dto.UserProfileDto;
 import com.qzcy.backend.service.ReferralService;
 import com.qzcy.backend.service.UserService;
+import com.qzcy.backend.service.EmailCodeService;
+import com.qzcy.backend.service.AccountAttemptLimiter;
+import com.qzcy.backend.dto.EmailCodeDto;
+import com.qzcy.backend.exception.BusinessException;
+import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.util.SecurityUtil;
+import com.qzcy.backend.util.SecurityAudit;
 import com.qzcy.backend.util.UploadPathUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.servlet.http.HttpServletRequest;
@@ -50,6 +56,9 @@ public class UserController {
     private static final long MAX_QR_IMAGE_BYTES = 5 * 1024 * 1024;
 
     private final UserService userService;
+    private final EmailCodeService emailCodeService;
+    private final AccountAttemptLimiter attemptLimiter;
+    private final UserMapper userMapper;
     private final ReferralService referralService;
     private final ReferralWithdrawQrCodeMapper referralWithdrawQrCodeMapper;
 
@@ -67,13 +76,38 @@ public class UserController {
     }
 
     @PutMapping("/profile")
-    public ApiResponse<AuthUser> updateProfile(@RequestBody UserProfileDto dto) {
-        return ApiResponse.success(userService.updateProfile(SecurityUtil.current().userId(), dto));
+    public ApiResponse<AuthUser> updateProfile(@RequestBody UserProfileDto dto, HttpServletRequest request) {
+        attemptLimiter.sensitive("user:" + SecurityUtil.current().userId(), request.getRemoteAddr());
+        AuthUser result = userService.updateProfile(SecurityUtil.current().userId(), dto);
+        SecurityAudit.record("profile_change", 200, result.getId(), request);
+        return ApiResponse.success(result);
     }
 
     @PostMapping("/password")
-    public ApiResponse<Void> changePassword(@RequestBody ChangePasswordDto dto) {
+    public ApiResponse<Void> changePassword(@RequestBody ChangePasswordDto dto, HttpServletRequest request) {
+        attemptLimiter.sensitive("user:" + SecurityUtil.current().userId(), request.getRemoteAddr());
         userService.changePassword(SecurityUtil.current().userId(), dto);
+        SecurityAudit.record("password_change", 200, SecurityUtil.current().userId(), request);
+        return ApiResponse.success(null);
+    }
+
+    @PostMapping("/email-code")
+    public ApiResponse<Object> emailChangeCode(@RequestBody EmailCodeDto dto, HttpServletRequest request) {
+        AuthUser current = userService.currentUser(SecurityUtil.current().userId());
+        String email;
+        if ("change_email_current".equals(dto.getScene())) {
+            email = current.getEmail();
+        } else if ("change_email_new".equals(dto.getScene())) {
+            email = dto.getEmail();
+        } else {
+            throw new BusinessException(400, "验证码场景无效");
+        }
+        return ApiResponse.success(emailCodeService.sendCode(email, dto.getScene(), request.getRemoteAddr()));
+    }
+
+    @PostMapping("/logout")
+    public ApiResponse<Void> logout() {
+        userMapper.revokeSessions(SecurityUtil.current().userId());
         return ApiResponse.success(null);
     }
 

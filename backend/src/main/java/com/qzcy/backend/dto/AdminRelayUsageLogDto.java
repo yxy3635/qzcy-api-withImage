@@ -14,6 +14,7 @@ public class AdminRelayUsageLogDto {
     private String channelName;
     private String groupNames;
     private String endpoint;
+    private Boolean contextCompaction;
     private String model;
     private String modelType;
     private String thinkingEffort;

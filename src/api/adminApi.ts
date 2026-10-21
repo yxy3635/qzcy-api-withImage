@@ -1,4 +1,6 @@
 import http from './http'
+import type { RelayReport } from '@/types/relayReport'
+import type { RelayPromptRuleConfig, RelayPromptRuleHits, RelayPromptRuleStatus } from '@/types'
 import type { RegistrationConfig, RelayCompressionConfig, RelayCompressionStatus } from '@/types'
 import type { AdminImageRecord, AdminPaymentRecord, AdminRechargeCoupon, AdminRelayUsageLog, AdminStats, AdminUserModelUsage, AdminUserRankings, AdminUserUsage, Announcement, ApiResponse, ImageGenerationConfig, MailConfig, PageResult, PaymentConfig, ReferralRebate, ReferralWithdrawRequest, RelayAdminOverview, RelayChannel, RelayChannelProvider, RelayChannelTestResult, RelayDashboard, RelayGroup, RelayModel, RelayUpstreamModel, RelayUserOverview, UserInfo } from '@/types'
 
@@ -9,6 +11,18 @@ export type RelayChannelPayload = Partial<Omit<RelayChannel, 'id' | 'apiKeyMaske
 }
 
 export const adminApi = {
+  relayPromptRuleConfig() {
+    return http.get<ApiResponse<RelayPromptRuleStatus>>('/admin/relay/prompt-rule-config')
+  },
+  updateRelayPromptRuleConfig(payload: RelayPromptRuleConfig) {
+    return http.put<ApiResponse<RelayPromptRuleStatus>>('/admin/relay/prompt-rule-config', payload)
+  },
+  relayPromptRuleHits(page = 1, size = 10, keyword = '') {
+    return http.get<ApiResponse<RelayPromptRuleHits>>('/admin/relay/prompt-rule-config/hits', { params: { page, size, keyword } })
+  },
+  relayReport() {
+    return http.get<ApiResponse<RelayReport>>('/admin/relay/reports')
+  },
   relayCompressionConfig() {
     return http.get<ApiResponse<RelayCompressionStatus>>('/admin/relay/compression-config')
   },

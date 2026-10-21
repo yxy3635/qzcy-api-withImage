@@ -25,6 +25,7 @@ import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.RelayPolicyService;
 import com.qzcy.backend.service.RelayProviderScheduler;
+import com.qzcy.backend.util.RelayTokenGroupPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -89,6 +90,11 @@ public class RelayPolicyServiceImpl implements RelayPolicyService {
             throw new BusinessException(401, "Relay API key expired");
         }
         ensureUserUsable(item.getUserId());
+        try {
+            RelayTokenGroupPolicy.requireSingleEnabledGroup(item.getGroupNames(), groupMapper);
+        } catch (BusinessException ex) {
+            throw new BusinessException(403, "API密钥分组无效，请在控制台重新选择有效分组");
+        }
         return item;
     }
 

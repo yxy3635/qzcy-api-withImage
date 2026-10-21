@@ -12,6 +12,7 @@ import com.qzcy.backend.mapper.ImageRecordMapper;
 import com.qzcy.backend.service.ImageGenerationConfigService;
 import com.qzcy.backend.service.ImageService;
 import com.qzcy.backend.service.PaymentService;
+import com.qzcy.backend.service.RelayPromptRuleService;
 import com.qzcy.backend.service.UpstreamErrors;
 import org.springframework.beans.BeanUtils;
 import com.qzcy.backend.util.UploadPathUtil;
@@ -58,6 +59,7 @@ public class ImageServiceImpl implements ImageService {
     private final ImageGenerationConfigService configService;
     private final RestTemplateBuilder restTemplateBuilder;
     private final ObjectMapper objectMapper;
+    private final RelayPromptRuleService promptRuleService;
     @Qualifier("imageGenerationExecutor")
     private final Executor imageGenerationExecutor;
 
@@ -79,7 +81,8 @@ public class ImageServiceImpl implements ImageService {
                             ImageGenerationConfigService configService,
                             RestTemplateBuilder restTemplateBuilder,
                             ObjectMapper objectMapper,
-                            @Qualifier("imageGenerationExecutor") Executor imageGenerationExecutor) {
+                            @Qualifier("imageGenerationExecutor") Executor imageGenerationExecutor,
+                            RelayPromptRuleService promptRuleService) {
         this.imageRecordMapper = imageRecordMapper;
         this.metricMapper = metricMapper;
         this.paymentService = paymentService;
@@ -87,6 +90,7 @@ public class ImageServiceImpl implements ImageService {
         this.restTemplateBuilder = restTemplateBuilder;
         this.objectMapper = objectMapper;
         this.imageGenerationExecutor = imageGenerationExecutor;
+        this.promptRuleService = promptRuleService;
     }
 
     @Override
@@ -341,7 +345,7 @@ public class ImageServiceImpl implements ImageService {
     private HashMap<String, Object> generationImageBody(String prompt, ImageGenerationConfig config, String size, List<String> referenceImages) {
         HashMap<String, Object> body = new HashMap<>();
         body.put("model", config.getModel());
-        body.put("prompt", prompt);
+        body.put("prompt", promptRuleService.imagePrompt(prompt));
         body.put("n", 1);
         body.put("size", size);
         body.put("stream", false);

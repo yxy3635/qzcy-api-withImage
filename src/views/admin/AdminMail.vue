@@ -21,7 +21,7 @@ const form = reactive({
   sslEnabled: false,
   starttlsEnabled: true,
   enabled: false,
-  devReturnCode: true,
+  devReturnCode: false,
   rechargeNoticeEnabled: true,
   brandName: 'imageCreater · API Relay',
   brandLogoUrl: `${window.location.origin}/favicon.ico`,
@@ -200,16 +200,9 @@ onMounted(load)
           <label class="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <span>
               <span class="block text-sm font-black text-slate-800">启用邮件发送</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">关闭时仅本机开发请求可返回验证码。</span>
+              <span class="mt-1 block text-xs font-semibold text-slate-500">关闭后暂停邮箱验证码发送，启用前请完成 SMTP 配置。</span>
             </span>
             <input v-model="form.enabled" class="h-5 w-5 accent-sky-500" type="checkbox" />
-          </label>
-          <label class="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <span>
-              <span class="block text-sm font-black text-slate-800">开发模式返回验证码</span>
-              <span class="mt-1 block text-xs font-semibold text-slate-500">启用真实邮件后不会向前端回传验证码。</span>
-            </span>
-            <input v-model="form.devReturnCode" class="h-5 w-5 accent-sky-500" type="checkbox" />
           </label>
           <label class="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <span>

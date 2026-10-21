@@ -1,5 +1,6 @@
 package com.qzcy.backend.service.impl;
 
+import com.qzcy.backend.service.RelayPromptRuleService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qzcy.backend.dto.RelayChannelTestAttemptDto;
 import com.qzcy.backend.dto.RelayChannelTestRequestDto;
@@ -97,7 +98,7 @@ class RelayChannelTestServiceImplTest {
     private RelayChannelTestServiceImpl serviceWithUpstream(UpstreamStub stub) {
         return new RelayChannelTestServiceImpl(
                 channelMapper, providerMapper, channelModelMapper, modelMapper,
-                new RelayProviderScheduler(), objectMapper) {
+                new RelayProviderScheduler(), objectMapper, new RelayPromptRuleService(null)) {
             @Override
             String callUpstream(com.qzcy.backend.entity.RelayChannel channel,
                                 com.qzcy.backend.entity.RelayChannelProvider provider,

@@ -9,6 +9,7 @@ import java.util.Map;
 
 public interface PaymentService {
     void deductBalance(Long userId, BigDecimal amount);
+    /** Settle incurred relay usage; concurrent requests may leave an outstanding balance. */
     void deductBalanceOnly(Long userId, BigDecimal amount);
     void refundBalance(Long userId, BigDecimal amount);
     Map<String, Object> recharge(Long userId, RechargeDto dto, String backendBaseUrl, String frontendBaseUrl);

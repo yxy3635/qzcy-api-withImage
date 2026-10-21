@@ -6,6 +6,7 @@ import com.qzcy.backend.entity.RelayChannelProvider;
 import com.qzcy.backend.mapper.RelayChannelMapper;
 import com.qzcy.backend.mapper.RelayChannelProviderMapper;
 import com.qzcy.backend.service.RelayChannelStatusService;
+import com.qzcy.backend.util.RelayHttpProtocol;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -83,7 +84,7 @@ public class RelayChannelStatusServiceImpl implements RelayChannelStatusService 
         if (apiBaseUrl == null || apiBaseUrl.isBlank()) return false;
         if (apiKey == null || apiKey.isBlank()) return false;
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(apiBaseUrl, "/v1/models")))
+            HttpRequest.Builder builder = RelayHttpProtocol.requestBuilder(URI.create(relayUrl(apiBaseUrl, "/v1/models")))
                     .timeout(Duration.ofSeconds(15))
                     .header("Accept", "application/json")
                     .GET();

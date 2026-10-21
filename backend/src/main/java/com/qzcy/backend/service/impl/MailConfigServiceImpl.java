@@ -65,9 +65,7 @@ public class MailConfigServiceImpl implements MailConfigService {
         if (dto.getEnabled() != null) {
             config.setEnabled(dto.getEnabled());
         }
-        if (dto.getDevReturnCode() != null) {
-            config.setDevReturnCode(dto.getDevReturnCode());
-        }
+        config.setDevReturnCode(false);
         if (dto.getRechargeNoticeEnabled() != null) {
             config.setRechargeNoticeEnabled(dto.getRechargeNoticeEnabled());
         }
@@ -95,7 +93,7 @@ public class MailConfigServiceImpl implements MailConfigService {
         config.setSslEnabled(false);
         config.setStarttlsEnabled(true);
         config.setEnabled(false);
-        config.setDevReturnCode(true);
+        config.setDevReturnCode(false);
         config.setRechargeNoticeEnabled(true);
         config.setBrandName("imageCreater · API Relay");
         config.setBrandLogoUrl("");
@@ -129,7 +127,7 @@ public class MailConfigServiceImpl implements MailConfigService {
                 config.getSslEnabled(),
                 config.getStarttlsEnabled(),
                 config.getEnabled(),
-                config.getDevReturnCode(),
+                false,
                 Boolean.TRUE.equals(config.getRechargeNoticeEnabled()),
                 config.getBrandName(),
                 config.getBrandLogoUrl(),

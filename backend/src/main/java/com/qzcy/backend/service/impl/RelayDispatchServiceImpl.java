@@ -17,6 +17,8 @@ import com.qzcy.backend.entity.RelayGroup;
 import com.qzcy.backend.entity.RelayModel;
 import com.qzcy.backend.entity.RelayToken;
 import com.qzcy.backend.entity.RelayUsageLog;
+import com.qzcy.backend.util.RelayRequestKind;
+import com.qzcy.backend.util.RelayHttpProtocol;
 import com.qzcy.backend.entity.User;
 import com.qzcy.backend.exception.BusinessException;
 import com.qzcy.backend.mapper.RelayTokenMapper;
@@ -26,9 +28,14 @@ import com.qzcy.backend.service.PaymentService;
 import com.qzcy.backend.service.RelayDispatchService;
 import com.qzcy.backend.service.RelayPolicyService;
 import com.qzcy.backend.service.RelayProviderScheduler;
+import com.qzcy.backend.service.RelayPromptRuleService;
+import com.qzcy.backend.util.RelayPromptRefusalDetector;
+import com.qzcy.backend.util.RelayPromptPolicyError;
+import com.qzcy.backend.util.RelayPromptStreamProbe;
 import com.qzcy.backend.service.UpstreamErrors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -36,6 +43,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -153,9 +161,19 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     private final UserMapper userMapper;
     private final PaymentService paymentService;
     private final ObjectMapper objectMapper;
+    private final RelayPromptRuleService promptRuleService;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
             .build();
+
+    // Some upstream gateways reset multiplexed SSE streams under concurrency.
+    // HTTP/1.1 keeps active streams on separate connections without serializing requests.
+    @Value("${relay.stream.http-version:HTTP_1_1}")
+    private HttpClient.Version streamHttpVersion = HttpClient.Version.HTTP_1_1;
+
+    // Keep reading a disconnected request for its final usage, with a hard deadline.
+    @Value("${relay.stream.billing-drain-timeout-ms:600000}")
+    private long billingDrainTimeoutMs = 600000L;
 
     @Override
     public java.util.Set<String> openCircuitScopes() {
@@ -171,6 +189,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
 
     @Override
     public RelayDispatchResult dispatch(RelayDispatchRequest request) throws Exception {
+        boolean promptRuleEnabled = promptRuleService.enabled();
+        String promptRuleAuditRequestId = UUID.randomUUID().toString();
         String model = request.body().path("model").asText("");
         String thinkingEffort = extractThinkingEffort(request.body());
         List<RelayContext> contexts = relayPolicyService.buildContexts(
@@ -234,7 +254,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 if (isRetryableTransportFailure(ex)) {
                     recordChannelFailure(context, "transport failure: " + safeExceptionMessage(ex));
                     JsonNode failureBody = upstreamFailureBody("Upstream connection failed: " + safeExceptionMessage(ex));
-                    saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, 502, failureBody, ZERO_COST,
+                    saveUsage(context, request, thinkingEffort, 502, failureBody, ZERO_COST,
                             System.currentTimeMillis() - startedAt);
                     if (index < contexts.size() - 1) {
                         continue;
@@ -250,6 +270,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             }
             String responseText = response.body();
             JsonNode responseBody = parseResponseBody(responseText);
+            boolean promptRuleRefusal = RelayPromptRefusalDetector.matches(responseBody, request.upstreamPath());
+            boolean generatedCompaction = RelayRequestKind.hasGeneratedCompaction(responseBody);
             boolean upstreamError = response.statusCode() < 200 || response.statusCode() >= 300
                     || UpstreamErrors.isError(responseBody);
             int effectiveStatus = upstreamError && response.statusCode() >= 200 && response.statusCode() < 300
@@ -259,14 +281,13 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     && !isCountTokensRequest(request.upstreamPath())
                     && !hasBillableUsage(responseBody, request.upstreamPath())) {
                 responseBody = withEstimatedUsage(request.body(), responseText);
+                if (generatedCompaction) {
+                    ((ObjectNode) responseBody).putArray("content").addObject().put("type", "compaction");
+                }
             }
-            RelayCostBreakdown cost = isCountTokensRequest(request.upstreamPath())
-                    ? ZERO_COST
-                    : relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), responseBody, request.upstreamPath());
-            // 按请求次数计费只对真正成功的上游请求收费；按量计费的错误响应保留上游 usage，
-            // 以兼容部分上游已产生可计费 Token 后才返回错误的现有口径。HTTP 200 不受影响。
-            cost = billingCostForResponse(context, effectiveStatus, cost);
-            boolean retryable = isRetryableUpstreamError(effectiveStatus, responseBody, responseText);
+            RelayCostBreakdown cost = responseCost(context, effectiveStatus, responseBody, request.upstreamPath());
+            boolean retryable = !hasActualBillableUsage(responseBody, request.upstreamPath())
+                    && isRetryableUpstreamError(effectiveStatus, responseBody, responseText);
             if (retryable) {
                 recordChannelFailure(context, "HTTP " + response.statusCode() + ": " + truncateMessage(responseText));
             } else {
@@ -281,21 +302,22 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     System.currentTimeMillis() - startedAt,
                     responseBody.path("usage").isMissingNode() ? "" : truncateMessage(responseBody.path("usage").toString()));
             if (!retryable || index == contexts.size() - 1) {
-                try {
-                    enforceQuotaIfSuccessful(effectiveStatus, context, cost);
-                } catch (BusinessException ex) {
-                    saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, effectiveStatus, responseBody, cost, System.currentTimeMillis() - startedAt);
-                    disableTokenAfterBillingFailure(context.token(), ex);
-                    throw ex;
-                }
-                saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, effectiveStatus, responseBody, cost, System.currentTimeMillis() - startedAt);
-                chargeIfSuccessful(effectiveStatus, context, cost);
+                checkSettledQuota(context, cost);
+                boolean policyBlocked = promptRuleEnabled && !upstreamError && promptRuleRefusal;
+                saveUsage(context, request, thinkingEffort, policyBlocked ? 400 : effectiveStatus,
+                        responseBody, cost, System.currentTimeMillis() - startedAt);
+                chargeBillableUsage(context, cost);
+                promptRuleService.recordRefusal(promptRuleAuditRequestId, context.token().getUserId(), context.token().getId(),
+                        request.upstreamPath(), model, request.body(), promptRuleEnabled, !upstreamError && promptRuleRefusal);
+                if (policyBlocked) return new RelayDispatchResult(400, MediaType.APPLICATION_JSON_VALUE,
+                        RelayPromptPolicyError.body(objectMapper, request.upstreamPath()).toString(), forwardedResponseHeaders(response));
                 return new RelayDispatchResult(effectiveStatus,
                         upstreamError ? MediaType.APPLICATION_JSON_VALUE : contentType(response),
-                        upstreamError ? UpstreamErrors.body(objectMapper, effectiveStatus, request.upstreamPath(), responseBody).toString() : responseText,
+                        upstreamError ? UpstreamErrors.publicFailure(objectMapper, effectiveStatus, request.upstreamPath(), responseBody).toString()
+                                : publicSuccessText(responseText),
                         forwardedResponseHeaders(response));
             }
-            saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, effectiveStatus, responseBody, cost, System.currentTimeMillis() - startedAt);
+            saveUsage(context, request, thinkingEffort, effectiveStatus, responseBody, cost, System.currentTimeMillis() - startedAt);
         }
         if (rateLimitFailure != null) throw rateLimitFailure;
         if (circuitSkipped) throw new BusinessException(503, "All matching relay channels are temporarily unavailable");
@@ -304,6 +326,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
 
     @Override
     public RelayStreamDispatchResult dispatchStream(RelayDispatchRequest request) throws Exception {
+        boolean promptRuleEnabled = promptRuleService.enabled();
+        String promptRuleAuditRequestId = UUID.randomUUID().toString();
         String model = request.body().path("model").asText("");
         String thinkingEffort = extractThinkingEffort(request.body());
         List<RelayContext> contexts = relayPolicyService.buildContexts(
@@ -367,7 +391,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         continue;
                     }
                     String errorText = localOverloadError(request.upstreamPath());
-                    saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, 503, parseResponseBody(errorText), ZERO_COST,
+                    saveUsage(context, request, thinkingEffort, 503, parseResponseBody(errorText), ZERO_COST,
                             STREAM_GATE_ACQUIRE_TIMEOUT.toMillis());
                     return new RelayStreamDispatchResult(
                             503,
@@ -399,19 +423,22 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             } catch (Exception ex) {
                 endProviderRequest(inFlight);
                 releaseStreamGate(streamGate);
-                log.warn("Relay upstream stream request failed path={} channelId={} providerId={} providerName={} rule={} message={}",
+                log.warn("Relay upstream stream request failed path={} userId={} tokenId={} channelId={} providerId={} providerName={} rule={} requestedHttpVersion={} message={}",
                         request.upstreamPath(),
+                        context.token().getUserId(),
+                        context.token().getId(),
                         context.channel().getId(),
                         providerId(context),
                         providerName(context),
                         endpointRule(context),
+                        streamHttpVersion,
                         ex.getMessage(),
                         ex);
                 if (isRetryableTransportFailure(ex)) {
                     recordChannelFailure(context, "transport failure: " + safeExceptionMessage(ex));
                     lastStatus = 502;
                     lastErrorText = localUpstreamFailureError(request.upstreamPath(), safeExceptionMessage(ex));
-                    saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, lastStatus,
+                    saveUsage(context, request, thinkingEffort, lastStatus,
                             upstreamFailureBody(safeExceptionMessage(ex)), ZERO_COST, System.currentTimeMillis() - startedAt);
                     if (index < contexts.size() - 1) {
                         continue;
@@ -436,6 +463,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     releaseStreamGate(streamGate);
                 }
                 JsonNode responseBody = parseResponseBody(errorText);
+                boolean promptRuleRefusal = RelayPromptRefusalDetector.matches(responseBody, request.upstreamPath());
                 boolean upstreamError = response.statusCode() < 200 || response.statusCode() >= 300
                         || UpstreamErrors.isError(responseBody);
                 int effectiveStatus = upstreamError && response.statusCode() >= 200 && response.statusCode() < 300
@@ -444,25 +472,33 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         && !hasBillableUsage(responseBody, request.upstreamPath())) {
                     responseBody = withEstimatedUsage(request.body(), errorText);
                 }
-                RelayCostBreakdown cost = upstreamError || isCountTokensRequest(request.upstreamPath()) ? ZERO_COST
-                        : relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), responseBody, request.upstreamPath());
-                saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, effectiveStatus,
+                RelayCostBreakdown cost = responseCost(context, effectiveStatus, responseBody, request.upstreamPath());
+                checkSettledQuota(context, cost);
+                boolean policyBlocked = promptRuleEnabled && !upstreamError && promptRuleRefusal;
+                saveUsage(context, request, thinkingEffort, policyBlocked ? 400 : effectiveStatus,
                         responseBody, cost, System.currentTimeMillis() - startedAt);
+                chargeBillableUsage(context, cost);
                 if (!upstreamError) {
-                    enforceQuotaIfSuccessful(effectiveStatus, context, cost);
-                    chargeIfSuccessful(effectiveStatus, context, cost);
-                    String successText = errorText;
+                    promptRuleService.recordRefusal(promptRuleAuditRequestId, context.token().getUserId(), context.token().getId(),
+                            request.upstreamPath(), model, request.body(), promptRuleEnabled, promptRuleRefusal);
+                    if (policyBlocked) {
+                        byte[] policyError = RelayPromptPolicyError.body(objectMapper, request.upstreamPath()).toString().getBytes(StandardCharsets.UTF_8);
+                        return new RelayStreamDispatchResult(400, MediaType.APPLICATION_JSON_VALUE,
+                                output -> output.write(policyError), forwardedResponseHeaders(response));
+                    }
+                    String successText = publicSuccessText(errorText);
                     recordChannelSuccess(context);
                     return new RelayStreamDispatchResult(effectiveStatus, contentType(response),
                             outputStream -> outputStream.write(successText.getBytes(StandardCharsets.UTF_8)), forwardedResponseHeaders(response));
                 }
-                boolean retryable = isRetryableUpstreamError(effectiveStatus, responseBody, errorText);
+                boolean retryable = !hasActualBillableUsage(responseBody, request.upstreamPath())
+                        && isRetryableUpstreamError(effectiveStatus, responseBody, errorText);
                 if (retryable) {
                     recordChannelFailure(context, "HTTP " + response.statusCode() + ": " + truncateMessage(errorText));
                 } else {
                     recordChannelSuccess(context);
                 }
-                String publicErrorText = UpstreamErrors.body(objectMapper, effectiveStatus, request.upstreamPath(), responseBody).toString();
+                String publicErrorText = UpstreamErrors.publicFailure(objectMapper, effectiveStatus, request.upstreamPath(), responseBody).toString();
                 lastErrorText = publicErrorText;
                 lastStatus = effectiveStatus;
                 log.warn("Relay upstream stream error path={} channelId={} status={} retryable={} contentType={} body={}",
@@ -483,25 +519,55 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                         forwardedResponseHeaders(response)
                 );
             }
-            recordChannelSuccess(context);
             RelayContext finalContext = context;
             long finalStartedAt = startedAt;
             HttpResponse<InputStream> finalResponse = response;
             Semaphore finalStreamGate = streamGate;
             AtomicInteger finalInFlight = inFlight;
+            InputStream replayInput = response.body();
+            boolean policyBlockedBeforeStreaming = false;
+            AtomicBoolean probeTimedOut = new AtomicBoolean(false);
+            AtomicLong probeFirstTokenMs = new AtomicLong();
+            if (promptRuleEnabled) {
+                AtomicLong probeActivity = new AtomicLong(System.nanoTime());
+                ScheduledFuture<?> probeWatchdog = scheduleStreamIdleWatchdog(replayInput, probeActivity, probeTimedOut,
+                        request.upstreamPath(), context.channel().getId(), context.channel().getName());
+                RelayPromptStreamProbe probe = new RelayPromptStreamProbe(replayInput, objectMapper, request.upstreamPath(),
+                        request.body().path("n").asInt(1) > 1, () -> {
+                            probeActivity.set(System.nanoTime());
+                            probeFirstTokenMs.compareAndSet(0, Math.max(1, System.currentTimeMillis() - finalStartedAt));
+                        });
+                try {
+                    policyBlockedBeforeStreaming = probe.inspect();
+                    replayInput = probe.replay();
+                } catch (Exception ex) {
+                    try { probe.close(); } catch (Exception closeError) { ex.addSuppressed(closeError); }
+                    endProviderRequest(finalInFlight);
+                    releaseStreamGate(finalStreamGate);
+                    throw ex;
+                } finally {
+                    probeWatchdog.cancel(false);
+                }
+            }
+            InputStream finalInput = replayInput;
             StreamingResponseBody stream = outputStream -> {
                 // 边收边转发：用阻塞 read() 等待上游每一段数据，收到立即 flush 给客户端。
                 // 不用 InputStream.available() 轮询判断首字节——对分块/SSE 响应体它不可靠，
                 // 会因上游整体缓冲返回而误判“无数据”，向客户端投放假错误并触发重试。
-                StreamUsageAccumulator acc = new StreamUsageAccumulator();
+                StreamUsageAccumulator acc = new StreamUsageAccumulator(request.upstreamPath());
                 UpstreamErrors.SseOutput publicOutput = new UpstreamErrors.SseOutput(outputStream, objectMapper, request.upstreamPath());
                 // 首字（TTFT）：从本次派发开始计时，到收到上游响应体第一段数据为止；0 表示未收到数据。
-                long firstTokenMs = 0L;
+                long firstTokenMs = probeFirstTokenMs.get();
                 long totalBytes = 0;
                 byte[] buffer = new byte[8192];
-                InputStream inputStream = finalResponse.body();
+                InputStream inputStream = finalInput;
                 AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
-                AtomicBoolean idleTimedOut = new AtomicBoolean(false);
+                AtomicBoolean idleTimedOut = new AtomicBoolean(probeTimedOut.get());
+                Exception streamFailure = null;
+                boolean downstreamWriteFailed = false;
+                IOException downstreamFailure = null;
+                ScheduledFuture<?> billingDrainDeadline = null;
+                String failureStage = "upstream_read";
                 ScheduledFuture<?> idleWatchdog = scheduleStreamIdleWatchdog(
                         inputStream,
                         lastActivityNanos,
@@ -512,7 +578,10 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 );
                 try (inputStream) {
                     int read;
-                    while ((read = inputStream.read(buffer)) != -1) {
+                    while (true) {
+                        failureStage = "upstream_read";
+                        read = inputStream.read(buffer);
+                        if (read == -1) break;
                         if (read <= 0) {
                             continue;
                         }
@@ -520,15 +589,70 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                             firstTokenMs = Math.max(1, System.currentTimeMillis() - finalStartedAt);
                         }
                         lastActivityNanos.set(System.nanoTime());
-                        acc.onBytes(buffer, 0, read);
-                        publicOutput.write(buffer, 0, read);
-                        totalBytes += read;
+                        failureStage = "upstream_parse";
+                        int consumed = acc.onBytes(buffer, 0, read);
+                        if (!downstreamWriteFailed) try {
+                            failureStage = "downstream_write";
+                            publicOutput.write(buffer, 0, consumed);
+                        } catch (IOException ex) {
+                            if (!publicOutput.downstreamFailed()) throw ex;
+                            downstreamWriteFailed = true;
+                            downstreamFailure = ex;
+                            log.warn("Relay client disconnected; draining upstream for billing path={} userId={} tokenId={} channelId={} providerId={} deadlineMs={}",
+                                    request.upstreamPath(), finalContext.token().getUserId(), finalContext.token().getId(),
+                                    finalContext.channel().getId(), providerId(finalContext), billingDrainTimeoutMs);
+                            billingDrainDeadline = STREAM_WATCHDOG.schedule(() -> {
+                                try { inputStream.close(); } catch (IOException ignored) { }
+                            }, Math.max(1, billingDrainTimeoutMs), TimeUnit.MILLISECONDS);
+                        }
+                        totalBytes += consumed;
+                        // SSE completion is a protocol event, not TCP EOF. Some upstreams
+                        // keep the HTTP body open after completing a response.
+                        if (acc.terminalSeen) break;
                     }
-                    publicOutput.finish();
+                    failureStage = "upstream_completion";
+                    if (acc.requiresTerminal() && !acc.terminalSeen) {
+                        throw new IOException("Upstream SSE ended before a terminal event");
+                    }
+                    failureStage = "downstream_finish";
+                    if (!downstreamWriteFailed) try {
+                        publicOutput.finish();
+                    } catch (IOException ex) {
+                        downstreamWriteFailed = publicOutput.downstreamFailed();
+                        throw ex;
+                    }
+                    if (downstreamFailure != null) {
+                        failureStage = "downstream_write";
+                        throw downstreamFailure;
+                    }
+                    failureStage = "upstream_close";
                 } catch (Exception ex) {
-                    log.warn("Relay downstream stream write/read failed path={} channelId={} status={} capturedBytes={} preview={} message={}",
+                    streamFailure = ex;
+                    if (!downstreamWriteFailed && !acc.terminalSeen) {
+                        // A complete JSON event without its delimiter can still be safely
+                        // delivered. Never forward uninspectable truncated error text.
+                        try {
+                            publicOutput.finishInterrupted();
+                            ObjectNode error = UpstreamErrors.body(objectMapper,
+                                    idleTimedOut.get() ? 504 : 502, request.upstreamPath(), null);
+                            error.put("type", "error");
+                            var failureOutput = new UpstreamErrors.SseOutput(outputStream, objectMapper, request.upstreamPath());
+                            byte[] failureBytes = ("event: error\ndata: " + error + "\n\n").getBytes(StandardCharsets.UTF_8);
+                            failureOutput.write(failureBytes, 0, failureBytes.length);
+                        } catch (Exception writeError) {
+                            ex.addSuppressed(writeError);
+                        }
+                    }
+                    log.warn("Relay downstream stream write/read failed path={} userId={} tokenId={} channelId={} providerId={} providerName={} httpVersion={} stage={} terminalSeen={} status={} capturedBytes={} preview={} message={}",
                             request.upstreamPath(),
+                            finalContext.token().getUserId(),
+                            finalContext.token().getId(),
                             finalContext.channel().getId(),
+                            providerId(finalContext),
+                            providerName(finalContext),
+                            finalResponse.version(),
+                            failureStage,
+                            acc.terminalSeen,
                             finalResponse.statusCode(),
                             totalBytes,
                             sanitizeStreamPreview(acc.previewString()),
@@ -537,12 +661,20 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     throw ex;
                 } finally {
                     idleWatchdog.cancel(false);
+                    if (billingDrainDeadline != null) billingDrainDeadline.cancel(false);
                     endProviderRequest(finalInFlight);
                     releaseStreamGate(finalStreamGate);
                     acc.finish();
                     int completionStatus = idleTimedOut.get() ? 504 : acc.errorStatus(finalResponse.statusCode());
+                    if (streamFailure != null && completionStatus >= 200 && completionStatus < 300) {
+                        completionStatus = 502;
+                    }
                     if (idleTimedOut.get()) {
                         recordChannelFailure(finalContext, "stream idle timeout");
+                    } else if (completionStatus >= 400 && !downstreamWriteFailed) {
+                        recordChannelFailure(finalContext, "stream failed: HTTP " + completionStatus);
+                    } else if (completionStatus >= 200 && completionStatus < 300) {
+                        recordChannelSuccess(finalContext);
                     }
                     if (log.isDebugEnabled() && acc.hasPreview()) {
                         log.debug("Relay upstream stream preview path={} channelId={} status={} preview={}",
@@ -551,33 +683,49 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                                 finalResponse.statusCode(),
                                 sanitizeStreamPreview(acc.previewString()));
                     }
-                    log.debug("Relay upstream stream captured path={} channelId={} status={} bytes={}",
+                    log.debug("Relay upstream stream captured path={} channelId={} status={} bytes={} terminalSeen={}",
                             request.upstreamPath(),
                             finalContext.channel().getId(),
                             finalResponse.statusCode(),
-                            totalBytes);
-                    JsonNode responseBody = idleTimedOut.get()
-                            ? upstreamFailureBody("Upstream stream produced no data for " + STREAM_IDLE_TIMEOUT.toMinutes() + " minutes")
-                            : acc.buildResponseBody();
+                            totalBytes,
+                            acc.terminalSeen);
+                    JsonNode responseBody = acc.buildResponseBody();
+                    if (idleTimedOut.get() && !responseBody.hasNonNull("error")) {
+                        ((ObjectNode) responseBody).set("error", upstreamFailureBody("Upstream stream idle timeout").path("error"));
+                    }
+                    if (streamFailure != null && !responseBody.hasNonNull("error")) {
+                        ((ObjectNode) responseBody).set("error",
+                                (downstreamWriteFailed ? downstreamFailureBody(safeExceptionMessage(streamFailure))
+                                        : upstreamFailureBody(safeExceptionMessage(streamFailure))).path("error"));
+                    }
+                    if (streamFailure != null && !responseBody.path("usage").isObject()) {
+                        // A lost usage frame does not prove the provider charged zero.
+                        ((ObjectNode) responseBody).put("billing_status", "unconfirmed");
+                        String upstreamRequestId = finalResponse.headers().firstValue("x-request-id").orElse("");
+                        if (!upstreamRequestId.isBlank()) ((ObjectNode) responseBody).put("upstream_request_id", upstreamRequestId);
+                        log.warn("Relay billing requires reconciliation path={} userId={} tokenId={} channelId={} providerId={}",
+                                request.upstreamPath(), finalContext.token().getUserId(), finalContext.token().getId(),
+                                finalContext.channel().getId(), providerId(finalContext));
+                    }
                     if (completionStatus >= 200 && completionStatus < 300
                             && !isCountTokensRequest(request.upstreamPath())
                             && !hasBillableUsage(responseBody, request.upstreamPath())) {
                         responseBody = withEstimatedUsage(request.body(), acc.previewString());
                     }
-                    RelayCostBreakdown cost = idleTimedOut.get() || isCountTokensRequest(request.upstreamPath())
-                            ? ZERO_COST
-                            : relayPolicyService.estimateCost(finalContext.model(), finalContext.channel(), finalContext.group(), responseBody, request.upstreamPath());
-                    try {
-                        enforceQuotaIfSuccessful(completionStatus, finalContext, cost);
-                    } catch (BusinessException ex) {
-                        saveUsage(finalContext, request.upstreamPath(), request.userAgent(), thinkingEffort, completionStatus,
-                                responseBody, cost, System.currentTimeMillis() - finalStartedAt, firstTokenMs);
-                        disableTokenAfterBillingFailure(finalContext.token(), ex);
-                        throw ex;
+                    if (acc.generatedCompaction) {
+                        ((ObjectNode) responseBody).putArray("content").addObject().put("type", "compaction");
                     }
-                    saveUsage(finalContext, request.upstreamPath(), request.userAgent(), thinkingEffort, completionStatus,
+                    RelayCostBreakdown cost = responseCost(finalContext, completionStatus, responseBody, request.upstreamPath());
+                    boolean policyBlocked = promptRuleEnabled && completionStatus >= 200 && completionStatus < 300
+                            && streamFailure == null && !responseBody.hasNonNull("error") && acc.refusalDetector.matched();
+                    checkSettledQuota(finalContext, cost);
+                    saveUsage(finalContext, request, thinkingEffort, policyBlocked ? 400 : completionStatus,
                             responseBody, cost, System.currentTimeMillis() - finalStartedAt, firstTokenMs);
-                    chargeIfSuccessful(completionStatus, finalContext, cost);
+                    chargeBillableUsage(finalContext, cost);
+                    promptRuleService.recordRefusal(promptRuleAuditRequestId, finalContext.token().getUserId(), finalContext.token().getId(),
+                            request.upstreamPath(), model, request.body(), promptRuleEnabled,
+                            completionStatus >= 200 && completionStatus < 300 && streamFailure == null
+                                    && !responseBody.hasNonNull("error") && acc.refusalDetector.matched());
                     log.debug("Relay upstream stream response path={} channelId={} status={} billable={} durationMs={} usage={}",
                             request.upstreamPath(),
                             finalContext.channel().getId(),
@@ -587,6 +735,13 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                             responseBody.path("usage").isMissingNode() ? "" : truncateMessage(responseBody.path("usage").toString()));
                 }
             };
+            if (policyBlockedBeforeStreaming) {
+                // Finish the replay privately so usage, audit, concurrency gates and billing settle once.
+                stream.writeTo(java.io.OutputStream.nullOutputStream());
+                byte[] policyError = RelayPromptPolicyError.body(objectMapper, request.upstreamPath()).toString().getBytes(StandardCharsets.UTF_8);
+                return new RelayStreamDispatchResult(400, MediaType.APPLICATION_JSON_VALUE,
+                        output -> output.write(policyError), forwardedResponseHeaders(response));
+            }
             return new RelayStreamDispatchResult(response.statusCode(), contentType(response), stream, forwardedResponseHeaders(response));
         }
         if (rateLimitFailure != null) throw rateLimitFailure;
@@ -603,22 +758,27 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         );
     }
 
-    private RelayCostBreakdown billingCostForResponse(RelayContext context, int statusCode, RelayCostBreakdown cost) {
-        if (statusCode >= 200 && statusCode < 300) {
-            return cost;
-        }
-        RelayModel model = context == null ? null : context.model();
-        if (model != null && Boolean.TRUE.equals(model.getFixedRequestBilling())) {
-            return ZERO_COST;
-        }
-        return cost;
+    private RelayCostBreakdown responseCost(RelayContext context, int statusCode, JsonNode body, String path) {
+        if (isCountTokensRequest(path)) return ZERO_COST;
+        // An error or disconnect alone is not evidence of a charged request.
+        if ((statusCode < 200 || statusCode >= 300) && !hasActualBillableUsage(body, path)) return ZERO_COST;
+        return relayPolicyService.estimateCost(context.model(), context.channel(), context.group(), body, path);
     }
 
-    private void enforceQuotaIfSuccessful(int statusCode, RelayContext context, RelayCostBreakdown cost) {
-        if (statusCode < 200 || statusCode >= 300 || !cost.billable()) {
+    private boolean hasActualBillableUsage(JsonNode body, String path) {
+        return !body.path("usage").path("estimated").asBoolean(false) && hasBillableUsage(body, path);
+    }
+
+    private void checkSettledQuota(RelayContext context, RelayCostBreakdown cost) {
+        if (!cost.billable()) {
             return;
         }
-        relayPolicyService.enforceQuota(context.token(), cost.total());
+        try {
+            relayPolicyService.enforceQuota(context.token(), cost.total());
+        } catch (BusinessException ex) {
+            // Usage has already happened: settle it, then prevent further calls.
+            disableTokenAfterBillingFailure(context.token(), ex);
+        }
     }
 
     private void ensureMinimumBalance(RelayContext context) {
@@ -640,8 +800,8 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return model.getRequestPrice() == null ? BigDecimal.ZERO : model.getRequestPrice();
     }
 
-    private void chargeIfSuccessful(int statusCode, RelayContext context, RelayCostBreakdown cost) {
-        if (statusCode < 200 || statusCode >= 300 || !cost.billable()) {
+    private void chargeBillableUsage(RelayContext context, RelayCostBreakdown cost) {
+        if (!cost.billable()) {
             return;
         }
         try {
@@ -698,11 +858,14 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 isAnthropicEndpoint(context) ? "x-api-key" : "bearer",
                 headerOrDefault(anthropicVersion, "2023-06-01"),
                 anthropicBeta == null || anthropicBeta.isBlank() ? "" : "present");
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(endpointBaseUrl(context), path)))
+        HttpRequest.Builder builder = RelayHttpProtocol.requestBuilder(URI.create(relayUrl(endpointBaseUrl(context), path)))
                 .timeout(RELAY_TIMEOUT)
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .header(HttpHeaders.ACCEPT, acceptHeader(body))
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(outboundBody)));
+        if (body.path("stream").asBoolean(false)) {
+            builder.version(streamHttpVersion);
+        }
         applyAuthHeaders(builder, context, anthropicVersion, anthropicBeta);
         applyProtocolHeaders(builder, protocolHeaders);
         return builder.build();
@@ -725,7 +888,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 isAnthropicEndpoint(context) ? "x-api-key" : "bearer");
         String boundary = "----imageCreaterBoundary" + UUID.randomUUID();
         byte[] multipartBody = multipartBody(outboundBody, files, boundary);
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(endpointBaseUrl(context), path)))
+        HttpRequest.Builder builder = RelayHttpProtocol.requestBuilder(URI.create(relayUrl(endpointBaseUrl(context), path)))
                 .timeout(RELAY_TIMEOUT)
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.MULTIPART_FORM_DATA_VALUE + "; boundary=" + boundary)
                 .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
@@ -748,6 +911,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             ObjectNode streamOptions = outbound.withObject("/stream_options");
             streamOptions.put("include_usage", true);
         }
+        promptRuleService.apply(outbound, path);
         return outbound;
     }
 
@@ -755,9 +919,16 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         if (body == null) {
             return "";
         }
+        if ("disabled".equals(body.path("thinking").path("type").asText())
+                || (body.path("enable_thinking").isBoolean() && !body.path("enable_thinking").asBoolean())) {
+            return "none";
+        }
         String effort = firstThinkingText(body.path("reasoning"), "effort", "level");
         if (effort.isBlank()) {
             effort = body.path("reasoning_effort").asText("");
+        }
+        if (effort.isBlank()) {
+            effort = firstThinkingText(body.path("output_config"), "effort");
         }
         if (effort.isBlank()) {
             effort = firstThinkingText(body.path("thinking"), "effort", "level");
@@ -773,6 +944,14 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             JsonNode budget = thinking.path("budget_tokens");
             if (budget.isNumber() && budget.asInt() > 0) {
                 effort = "budget:" + budget.asInt();
+            }
+        }
+        if (effort.isBlank()) {
+            String type = body.path("thinking").path("type").asText("");
+            if ("enabled".equals(type) || "adaptive".equals(type)) {
+                effort = type;
+            } else if (body.path("enable_thinking").isBoolean() && body.path("enable_thinking").asBoolean()) {
+                effort = "enabled";
             }
         }
         return effort == null ? "" : effort.trim();
@@ -1090,6 +1269,20 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return body;
     }
 
+    private JsonNode downstreamFailureBody(String message) {
+        ObjectNode body = (ObjectNode) upstreamFailureBody(message);
+        ((ObjectNode) body.path("error")).put("type", "downstream_error");
+        return body;
+    }
+
+    private String publicSuccessText(String text) {
+        try {
+            JsonNode raw = objectMapper.readTree(text);
+            JsonNode clean = UpstreamErrors.stripDiagnostics(raw);
+            return raw != null && !raw.equals(clean) ? clean.toString() : text;
+        } catch (Exception ignored) { return text; }
+    }
+
     private String localOverloadError(String path) {
         return localErrorBody(path, "overloaded_error", "server_error",
                 "All relay channels are busy, please retry shortly", 503);
@@ -1152,16 +1345,35 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
      */
     private final class StreamUsageAccumulator {
         private static final int PREVIEW_CAP = 4096;
-        private static final int LINE_CAP = 1 << 20;
+        // response.completed can include the entire generated output. Match
+        // SseOutput's event limit instead of silently discarding large events.
+        private static final int EVENT_CAP = 32 * 1024 * 1024;
         private final ByteArrayOutputStream preview = new ByteArrayOutputStream();
         private final ByteArrayOutputStream lineBuf = new ByteArrayOutputStream();
         private final ObjectNode usage = objectMapper.createObjectNode();
         private JsonNode errorEvent;
         private boolean lineEmpty = true;
+        private final String path;
+        private boolean terminalSeen;
+        private boolean generatedCompaction;
+        private final RelayPromptRefusalDetector.Stream refusalDetector = new RelayPromptRefusalDetector.Stream();
 
-        void onBytes(byte[] b, int off, int len) {
+        StreamUsageAccumulator() {
+            this(null);
+        }
+
+        StreamUsageAccumulator(String path) {
+            this.path = path;
+        }
+
+        boolean requiresTerminal() {
+            return path != null && (path.endsWith("/responses") || path.endsWith("/messages")
+                    || path.endsWith("/chat/completions"));
+        }
+
+        int onBytes(byte[] b, int off, int len) {
             if (len <= 0) {
-                return;
+                return 0;
             }
             if (preview.size() < PREVIEW_CAP) {
                 int n = Math.min(len, PREVIEW_CAP - preview.size());
@@ -1174,13 +1386,18 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                     if (lineEmpty) {
                         processLine(lineBuf.toString(StandardCharsets.UTF_8));
                         lineBuf.reset();
+                        if (path != null && terminalSeen) return i + 1;
                     }
                     lineEmpty = true;
                 } else if (c != '\r') {
                     lineEmpty = false;
                 }
-                if (lineBuf.size() > LINE_CAP) lineBuf.reset();
+                if (lineBuf.size() > EVENT_CAP) {
+                    lineBuf.reset();
+                    throw new IllegalStateException("Upstream SSE event exceeds size limit");
+                }
             }
+            return len;
         }
 
         private void processLine(String line) {
@@ -1197,17 +1414,47 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 }
             }
             String payload = data.toString().trim();
-            if (payload.isBlank() || "[DONE]".equals(payload)) {
+            if ("[DONE]".equals(payload)) {
+                // Responses clients require response.completed/failed/incomplete;
+                // a bare Chat [DONE] cannot complete a Responses response.
+                if (path == null || path.endsWith("/chat/completions")) terminalSeen = true;
+                return;
+            }
+            if (payload.isBlank()) {
+                if (errorLabel) {
+                    errorEvent = upstreamFailureBody("Upstream SSE error event");
+                    terminalSeen = true;
+                }
                 return;
             }
             try {
                 JsonNode event = objectMapper.readTree(payload);
-                if (UpstreamErrors.isError(event)) errorEvent = event;
+                refusalDetector.accept(event, path);
+                generatedCompaction |= RelayRequestKind.hasGeneratedCompaction(event);
+                if (UpstreamErrors.isError(event) || errorLabel) {
+                    errorEvent = event;
+                    terminalSeen = true;
+                }
+                String type = event.path("type").asText();
+                if ((path == null || path.endsWith("/responses"))
+                        && ("response.completed".equals(type) || "response.incomplete".equals(type))) {
+                    terminalSeen = true;
+                    if ("response.incomplete".equals(type)) {
+                        errorEvent = upstreamFailureBody("Upstream response incomplete: "
+                                + event.path("response").path("incomplete_details"));
+                    }
+                }
+                if ((path == null || path.endsWith("/messages")) && "message_stop".equals(type)) {
+                    terminalSeen = true;
+                }
                 mergeUsage(usage, event.path("usage"));
                 mergeUsage(usage, event.path("message").path("usage"));
                 mergeUsage(usage, event.path("response").path("usage"));
             } catch (Exception ignored) {
-                if (errorLabel) errorEvent = upstreamFailureBody(payload);
+                if (errorLabel) {
+                    errorEvent = upstreamFailureBody(payload);
+                    terminalSeen = true;
+                }
             }
         }
 
@@ -1238,6 +1485,7 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
 
         JsonNode buildResponseBody() {
             ObjectNode wrapper = objectMapper.createObjectNode();
+            if (generatedCompaction) wrapper.putArray("content").addObject().put("type", "compaction");
             if (!usage.isEmpty()) {
                 wrapper.set("usage", usage);
             }
@@ -1299,6 +1547,18 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         return value == null || value.isBlank() ? MediaType.APPLICATION_OCTET_STREAM_VALUE : value;
     }
 
+    private void saveUsage(RelayContext context, RelayDispatchRequest request, String thinkingEffort,
+                           int statusCode, JsonNode responseBody, RelayCostBreakdown cost, long durationMs) {
+        saveUsage(context, request, thinkingEffort, statusCode, responseBody, cost, durationMs, null);
+    }
+
+    private void saveUsage(RelayContext context, RelayDispatchRequest request, String thinkingEffort,
+                           int statusCode, JsonNode responseBody, RelayCostBreakdown cost, long durationMs, Long firstTokenMs) {
+        saveUsage(context, request.upstreamPath(), request.userAgent(), thinkingEffort, statusCode,
+                responseBody, cost, durationMs, firstTokenMs,
+                RelayRequestKind.isCompaction(request.upstreamPath(), request.body()));
+    }
+
     private void saveUsage(RelayContext context, String endpoint, String userAgent, String thinkingEffort,
                            int statusCode, JsonNode responseBody, RelayCostBreakdown cost, long durationMs) {
         saveUsage(context, endpoint, userAgent, thinkingEffort, statusCode, responseBody, cost, durationMs, null);
@@ -1306,6 +1566,13 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
 
     private void saveUsage(RelayContext context, String endpoint, String userAgent, String thinkingEffort,
                            int statusCode, JsonNode responseBody, RelayCostBreakdown cost, long durationMs, Long firstTokenMs) {
+        saveUsage(context, endpoint, userAgent, thinkingEffort, statusCode, responseBody, cost, durationMs,
+                firstTokenMs, RelayRequestKind.isCompaction(endpoint, null));
+    }
+
+    private void saveUsage(RelayContext context, String endpoint, String userAgent, String thinkingEffort,
+                           int statusCode, JsonNode responseBody, RelayCostBreakdown cost, long durationMs,
+                           Long firstTokenMs, boolean contextCompaction) {
         RelayToken access = context.token();
         RelayChannel channel = context.channel();
         RelayGroup group = context.group();
@@ -1324,7 +1591,10 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         log.setTokenName(limitForColumn(access.getName(), 80));
         log.setChannelName(limitForColumn(channel.getName(), 80));
         log.setGroupNames(limitForColumn(access.getGroupNames(), 160));
+        log.setBillingGroupCode(group == null ? null : limitForColumn(group.getCode(), 160));
         log.setEndpoint(limitForColumn(endpoint, 80));
+        log.setContextCompaction(contextCompaction
+                || RelayRequestKind.hasGeneratedCompaction(responseBody));
         log.setModel(limitForColumn(context.model() == null ? "" : context.model().getModel(), 120));
         log.setModelType(limitForColumn(context.effectiveModelType(), 40));
         log.setThinkingEffort(limitForColumn(thinkingEffort, 40));
@@ -1379,7 +1649,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
             fallback.setTokenName(limitForColumn(usageLog.getTokenName(), 80));
             fallback.setChannelName(limitForColumn(usageLog.getChannelName(), 80));
             fallback.setGroupNames(limitForColumn(usageLog.getGroupNames(), 160));
+            fallback.setBillingGroupCode(limitForColumn(usageLog.getBillingGroupCode(), 160));
             fallback.setEndpoint(limitForColumn(usageLog.getEndpoint(), 80));
+            fallback.setContextCompaction(usageLog.getContextCompaction());
             fallback.setModel(limitForColumn(usageLog.getModel(), 120));
             fallback.setModelType(limitForColumn(usageLog.getModelType(), 40));
             // Keep the original usage and billing values.  The API key usage
@@ -1445,6 +1717,12 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
         }
         try {
             JsonNode root = objectMapper.readTree(body);
+            if (root.isObject()) {
+                // Error envelopes may carry already incurred usage on the nested response.
+                if (!root.hasNonNull("usage") && root.path("response").path("usage").isObject()) {
+                    ((ObjectNode) root).set("usage", root.path("response").path("usage"));
+                }
+            }
             JsonNode usage = root.path("usage");
             if (!usage.isMissingNode() && !usage.isNull()) {
                 return root;
@@ -1538,6 +1816,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
     private String textFromResponse(String body) {
         if (body == null || body.isBlank()) return "";
         StringBuilder builder = new StringBuilder();
+        String trimmedBody = body.stripLeading();
+        boolean sseBody = trimmedBody.startsWith("data:") || trimmedBody.startsWith("event:")
+                || trimmedBody.startsWith(":");
         for (String line : body.split("\\R")) {
             String trimmed = line.trim();
             if (!trimmed.startsWith("data:")) continue;
@@ -1549,7 +1830,9 @@ public class RelayDispatchServiceImpl implements RelayDispatchService {
                 // Ignore non-JSON SSE frames.
             }
         }
-        if (!builder.isEmpty()) return builder.toString();
+        // SSE comments and envelope metadata are transport data, not generated
+        // text. Never estimate output tokens from a heartbeat-only response.
+        if (!builder.isEmpty() || sseBody) return builder.toString();
         try {
             collectText(objectMapper.readTree(body), builder, Set.of("output_text", "text", "content"));
         } catch (Exception ignored) {

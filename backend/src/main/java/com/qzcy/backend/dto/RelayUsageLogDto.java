@@ -34,4 +34,5 @@ public class RelayUsageLogDto {
     private String status;
     private String message;
     private LocalDateTime createdAt;
+    private Boolean contextCompaction;
 }

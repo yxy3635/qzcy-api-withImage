@@ -7,6 +7,9 @@ export interface LoginResponse {
 }
 
 export const authApi = {
+  logout(token: string) {
+    return http.post<ApiResponse<void>>('/user/logout', {}, { headers: { Authorization: `Bearer ${token}` } })
+  },
   registrationConfig() {
     return http.get<ApiResponse<RegistrationConfig>>('/auth/registration-config')
   },

@@ -47,8 +47,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (jwtUtil.validateToken(jwtValue)) {
                 Long userId = jwtUtil.getUserId(jwtValue);
                 User user = userMapper.selectById(userId);
-                if (user == null) {
-                    filterChain.doFilter(request, response);
+                if (user == null || !jwtUtil.matchesUser(jwtValue, user)) {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"code\":401,\"message\":\"登录已失效，请重新登录\",\"data\":null}");
                     return;
                 }
                 if (Boolean.TRUE.equals(user.getBanned())) {

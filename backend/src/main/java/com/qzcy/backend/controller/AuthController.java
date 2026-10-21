@@ -9,6 +9,9 @@ import com.qzcy.backend.dto.LoginResponse;
 import com.qzcy.backend.dto.RegisterDto;
 import com.qzcy.backend.service.AuthService;
 import com.qzcy.backend.service.EmailCodeService;
+import com.qzcy.backend.service.AccountAttemptLimiter;
+import com.qzcy.backend.exception.BusinessException;
+import com.qzcy.backend.util.SecurityAudit;
 import lombok.RequiredArgsConstructor;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,10 +25,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private final AuthService authService;
     private final EmailCodeService emailCodeService;
+    private final AccountAttemptLimiter attemptLimiter;
 
     @PostMapping("/email-code")
     public ApiResponse<Object> sendEmailCode(@RequestBody EmailCodeDto dto, HttpServletRequest request) {
-        return ApiResponse.success(emailCodeService.sendCode(dto.getEmail(), dto.getScene(), clientIp(request)));
+        if (!"register".equals(dto.getScene()) && !"forgot_password".equals(dto.getScene())) {
+            throw new BusinessException(400, "验证码场景无效");
+        }
+        return ApiResponse.success(emailCodeService.sendCode(dto.getEmail(), dto.getScene(), request.getRemoteAddr()));
     }
 
     @PostMapping("/register")
@@ -34,28 +41,29 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ApiResponse<LoginResponse> login(@RequestBody LoginDto dto) {
-        return ApiResponse.success(authService.login(dto));
+    public ApiResponse<LoginResponse> login(@RequestBody LoginDto dto, HttpServletRequest request) {
+        try {
+            attemptLimiter.login(dto.getAccount() == null ? dto.getUsername() : dto.getAccount(), request.getRemoteAddr());
+            LoginResponse result = authService.login(dto);
+            SecurityAudit.record("login", 200, result.getUser().getId(), request);
+            return ApiResponse.success(result);
+        } catch (BusinessException ex) {
+            SecurityAudit.record("login", ex.getCode(), null, request);
+            throw ex;
+        }
     }
 
     @PostMapping("/forgot-password")
-    public ApiResponse<Void> forgotPassword(@RequestBody ForgotPasswordDto dto) {
-        authService.resetPassword(dto);
+    public ApiResponse<Void> forgotPassword(@RequestBody ForgotPasswordDto dto, HttpServletRequest request) {
+        try {
+            attemptLimiter.sensitive(dto.getEmail(), request.getRemoteAddr());
+            authService.resetPassword(dto);
+            SecurityAudit.record("password_reset", 200, null, request);
+        } catch (BusinessException ex) {
+            SecurityAudit.record("password_reset", ex.getCode(), null, request);
+            throw ex;
+        }
         return ApiResponse.success(null);
     }
 
-    private String clientIp(HttpServletRequest request) {
-        String remoteAddress = request.getRemoteAddr();
-        if ("127.0.0.1".equals(remoteAddress) || "0:0:0:0:0:0:0:1".equals(remoteAddress) || "::1".equals(remoteAddress)) {
-            String forwardedFor = request.getHeader("X-Forwarded-For");
-            if (forwardedFor != null && !forwardedFor.isBlank()) {
-                return forwardedFor.split(",", 2)[0].trim();
-            }
-            String realIp = request.getHeader("X-Real-IP");
-            if (realIp != null && !realIp.isBlank()) {
-                return realIp.trim();
-            }
-        }
-        return remoteAddress;
-    }
 }

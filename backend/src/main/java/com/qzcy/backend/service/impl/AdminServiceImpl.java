@@ -22,6 +22,7 @@ import com.qzcy.backend.mapper.RelayUsageLogMapper;
 import com.qzcy.backend.mapper.UserMapper;
 import com.qzcy.backend.service.AdminService;
 import com.qzcy.backend.service.AdminUserRankingCache;
+import com.qzcy.backend.util.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -157,11 +158,15 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @Transactional
     public User updateUser(Long id, AdminUserUpdateDto dto) {
         User user = userMapper.selectById(id);
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
+        boolean revoke = false;
+        User update = new User();
+        update.setId(id);
         if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
             String email = normalizeEmail(dto.getEmail());
             Long exists = userMapper.selectCount(new LambdaQueryWrapper<User>()
@@ -170,31 +175,34 @@ public class AdminServiceImpl implements AdminService {
             if (exists > 0) {
                 throw new BusinessException(409, "邮箱已被其他用户使用");
             }
-            user.setEmail(email);
+            revoke |= !java.util.Objects.equals(user.getEmail(), email);
+            update.setEmail(email);
         }
         if (dto.getRole() != null && !dto.getRole().isBlank()) {
             if (!"USER".equals(dto.getRole()) && !"ADMIN".equals(dto.getRole())) {
                 throw new BusinessException(400, "角色只允许USER或ADMIN");
             }
-            user.setRole(dto.getRole());
+            revoke |= !java.util.Objects.equals(user.getRole(), dto.getRole());
+            update.setRole(dto.getRole());
         }
         if (dto.getBalance() != null) {
             if (dto.getBalance().compareTo(BigDecimal.ZERO) < 0) {
                 throw new BusinessException(400, "余额不能小于0");
             }
-            user.setBalance(dto.getBalance());
+            update.setBalance(dto.getBalance());
         }
         if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
-            if (dto.getPassword().length() < 6) {
-                throw new BusinessException(400, "密码至少6位");
-            }
-            user.setPassword(passwordEncoder.encode(dto.getPassword()));
+            PasswordPolicy.requireNewPassword(dto.getPassword());
+            update.setPassword(passwordEncoder.encode(dto.getPassword()));
+            revoke = true;
         }
-        userMapper.updateById(user);
+        userMapper.updateById(update);
+        if (revoke) userMapper.revokeSessions(id);
         return userMapper.selectById(id);
     }
 
     @Override
+    @Transactional
     public void updateRole(Long id, String role) {
         if (!"USER".equals(role) && !"ADMIN".equals(role)) {
             throw new BusinessException(400, "角色只允许USER或ADMIN");
@@ -203,11 +211,15 @@ public class AdminServiceImpl implements AdminService {
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
-        user.setRole(role);
-        userMapper.updateById(user);
+        User update = new User();
+        update.setId(id);
+        update.setRole(role);
+        userMapper.updateById(update);
+        userMapper.revokeSessions(id);
     }
 
     @Override
+    @Transactional
     public void updateBanStatus(Long id, boolean banned, Long currentAdminId) {
         if (id.equals(currentAdminId)) {
             throw new BusinessException(400, "不能封禁当前管理员账号");
@@ -216,8 +228,11 @@ public class AdminServiceImpl implements AdminService {
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
-        user.setBanned(banned);
-        userMapper.updateById(user);
+        User update = new User();
+        update.setId(id);
+        update.setBanned(banned);
+        userMapper.updateById(update);
+        userMapper.revokeSessions(id);
     }
 
     @Override

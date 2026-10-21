@@ -1,0 +1,320 @@
+{
+  "date": "2026-10-18",
+  "base_url": "https://image.qzcy3.top/api/v1",
+  "model": "deepseek-v4.1-flash",
+  "prompt": "Find the smallest positive integer n such that n mod 7 = 3, n mod 11 = 5, and n mod 13 = 7. Verify the result briefly.",
+  "results": [
+    {
+      "case": "chat-default",
+      "path": "/chat/completions",
+      "stream": true,
+      "parameters": {},
+      "status": 200,
+      "seconds": 5.17,
+      "events": 613,
+      "complete": true,
+      "reasoning_chars": 0,
+      "answer_chars": 1447,
+      "first_reasoning_seconds": null,
+      "first_answer_seconds": 2.81,
+      "usage": [
+        {
+          "prompt_tokens": 42,
+          "completion_tokens": 611,
+          "total_tokens": 653,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 42,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "prompt_cache_write_tokens": 0,
+          "completion_thinking_tokens": 0,
+          "credit": 0.04,
+          "cached_tokens": 0
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "chat-thinking",
+      "path": "/chat/completions",
+      "stream": true,
+      "parameters": {
+        "thinking": {
+          "type": "enabled"
+        }
+      },
+      "status": 200,
+      "seconds": 5.16,
+      "events": 692,
+      "complete": true,
+      "reasoning_chars": 0,
+      "answer_chars": 1589,
+      "first_reasoning_seconds": null,
+      "first_answer_seconds": 2.8,
+      "usage": [
+        {
+          "prompt_tokens": 42,
+          "completion_tokens": 690,
+          "total_tokens": 732,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 42,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "prompt_cache_write_tokens": 0,
+          "completion_thinking_tokens": 0,
+          "credit": 0.04,
+          "cached_tokens": 0
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "chat-high",
+      "path": "/chat/completions",
+      "stream": true,
+      "parameters": {
+        "reasoning_effort": "high"
+      },
+      "status": 200,
+      "seconds": 4.38,
+      "events": 683,
+      "complete": true,
+      "reasoning_chars": 726,
+      "answer_chars": 223,
+      "first_reasoning_seconds": 2.53,
+      "first_answer_seconds": 4.08,
+      "usage": [
+        {
+          "prompt_tokens": 68,
+          "completion_tokens": 379,
+          "total_tokens": 447,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 303,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 68,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "prompt_cache_write_tokens": 0,
+          "completion_thinking_tokens": 303,
+          "credit": 0.02,
+          "cached_tokens": 0
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "responses-high",
+      "path": "/responses",
+      "stream": true,
+      "parameters": {
+        "reasoning": {
+          "effort": "high",
+          "summary": "auto"
+        }
+      },
+      "status": 200,
+      "seconds": 7.5,
+      "events": 665,
+      "complete": true,
+      "reasoning_chars": 899,
+      "answer_chars": 604,
+      "first_reasoning_seconds": 5.11,
+      "first_answer_seconds": 6.28,
+      "usage": [
+        {
+          "input_tokens": 68,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 653,
+          "output_tokens_details": {
+            "reasoning_tokens": 362
+          },
+          "total_tokens": 721
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "messages-thinking",
+      "path": "/messages",
+      "stream": true,
+      "parameters": {
+        "thinking": {
+          "type": "enabled",
+          "budget_tokens": 1024
+        }
+      },
+      "status": 200,
+      "seconds": 4.72,
+      "events": 605,
+      "complete": true,
+      "reasoning_chars": 0,
+      "answer_chars": 1476,
+      "first_reasoning_seconds": null,
+      "first_answer_seconds": 2.61,
+      "usage": [
+        {
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "input_tokens": 42,
+          "output_tokens": 600
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "messages-adaptive",
+      "path": "/messages",
+      "stream": true,
+      "parameters": {
+        "thinking": {
+          "type": "adaptive"
+        },
+        "output_config": {
+          "effort": "high"
+        }
+      },
+      "status": 200,
+      "seconds": 4.78,
+      "events": 699,
+      "complete": true,
+      "reasoning_chars": 0,
+      "answer_chars": 1627,
+      "first_reasoning_seconds": null,
+      "first_answer_seconds": 2.59,
+      "usage": [
+        {
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "input_tokens": 42,
+          "output_tokens": 694
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "chat-high-json",
+      "path": "/chat/completions",
+      "stream": false,
+      "parameters": {
+        "reasoning_effort": "high"
+      },
+      "status": 200,
+      "seconds": 4.34,
+      "events": 1,
+      "complete": true,
+      "reasoning_chars": 651,
+      "answer_chars": 181,
+      "first_reasoning_seconds": null,
+      "first_answer_seconds": null,
+      "usage": [
+        {
+          "prompt_tokens": 68,
+          "completion_tokens": 367,
+          "total_tokens": 435,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 300,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 68,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "prompt_cache_write_tokens": 0,
+          "completion_thinking_tokens": 300,
+          "credit": 0.02,
+          "cached_tokens": 0
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "responses-high-json",
+      "path": "/responses",
+      "stream": false,
+      "parameters": {
+        "reasoning": {
+          "effort": "high",
+          "summary": "auto"
+        }
+      },
+      "status": 200,
+      "seconds": 5.2,
+      "events": 1,
+      "complete": true,
+      "reasoning_chars": 644,
+      "answer_chars": 184,
+      "first_reasoning_seconds": null,
+      "first_answer_seconds": null,
+      "usage": [
+        {
+          "input_tokens": 68,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 365,
+          "output_tokens_details": {
+            "reasoning_tokens": 295
+          },
+          "total_tokens": 433
+        }
+      ],
+      "errors": []
+    }
+  ]
+}

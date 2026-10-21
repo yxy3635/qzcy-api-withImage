@@ -10,6 +10,7 @@ import RelayChannelDrawer from '@/components/admin/RelayChannelDrawer.vue'
 import RelayModelDrawer from '@/components/admin/RelayModelDrawer.vue'
 import RelayGroupDrawer from '@/components/admin/RelayGroupDrawer.vue'
 import RelayCompressionSettings from '@/components/admin/RelayCompressionSettings.vue'
+import RelayPromptRuleSettings from '@/components/admin/RelayPromptRuleSettings.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/store/authStore'
@@ -19,7 +20,7 @@ import type { ChannelDraft, GroupDraft, ModelDraft, ProviderDraft } from '@/type
 const toast = useToast()
 const auth = useAuthStore()
 const router = useRouter()
-type Tab = 'overview' | 'channels' | 'tokens' | 'models' | 'usage' | 'policy' | 'compression'
+type Tab = 'overview' | 'channels' | 'tokens' | 'models' | 'usage' | 'policy' | 'compression' | 'prompt-rules'
 
 const overview = ref<RelayAdminOverview | null>(null)
 const dashboard = ref<RelayDashboard | null>(null)
@@ -107,6 +108,7 @@ const newGroup = reactive<GroupDraft>({
 })
 
 const tabs: Array<{ id: Tab; label: string; description: string; icon: string }> = [
+  { id: 'prompt-rules', label: '提示词规则', description: '全局转发指令', icon: 'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 12h8M8 16h5' },
   { id: 'compression', label: '请求压缩', description: '格式与内存预算', icon: 'M4 7h16M4 17h16M12 3v7m-3-3 3 3 3-3M12 21v-7m-3 3 3-3 3 3' },
   { id: 'overview', label: '总览', description: '运行概况', icon: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z' },
   { id: 'channels', label: '渠道', description: '上游连接', icon: 'M6 3v4m0 10v4m12-18v4m0 10v4M6 7h12v10H6zM10 12h4' },
@@ -938,6 +940,7 @@ async function enableSelectedUpstreamModels() {
         <span><strong>imageCreater</strong><small>API Relay Console</small></span>
       </RouterLink>
       <div class="relay-console-header-actions">
+        <RouterLink to="/admin/relay-reports" class="relay-back-link">中转报表</RouterLink>
         <RouterLink to="/" class="relay-home-link" title="回到网站门户">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10.5 9-7.5 9 7.5M5.5 9.5V20a1 1 0 0 0 1 1h3.5v-6h4v6h3.5a1 1 0 0 0 1-1V9.5" /></svg>
           首页
@@ -1261,6 +1264,7 @@ async function enableSelectedUpstreamModels() {
       </section>
 
       <RelayCompressionSettings v-else-if="activeTab === 'compression'" key="compression" class="mt-6" />
+      <RelayPromptRuleSettings v-else-if="activeTab === 'prompt-rules'" key="prompt-rules" class="mt-6" />
 
       <section v-else-if="activeTab === 'policy'" key="policy" class="mt-6 space-y-3">
         <button class="panel flex w-full items-center justify-between gap-4 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50/40" type="button" @click="newGroupEditor">
@@ -1689,7 +1693,7 @@ async function enableSelectedUpstreamModels() {
 
 @media (max-width: 800px) {
   .relay-console { padding: .65rem; }
-  .relay-console-body { display: block; margin-top: .65rem; }
+  .relay-console-body { display: block; margin-top: 5.5rem; }
   .relay-console-main { grid-column: auto; }
   .relay-console-nav,
   .relay-console-nav.is-collapsed { position: static; width: 100%; height: auto; min-height: 0; margin-bottom: .65rem; padding: .55rem; }

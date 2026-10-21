@@ -1,0 +1,138 @@
+{
+  "base_url": "https://image.qzcy3.top/api/v1",
+  "model": "deepseek-v4.1-flash",
+  "results": [
+    {
+      "case": "chat-enabled",
+      "status": 200,
+      "seconds": 4.39,
+      "reasoning_chars": 885,
+      "answer_chars": 3,
+      "complete": true,
+      "usage": [
+        {
+          "prompt_tokens": 60,
+          "completion_tokens": 337,
+          "total_tokens": 397,
+          "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 335,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0,
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 60,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "prompt_cache_write_tokens": 0,
+          "completion_thinking_tokens": 335,
+          "credit": 0.02,
+          "cached_tokens": 0
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "messages-enabled",
+      "status": 200,
+      "seconds": 4.09,
+      "reasoning_chars": 533,
+      "answer_chars": 3,
+      "complete": true,
+      "usage": [
+        {
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "input_tokens": 60,
+          "output_tokens": 256
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "messages-adaptive",
+      "status": 200,
+      "seconds": 4.33,
+      "reasoning_chars": 690,
+      "answer_chars": 3,
+      "complete": true,
+      "usage": [
+        {
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "input_tokens": 60,
+          "output_tokens": 297
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "messages-disabled",
+      "status": 200,
+      "seconds": 4.34,
+      "reasoning_chars": 0,
+      "answer_chars": 1164,
+      "complete": true,
+      "usage": [
+        {
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "input_tokens": 34,
+          "output_tokens": 505
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "responses-high",
+      "status": 200,
+      "seconds": 3.64,
+      "reasoning_chars": 553,
+      "answer_chars": 3,
+      "complete": true,
+      "usage": [
+        {
+          "input_tokens": 60,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 268,
+          "output_tokens_details": {
+            "reasoning_tokens": 266
+          },
+          "total_tokens": 328
+        }
+      ],
+      "errors": []
+    },
+    {
+      "case": "messages-enabled-json",
+      "status": 200,
+      "seconds": 4.61,
+      "reasoning_chars": 676,
+      "answer_chars": 3,
+      "complete": true,
+      "usage": [
+        {
+          "input_tokens": 60,
+          "output_tokens": 299
+        }
+      ],
+      "errors": []
+    }
+  ]
+}

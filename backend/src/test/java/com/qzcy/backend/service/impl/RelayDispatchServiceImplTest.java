@@ -1,5 +1,6 @@
 package com.qzcy.backend.service.impl;
 
+import com.qzcy.backend.service.RelayPromptRuleService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -44,7 +45,7 @@ class RelayDispatchServiceImplTest {
         provider.setOpenaiBaseUrl("https://openai.example/v1");
         provider.setAnthropicBaseUrl("https://anthropic.example");
         RelayContext context = new RelayContext(null, null, null, new RelayChannel(), provider, null, "chat");
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         for (String path : java.util.List.of("/v1/messages", "/v1/messages/count_tokens", "/v1/chat/completions", "/v1/responses", "/v1/images/generations")) {
             RelayContext selected = service.contextsForFormat(java.util.List.of(context), path).get(0);
             boolean anthropic = path.startsWith("/v1/messages");
@@ -64,7 +65,7 @@ class RelayDispatchServiceImplTest {
         provider.setApiBaseUrl("https://legacy.example");
         provider.setChannelRule("anthropic");
         RelayContext context = new RelayContext(null, null, null, new RelayChannel(), provider, null, "chat");
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         assertEquals(1, service.contextsForFormat(java.util.List.of(context), "/v1/messages").size());
         org.junit.jupiter.api.Assertions.assertThrows(com.qzcy.backend.exception.BusinessException.class,
                 () -> service.contextsForFormat(java.util.List.of(context), "/v1/chat/completions"));
@@ -102,39 +103,37 @@ class RelayDispatchServiceImplTest {
     }
 
     @Test
-    void requestBillingDoesNotChargeNonSuccessfulUpstreamResponse() {
+    void failedRequestWithoutActualUsageIsNotCharged() {
         RelayModel model = new RelayModel();
         model.setFixedRequestBilling(true);
         RelayContext context = new RelayContext(null, model, null, null, null, null, "chat");
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
-        RelayCostBreakdown cost = new RelayCostBreakdown(
-                new BigDecimal("0.010000"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                new BigDecimal("0.050000"), new BigDecimal("0.050000"));
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
 
         RelayCostBreakdown failed = ReflectionTestUtils.invokeMethod(
-                service, "billingCostForResponse", context, 502, cost);
-        RelayCostBreakdown successful = ReflectionTestUtils.invokeMethod(
-                service, "billingCostForResponse", context, 200, cost);
+                service, "responseCost", context, 502, OBJECT_MAPPER.createObjectNode(), "/v1/responses");
 
         assertEquals(BigDecimal.ZERO, failed.total());
         assertEquals(BigDecimal.ZERO, failed.request());
-        assertEquals(cost.total(), successful.total());
     }
 
     @Test
-    void usageBillingKeepsExistingErrorCostAndSuccessCost() {
+    void actualUsageIsBillableOnBothErrorAndSuccess() {
         RelayModel model = new RelayModel();
         model.setFixedRequestBilling(false);
         RelayContext context = new RelayContext(null, model, null, null, null, null, "chat");
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        var policy = mock(RelayPolicyService.class);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(policy, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         RelayCostBreakdown cost = new RelayCostBreakdown(
                 new BigDecimal("0.010000"), new BigDecimal("0.020000"), BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, new BigDecimal("0.030000"));
 
+        when(policy.estimateCost(any(), any(), any(), any(), any())).thenReturn(cost);
+        var response = OBJECT_MAPPER.createObjectNode();
+        response.putObject("usage").put("input_tokens", 120);
         RelayCostBreakdown failed = ReflectionTestUtils.invokeMethod(
-                service, "billingCostForResponse", context, 502, cost);
+                service, "responseCost", context, 502, response, "/v1/responses");
         RelayCostBreakdown successful = ReflectionTestUtils.invokeMethod(
-                service, "billingCostForResponse", context, 200, cost);
+                service, "responseCost", context, 200, response, "/v1/responses");
 
         assertEquals(cost.total(), failed.total());
         assertEquals(cost.total(), successful.total());
@@ -149,7 +148,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void preservesUpstreamErrorBodyWhileRedactingUrls() {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         String upstreamError = "{\"type\":\"error\",\"error\":{\"type\":\"provider_error\",\"message\":\"See https://api.example.com/v1/errors?id=42\"},\"request_id\":\"req_123\"}";
 
         String sanitized = ReflectionTestUtils.invokeMethod(service, "sanitizeUpstreamErrorBody", upstreamError);
@@ -160,7 +159,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void redactsJsonEscapedUrlsWithoutReformattingErrorBody() {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         String upstreamError = "{\"message\":\"See https:\\/\\/api.example.com\\/v1\\/errors\"}";
 
         String sanitized = ReflectionTestUtils.invokeMethod(service, "sanitizeUpstreamErrorBody", upstreamError);
@@ -170,7 +169,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void extractsThinkingEffortFromCommonRequestFormats() throws Exception {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
 
         ObjectNode responsesBody = (ObjectNode) OBJECT_MAPPER.readTree("""
                 {"model":"gpt-5.6-luna","reasoning":{"effort":"high"}}
@@ -185,6 +184,17 @@ class RelayDispatchServiceImplTest {
         assertEquals("high", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", responsesBody));
         assertEquals("medium", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", chatBody));
         assertEquals("budget:4096", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", thinkingBody));
+        ObjectNode harnessBody = (ObjectNode) OBJECT_MAPPER.readTree("""
+                {"model":"deepseek-v4.1-flash","thinking":{"type":"enabled"},"output_config":{"effort":"max"}}
+                """);
+        assertEquals("max", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", harnessBody));
+        harnessBody.withObject("/thinking").put("type", "disabled");
+        assertEquals("none", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", harnessBody));
+        harnessBody.withObject("/thinking").put("type", "adaptive");
+        harnessBody.remove("output_config");
+        assertEquals("adaptive", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", harnessBody));
+        harnessBody.put("enable_thinking", false);
+        assertEquals("none", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", harnessBody));
     }
 
     @Test
@@ -199,7 +209,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void responsesCompactBodyIsForwardedWithoutRemovingContext() throws Exception {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         ObjectNode inbound = (ObjectNode) OBJECT_MAPPER.readTree("""
                 {
                   "model": "public-model",
@@ -222,7 +232,8 @@ class RelayDispatchServiceImplTest {
 
         assertNotSame(inbound, outbound);
         assertEquals(original, inbound);
-        assertEquals(original.path("instructions"), outbound.path("instructions"));
+        assertEquals(com.qzcy.backend.util.RelayPromptRules.DEFAULT_CONTENT + "\n\n" + original.path("instructions").asText(),
+                outbound.path("instructions").asText());
         assertEquals(original.path("input"), outbound.path("input"));
         assertEquals(original.path("parallel_tool_calls"), outbound.path("parallel_tool_calls"));
         assertEquals(original.path("previous_response_id"), outbound.path("previous_response_id"));
@@ -231,7 +242,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void explicitChannelMappingOverridesRequestModel() throws Exception {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         ObjectNode inbound = (ObjectNode) OBJECT_MAPPER.readTree("""
                 {"model":"public-alias","messages":[{"role":"user","content":"ping"}]}
                 """);
@@ -248,7 +259,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void noMappingPreservesRequestModelForChatResponsesAndCompact() throws Exception {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         RelayContext context = new RelayContext(null, null, null, null, null, null, "chat");
         for (String path : new String[]{"/v1/chat/completions", "/v1/responses", "/v1/responses/compact"}) {
             ObjectNode inbound = (ObjectNode) OBJECT_MAPPER.readTree("{\"model\":\"public-alias\",\"input\":\"ping\"}");
@@ -261,7 +272,7 @@ class RelayDispatchServiceImplTest {
 
     @Test
     void circuitScopeKeyIsolatesProvidersWithinChannel() {
-        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER);
+        RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         RelayChannel channel = new RelayChannel();
         channel.setId(7L);
         RelayChannelProvider provider = new RelayChannelProvider();
@@ -278,7 +289,7 @@ class RelayDispatchServiceImplTest {
         RelayUsageLogMapper usageLogMapper = mock(RelayUsageLogMapper.class);
         RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(
                 mock(RelayPolicyService.class), new RelayProviderScheduler(), usageLogMapper, mock(RelayTokenMapper.class),
-                mock(UserMapper.class), mock(PaymentService.class), OBJECT_MAPPER);
+                mock(UserMapper.class), mock(PaymentService.class), OBJECT_MAPPER, new RelayPromptRuleService(null));
         when(usageLogMapper.insert(any(RelayUsageLog.class)))
                 .thenThrow(new RuntimeException("temporary insert failure"))
                 .thenReturn(1);
@@ -288,6 +299,8 @@ class RelayDispatchServiceImplTest {
         original.setTokenId(7L);
         original.setProviderId(11L);
         original.setProviderName("actual-provider");
+        original.setBillingGroupCode("premium");
+        original.setContextCompaction(true);
         original.setPromptTokens(120);
         original.setCompletionTokens(45);
         original.setCachedTokens(20);
@@ -310,6 +323,8 @@ class RelayDispatchServiceImplTest {
         assertEquals("success", fallback.getStatus());
         assertEquals(11L, fallback.getProviderId());
         assertEquals("actual-provider", fallback.getProviderName());
+        assertEquals("premium", fallback.getBillingGroupCode());
+        assertEquals(Boolean.TRUE, fallback.getContextCompaction());
     }
 
     @Test
@@ -317,7 +332,7 @@ class RelayDispatchServiceImplTest {
         RelayUsageLogMapper logs = mock(RelayUsageLogMapper.class);
         RelayTokenMapper tokens = mock(RelayTokenMapper.class);
         RelayDispatchServiceImpl service = new RelayDispatchServiceImpl(
-                null, new RelayProviderScheduler(), logs, tokens, null, null, OBJECT_MAPPER);
+                null, new RelayProviderScheduler(), logs, tokens, null, null, OBJECT_MAPPER, new RelayPromptRuleService(null));
         var token = new com.qzcy.backend.entity.RelayToken();
         token.setId(7L);
         token.setUserId(3L);
@@ -326,7 +341,10 @@ class RelayDispatchServiceImplTest {
         RelayChannelProvider provider = new RelayChannelProvider();
         provider.setId(11L);
         provider.setName("actual-provider");
-        RelayContext context = new RelayContext(token, null, null, channel, provider, null, "image");
+        token.setGroupNames("default,premium");
+        var group = new com.qzcy.backend.entity.RelayGroup();
+        group.setCode("premium");
+        RelayContext context = new RelayContext(token, null, group, channel, provider, null, "image");
         RelayCostBreakdown zero = new RelayCostBreakdown(BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         for (int status : java.util.List.of(200, 502)) {
@@ -339,6 +357,8 @@ class RelayDispatchServiceImplTest {
             assertEquals(5L, usage.getChannelId());
             assertEquals(11L, usage.getProviderId());
             assertEquals("actual-provider", usage.getProviderName());
+            assertEquals("premium", usage.getBillingGroupCode());
+            assertEquals("default,premium", usage.getGroupNames());
         }
         assertEquals("success", captor.getAllValues().get(0).getStatus());
         assertEquals("failed", captor.getAllValues().get(1).getStatus());
@@ -355,7 +375,7 @@ class RelayDispatchServiceImplTest {
         var tokens = mock(RelayTokenMapper.class);
         var users = mock(UserMapper.class);
         var payments = mock(PaymentService.class);
-        var service = new RelayDispatchServiceImpl(policy, new RelayProviderScheduler(), logs, tokens, users, payments, OBJECT_MAPPER);
+        var service = new RelayDispatchServiceImpl(policy, new RelayProviderScheduler(), logs, tokens, users, payments, OBJECT_MAPPER, new RelayPromptRuleService(null));
         var request = new com.qzcy.backend.dto.relay.RelayDispatchRequest(
                 "Bearer test", "", "", "CODEX_CLI_RS/1.0", "127.0.0.1", "chat", "/v1/responses",
                 OBJECT_MAPPER.createObjectNode().put("model", "test"));

@@ -27,4 +27,5 @@ public class ErrorRequestLogDto {
     private String message;
     private String prompt;
     private LocalDateTime createdAt;
+    private Boolean contextCompaction;
 }

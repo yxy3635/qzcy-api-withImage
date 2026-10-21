@@ -567,6 +567,7 @@ export interface ErrorRequestLog {
   channelName: string
   groupNames: string
   endpoint: string
+  contextCompaction?: boolean | null
   requestUrl: string
   model: string
   modelType: string
@@ -617,6 +618,7 @@ export interface RelayUsageLog {
   channelName: string
   groupNames: string
   endpoint: string
+  contextCompaction?: boolean | null
   model: string
   modelType: string
   thinkingEffort?: string
@@ -714,6 +716,38 @@ export interface RelayCompressionConfig {
   gzipEnabled: boolean
   zstdEnabled: boolean
   memoryBudgetMb: number
+}
+
+export interface RelayPromptRuleConfig {
+  enabled: boolean
+  content: string
+  autoBanThreshold: number
+}
+
+export interface RelayPromptRuleStatus extends RelayPromptRuleConfig {
+  defaultContent: string
+  maxContentLength: number
+}
+
+export interface RelayPromptRuleHitUser {
+  userId: number
+  username: string
+  hitCount: number
+  firstHitAt: string
+  lastHitAt: string
+  endpoint: string
+  model: string
+  requestSummary: string
+  banned: boolean
+}
+
+export interface RelayPromptRuleHits {
+  total: number
+  current: number
+  pages: number
+  hitCount: number
+  userCount: number
+  records: RelayPromptRuleHitUser[]
 }
 
 export interface RelayCompressionStatus extends RelayCompressionConfig {

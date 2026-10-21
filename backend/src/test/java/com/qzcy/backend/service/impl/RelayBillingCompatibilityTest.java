@@ -1,5 +1,6 @@
 package com.qzcy.backend.service.impl;
 
+import com.qzcy.backend.service.RelayPromptRuleService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qzcy.backend.dto.relay.RelayContext;
@@ -142,7 +143,7 @@ class RelayBillingCompatibilityTest {
     @MethodSource("fullyCachedFormats")
     void fullyCachedUsageIsNotReplacedWithEstimatedUsage(String path, String json) throws Exception {
         var response = response(json);
-        var service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, MAPPER);
+        var service = new RelayDispatchServiceImpl(null, new RelayProviderScheduler(), null, null, null, null, MAPPER, new RelayPromptRuleService(null));
         assertEquals(Boolean.TRUE, org.springframework.test.util.ReflectionTestUtils.invokeMethod(
                 service, "hasBillableUsage", response, path));
         assertMoney("0.000114944", policy().estimateCost(model(), channel(), group(), response, path).total());
@@ -304,7 +305,7 @@ class RelayBillingCompatibilityTest {
             var context = new RelayContext(token, model(), group(), channel, provider, null, "chat");
             doReturn(List.of(context)).when(policy).buildContexts(any(), any(), any(), any(), any(), any());
             var dispatch = new RelayDispatchServiceImpl(policy, new RelayProviderScheduler(), logs, tokens,
-                    mock(UserMapper.class), payments, MAPPER);
+                    mock(UserMapper.class), payments, MAPPER, new RelayPromptRuleService(null));
             var requestBody = MAPPER.createObjectNode().put("model", "test-model").put("stream", stream);
             if (ttl && MESSAGES.equals(path)) {
                 requestBody.putObject("cache_control").put("type", "ephemeral").put("ttl", "1h");
@@ -379,17 +380,20 @@ class RelayBillingCompatibilityTest {
             initial.put("cache_read_input_tokens", 0);
             return "data: {\"type\":\"message_start\",\"message\":{\"usage\":" + initial + "}}\n\n"
                     + "data: {\"type\":\"message_delta\",\"usage\":" + finalUsage + "}\n\n"
-                    + "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":168}}\n\n";
+                    + "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":168}}\n\n"
+                    + "data: {\"type\":\"message_stop\"}\n\n";
         }
         ((com.fasterxml.jackson.databind.node.ObjectNode) initial.path(
                 CHAT.equals(path) ? "prompt_tokens_details" : "input_tokens_details")).put("cached_tokens", 0);
-        String prefix = CHAT.equals(path) ? "{\"usage\":" : "{\"type\":\"response.completed\",\"response\":{\"usage\":";
+        // Intermediate usage updates are not terminal Responses events.
+        String prefix = CHAT.equals(path) ? "{\"usage\":" : "{\"type\":\"response.in_progress\",\"response\":{\"usage\":";
         String suffix = CHAT.equals(path) ? "}" : "}}";
         return "data: " + prefix + initial + suffix + "\n\n"
                 + "data: " + prefix + finalUsage + suffix + "\n\n"
                 + "data: " + prefix + finalUsage + suffix + "\n\n"
                 + "data: " + prefix + initial + suffix + "\n\n"
-                + "data: [DONE]\n\n";
+                + (CHAT.equals(path) ? "data: [DONE]\n\n"
+                : "data: {\"type\":\"response.completed\",\"response\":{\"usage\":" + finalUsage + "}}\n\n");
     }
 
     private static JsonNode response(String usage) throws Exception {

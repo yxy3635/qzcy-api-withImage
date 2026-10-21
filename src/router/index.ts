@@ -46,6 +46,7 @@ const router = createRouter({
       children: [
         { path: '', redirect: '/admin/dashboard' },
         { path: 'dashboard', component: AdminDashboard, meta: { requiresAuth: true, admin: true } },
+        { path: 'relay-reports', component: () => import('@/views/admin/AdminRelayReports.vue'), meta: { requiresAuth: true, admin: true } },
         { path: 'announcements', component: AdminAnnouncements, meta: { requiresAuth: true, admin: true } },
         { path: 'users', component: AdminUsers, meta: { requiresAuth: true, admin: true } },
         { path: 'registration', component: () => import('@/views/admin/AdminRegistration.vue'), meta: { requiresAuth: true, admin: true } },

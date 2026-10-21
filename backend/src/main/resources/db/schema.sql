@@ -1,5 +1,26 @@
 USE image_creator;
 
+-- The application seeds the default prompt rule on first startup without overwriting edits.
+CREATE TABLE IF NOT EXISTS relay_prompt_rule_config (
+    id BIGINT PRIMARY KEY,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    content TEXT NOT NULL,
+    auto_ban_threshold INT NOT NULL DEFAULT 3
+);
+
+CREATE TABLE IF NOT EXISTS relay_prompt_rule_hit (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    request_id VARCHAR(36) NOT NULL UNIQUE,
+    user_id BIGINT NOT NULL,
+    token_id BIGINT NULL,
+    endpoint VARCHAR(80) NOT NULL,
+    model VARCHAR(120) NOT NULL,
+    request_summary VARCHAR(500) NOT NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_prompt_hit_user (user_id, id),
+    INDEX idx_prompt_hit_time (created_at)
+);
+
 -- Base tables must exist before the compatibility migrations below.
 CREATE TABLE IF NOT EXISTS `user` (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -10,10 +31,21 @@ CREATE TABLE IF NOT EXISTS `user` (
     banned TINYINT(1) NOT NULL DEFAULT 0,
     balance DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
     version INT NOT NULL DEFAULT 0,
+    auth_version BIGINT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_user_username (username),
     UNIQUE KEY uk_user_email (email)
+);
+
+-- Account security upgrade (also applied automatically by AccountSecuritySchemaInitializer).
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'auth_version') = 0, 'ALTER TABLE `user` ADD COLUMN auth_version BIGINT NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+CREATE TABLE IF NOT EXISTS auth_attempt_bucket (
+    bucket_key VARCHAR(100) PRIMARY KEY,
+    attempts INT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    INDEX idx_auth_attempt_expiry (expires_at)
 );
 
 CREATE TABLE IF NOT EXISTS payment_record (
@@ -467,6 +499,8 @@ CREATE TABLE IF NOT EXISTS relay_usage_log (
     channel_name VARCHAR(80),
     group_names VARCHAR(160) NOT NULL DEFAULT 'default',
     endpoint VARCHAR(80),
+    context_compaction TINYINT(1) NULL,
+      billing_group_code VARCHAR(160) NULL,
     model VARCHAR(120),
     model_type VARCHAR(40),
     thinking_effort VARCHAR(40) NOT NULL DEFAULT '',
@@ -502,6 +536,10 @@ CREATE TABLE IF NOT EXISTS relay_usage_log (
     );
 
 -- 旧日志保留 NULL，无法准确还原的供应商归入「未归属 / 渠道直连」。
+SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'context_compaction') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN context_compaction TINYINT(1) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+  SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'billing_group_code') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN billing_group_code VARCHAR(160) NULL', 'SELECT 1');
+  PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'provider_id') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN provider_id BIGINT NULL AFTER channel_id', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'relay_usage_log' AND COLUMN_NAME = 'provider_name') = 0, 'ALTER TABLE relay_usage_log ADD COLUMN provider_name VARCHAR(80) NULL AFTER provider_id', 'SELECT 1');

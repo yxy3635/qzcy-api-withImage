@@ -48,3 +48,7 @@ application-prod.yml
 .env.*
 !.env.example
 /backups/
+
+# Python tooling cache
+__pycache__/
+*.py[cod]

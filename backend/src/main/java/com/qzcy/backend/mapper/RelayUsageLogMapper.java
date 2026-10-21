@@ -341,6 +341,7 @@ public interface RelayUsageLogMapper extends BaseMapper<RelayUsageLog> {
                    r.channel_name AS channelName,
                    r.group_names AS groupNames,
                    r.endpoint,
+                   r.context_compaction AS contextCompaction,
                    r.model,
                    r.model_type AS modelType,
                    r.thinking_effort AS thinkingEffort,

@@ -19,7 +19,11 @@ public class RelayUsageLog {
     private String channelName;
     @com.baomidou.mybatisplus.annotation.TableField("group_names")
     private String groupNames;
+    /** 本次实际计费分组；旧日志为空，不能用令牌的多分组列表反推。 */
+    private String billingGroupCode;
     private String endpoint;
+    /** 当前请求是否用于上下文压缩；历史记录未识别时为空。 */
+    private Boolean contextCompaction;
     private String model;
     private String modelType;
     private String thinkingEffort;

@@ -36,6 +36,7 @@ export const useAuthStore = defineStore('auth', {
       this.persist()
     },
     logout() {
+      if (this.token) void authApi.logout(this.token).catch(() => {})
       this.token = ''
       this.userInfo = null
       clearSavedText('imageCreater_token')

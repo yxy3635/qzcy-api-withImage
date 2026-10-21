@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import RelayCompactionBadge from '@/components/relay/RelayCompactionBadge.vue'
 import type { RelayUsageLog } from '@/types'
 
 const props = defineProps<{
@@ -129,6 +130,7 @@ function relativeTime(value?: string) {
           <div class="min-w-0">
             <div class="flex min-w-0 items-center gap-2">
               <p class="truncate text-sm font-black text-slate-950" :title="item.model">{{ item.model || '-' }}</p>
+              <RelayCompactionBadge :endpoint="item.endpoint" :context-compaction="item.contextCompaction" />
               <span
                 v-if="isFailed(item)"
                 class="shrink-0 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-black text-rose-600"

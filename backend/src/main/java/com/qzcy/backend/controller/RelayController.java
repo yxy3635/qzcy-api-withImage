@@ -29,6 +29,7 @@ import com.qzcy.backend.service.RelayDispatchService;
 import com.qzcy.backend.service.RelayPolicyService;
 import com.qzcy.backend.service.RelayService;
 import com.qzcy.backend.util.SecurityUtil;
+import com.qzcy.backend.util.SecurityAudit;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -96,8 +97,10 @@ public class RelayController {
     }
 
     @PostMapping("/relay/tokens")
-    public ApiResponse<RelayTokenDto> createToken(@RequestBody RelayTokenCreateDto dto) {
-        return ApiResponse.success(relayService.createToken(SecurityUtil.current().userId(), dto));
+    public ApiResponse<RelayTokenDto> createToken(@RequestBody RelayTokenCreateDto dto, HttpServletRequest request) {
+        RelayTokenDto result = relayService.createToken(SecurityUtil.current().userId(), dto);
+        SecurityAudit.record("relay_key_create", 200, SecurityUtil.current().userId(), request);
+        return ApiResponse.success(result);
     }
 
     @PutMapping("/relay/tokens/{id}")

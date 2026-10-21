@@ -15,7 +15,7 @@ import java.math.BigDecimal;
 @RequiredArgsConstructor
 public class AdminAccountInitializer implements CommandLineRunner {
     private static final String DEFAULT_ADMIN_USERNAME = "admin";
-    @Value("${app.admin.initial-password:admin123}")
+    @Value("${app.admin.initial-password:}")
     private String initialPassword;
 
     private final UserMapper userMapper;
@@ -23,6 +23,13 @@ public class AdminAccountInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        Long admins = userMapper.selectCount(
+                new LambdaQueryWrapper<User>().eq(User::getRole, "ADMIN")
+        );
+        if (admins > 0) {
+            return;
+        }
+
         Long exists = userMapper.selectCount(
                 new LambdaQueryWrapper<User>().eq(User::getUsername, DEFAULT_ADMIN_USERNAME)
         );
@@ -30,6 +37,7 @@ public class AdminAccountInitializer implements CommandLineRunner {
             return;
         }
 
+        com.qzcy.backend.util.PasswordPolicy.requireNewPassword(initialPassword);
         User admin = new User();
         admin.setUsername(DEFAULT_ADMIN_USERNAME);
         admin.setPassword(passwordEncoder.encode(initialPassword));

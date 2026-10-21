@@ -49,6 +49,8 @@ import com.qzcy.backend.service.RelayService;
 import com.qzcy.backend.service.RelayModelStatusCache;
 import com.qzcy.backend.service.RelayProviderScheduler;
 import com.qzcy.backend.service.RelayProviderFormats;
+import com.qzcy.backend.util.RelayHttpProtocol;
+import com.qzcy.backend.util.RelayTokenGroupPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -397,7 +399,7 @@ public class RelayServiceImpl implements RelayService {
 
     private List<RelayUpstreamModelDto> fetchUpstreamModelsForEndpoint(String apiBaseUrl, String apiKey, String channelRule) {
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(relayUrl(apiBaseUrl, "/v1/models")))
+            HttpRequest.Builder builder = RelayHttpProtocol.requestBuilder(URI.create(relayUrl(apiBaseUrl, "/v1/models")))
                     .timeout(Duration.ofSeconds(30))
                     .header("Accept", "application/json")
                     .GET();
@@ -431,13 +433,15 @@ public class RelayServiceImpl implements RelayService {
     public RelayTokenDto createToken(Long userId, RelayTokenCreateDto dto) {
         User user = userMapper.selectById(userId);
         if (user == null) throw new BusinessException(404, "User not found");
+        if (Boolean.TRUE.equals(user.getBanned())) throw new BusinessException(423, "账号已被封禁");
+        String group = RelayTokenGroupPolicy.requireSingleEnabledGroup(dto.getGroups(), groupMapper);
         String newKey = createApiKeyValue();
         RelayToken item = new RelayToken();
         item.setUserId(userId);
         item.setName(isBlank(dto.getName()) ? "Default API Key" : dto.getName().trim());
         item.setToken(newKey);
         item.setTokenPreview(preview(newKey));
-        item.setGroupNames(isBlank(dto.getGroups()) ? "default" : dto.getGroups().trim());
+        item.setGroupNames(group);
         item.setAllowedModels(dto.getAllowedModels() == null ? "" : dto.getAllowedModels().trim());
         item.setQuota(dto.getQuota() == null ? BigDecimal.ZERO : nonNegative(dto.getQuota()));
         item.setUsedQuota(BigDecimal.ZERO);
@@ -466,7 +470,7 @@ public class RelayServiceImpl implements RelayService {
         RelayToken update = new RelayToken();
         update.setId(tokenId);
         if (dto.getName() != null) update.setName(dto.getName().trim());
-        if (dto.getGroups() != null) update.setGroupNames(dto.getGroups().trim());
+        if (dto.getGroups() != null) update.setGroupNames(RelayTokenGroupPolicy.requireSingleEnabledGroup(dto.getGroups(), groupMapper));
         if (dto.getAllowedModels() != null) update.setAllowedModels(dto.getAllowedModels().trim());
         if (dto.getQuota() != null) update.setQuota(nonNegative(dto.getQuota()));
         if (dto.getRpmLimit() != null) update.setRpmLimit(Math.max(0, dto.getRpmLimit()));
@@ -1171,7 +1175,7 @@ public class RelayServiceImpl implements RelayService {
                 item.getEndpoint(), publicModel, item.getModelType(), item.getThinkingEffort(), item.getPromptTokens(),
                 item.getCompletionTokens(), item.getCachedTokens(), item.getCacheCreationTokens(), item.getCacheCreation5mTokens(), item.getCacheCreation1hTokens(), item.getTotalTokens(),
                 item.getCost(), item.getStatusCode(), item.getDurationMs(), item.getFirstTokenMs(), item.getUserAgent(), item.getStatus(),
-                publicUsageMessage(item.getStatusCode()), item.getCreatedAt());
+                publicUsageMessage(item.getStatusCode()), item.getCreatedAt(), item.getContextCompaction());
     }
 
     private ErrorRequestLogDto toErrorRequestLogDto(RelayUsageLog item, String publicModel) {
@@ -1192,7 +1196,8 @@ public class RelayServiceImpl implements RelayService {
                 publicErrorType(item.getStatusCode()),
                 publicUsageMessage(item.getStatusCode()),
                 "",
-                item.getCreatedAt()
+                item.getCreatedAt(),
+                item.getContextCompaction()
         );
     }
 

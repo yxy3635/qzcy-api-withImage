@@ -67,9 +67,9 @@ public class PaymentServiceImpl implements PaymentService {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(400, "扣费金额无效");
         }
-        int updated = userMapper.deductBalance(userId, amount);
+        int updated = userMapper.settleRelayBalance(userId, amount);
         if (updated == 0) {
-            throw new BusinessException(402, "余额不足，请先充值");
+            throw new BusinessException(404, "中转费用结算失败：用户不存在");
         }
     }
 

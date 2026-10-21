@@ -112,7 +112,9 @@ class RegistrationPolicyTest {
         verifyNoInteractions(mail, limiter, users);
 
         when(users.selectCount(any(Wrapper.class))).thenReturn(1L);
-        when(mailConfig.current()).thenReturn(new MailConfig());
+        MailConfig enabledMail = new MailConfig();
+        enabledMail.setEnabled(true);
+        when(mailConfig.current()).thenReturn(enabledMail);
         assertEquals(true, service.sendCode("existing@example.com", "forgot_password", "127.0.0.1").get("sent"));
         verify(mail).sendVerificationCode(eq("existing@example.com"), eq("forgot_password"), anyString());
     }

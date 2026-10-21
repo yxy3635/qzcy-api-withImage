@@ -15,6 +15,7 @@ import java.security.SecureRandom;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -37,19 +38,25 @@ public class EmailCodeServiceImpl implements EmailCodeService {
         if ("register".equals(normalizedScene)) {
             registrationConfigService.requireRegistrationOpen();
         }
+        var config = mailConfigService.current();
+        if (!Boolean.TRUE.equals(config.getEnabled())) {
+            throw new BusinessException(503, "邮件服务未启用，请联系管理员");
+        }
         rateLimiter.checkAndRecord(normalizedEmail, clientIp);
         if (!shouldSendForScene(normalizedEmail, normalizedScene)) {
             // Use the same success response to avoid exposing whether an email is registered.
             return Map.of("sent", true);
         }
         String code = String.valueOf(100000 + RANDOM.nextInt(900000));
-        codes.put(key(normalizedEmail, normalizedScene), new CodeEntry(code, LocalDateTime.now().plusMinutes(10), 0));
-
-        mailDeliveryService.sendVerificationCode(normalizedEmail, normalizedScene, code);
-
-        var config = mailConfigService.current();
-        if (!Boolean.TRUE.equals(config.getEnabled()) && Boolean.TRUE.equals(config.getDevReturnCode()) && isLoopback(clientIp)) {
-            return Map.of("sent", true, "devCode", code);
+        codes.entrySet().removeIf(entry -> entry.getValue().expireAt().isBefore(LocalDateTime.now()));
+        String codeKey = key(normalizedEmail, normalizedScene);
+        CodeEntry entry = new CodeEntry(code, LocalDateTime.now().plusMinutes(10), 0);
+        codes.put(codeKey, entry);
+        try {
+            mailDeliveryService.sendVerificationCode(normalizedEmail, normalizedScene, code);
+        } catch (RuntimeException ex) {
+            codes.remove(codeKey, entry);
+            throw ex;
         }
         return Map.of("sent", true);
     }
@@ -80,7 +87,7 @@ public class EmailCodeServiceImpl implements EmailCodeService {
     }
 
     private String normalizeEmail(String email) {
-        String normalized = email == null ? "" : email.trim().toLowerCase();
+        String normalized = email == null ? "" : email.trim().toLowerCase(java.util.Locale.ROOT);
         if (!normalized.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) {
             throw new BusinessException(400, "邮箱格式不正确");
         }
@@ -89,7 +96,7 @@ public class EmailCodeServiceImpl implements EmailCodeService {
 
     private String normalizeScene(String scene) {
         String normalized = scene == null ? "" : scene.trim();
-        if (!"register".equals(normalized) && !"forgot_password".equals(normalized)) {
+        if (!Set.of("register", "forgot_password", "change_email_current", "change_email_new").contains(normalized)) {
             throw new BusinessException(400, "验证码场景无效");
         }
         return normalized;
@@ -99,15 +106,11 @@ public class EmailCodeServiceImpl implements EmailCodeService {
         Long usersWithEmail = userMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
                 .eq(User::getEmail, email));
         boolean exists = usersWithEmail != null && usersWithEmail > 0;
-        return "register".equals(scene) ? !exists : exists;
+        return Set.of("register", "change_email_new").contains(scene) ? !exists : exists;
     }
 
     private String key(String email, String scene) {
         return scene + ":" + email;
-    }
-
-    private boolean isLoopback(String clientIp) {
-        return "127.0.0.1".equals(clientIp) || "0:0:0:0:0:0:0:1".equals(clientIp) || "::1".equals(clientIp);
     }
 
     private record CodeEntry(String code, LocalDateTime expireAt, int failedAttempts) {

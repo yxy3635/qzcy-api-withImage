@@ -167,6 +167,7 @@ class RelayPublicDataPrivacyTest {
         usage.setChannelName("自定义渠道 A");
         usage.setGroupNames("default");
         usage.setEndpoint("/v1/chat/completions");
+        usage.setContextCompaction(true);
         usage.setModel("provider/private-model-id");
         usage.setModelType("chat");
         usage.setPromptTokens(100);
@@ -185,6 +186,10 @@ class RelayPublicDataPrivacyTest {
         JsonNode json = objectMapper.valueToTree(result);
 
         assertEquals("public-model", result.getModel());
+        assertEquals(Boolean.TRUE, result.getContextCompaction());
+        com.qzcy.backend.dto.ErrorRequestLogDto error = ReflectionTestUtils.invokeMethod(
+                service, "toErrorRequestLogDto", usage, "public-model");
+        assertEquals(Boolean.TRUE, error.getContextCompaction());
         assertEquals("自定义渠道 A", result.getChannelName());
         assertEquals(new BigDecimal("0.003"), result.getCost());
         assertEquals("服务暂时不可用，请稍后重试", result.getMessage());

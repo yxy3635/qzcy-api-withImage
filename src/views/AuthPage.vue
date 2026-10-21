@@ -55,10 +55,10 @@ const newPassword = computed(() => mode.value === 'register' ? register.password
 const confirmation = computed(() => mode.value === 'register' ? register.confirm : reset.confirm)
 const passwordScore = computed(() => {
   const value = newPassword.value
-  if (!value || value.length < 6) return 0
+  if (!value || value.length < 10) return 0
   return 1 + Number(value.length >= 10) + Number(/[A-Za-z]/.test(value) && /[^A-Za-z]/.test(value))
 })
-const passwordHint = computed(() => !newPassword.value ? '至少 6 位，建议组合字母、数字或符号' : passwordScore.value === 0 ? '再输入一些字符，密码至少需要 6 位' : passwordScore.value === 1 ? '可以使用，增加长度会更安全' : passwordScore.value === 2 ? '安全性较好' : '安全性很好')
+const passwordHint = computed(() => !newPassword.value ? '至少 10 位，建议组合字母、数字或符号' : passwordScore.value === 0 ? '再输入一些字符，密码至少需要 10 位' : passwordScore.value === 1 ? '可以使用，增加长度会更安全' : passwordScore.value === 2 ? '安全性较好' : '安全性很好')
 const passwordsMatch = computed(() => Boolean(confirmation.value) && confirmation.value === newPassword.value)
 const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
 let resizeObserver: ResizeObserver | undefined
@@ -226,11 +226,10 @@ async function sendCode() {
   if (!isEmail(email)) { fail('请输入有效邮箱', `${targetMode}-email`); return }
   sending.value = true
   try {
-    const { data } = await authApi.sendEmailCode(email, targetMode === 'register' ? 'register' : 'forgot_password')
+    await authApi.sendEmailCode(email, targetMode === 'register' ? 'register' : 'forgot_password')
     if (targetMode === 'register') startRegisterCooldown()
     else startResetCooldown()
-    const devCode = typeof data.data?.devCode === 'string' ? data.data.devCode : ''
-    toast.success(devCode ? `验证码已发送，开发验证码：${devCode}` : '验证码已发送，请查收邮箱')
+    toast.success('验证码已发送，请查收邮箱')
   } catch (err) {
     error.value = err instanceof Error ? err.message : '验证码发送失败'
     if (targetMode === 'register') await loadRegistrationConfig()
@@ -250,12 +249,12 @@ async function submit() {
     else if (!register.code.trim()) fail('请输入邮箱验证码', 'register-code')
     else if (registrationConfig.value?.invitationOnly && !register.invite.trim()) fail('当前仅限邀请注册，请填写邀请码', 'register-invite')
     else if (register.invite.trim() && !/^[A-Za-z0-9]{6}$/.test(register.invite.trim())) { inviteOpen.value = true; fail('邀请码为 6 位英文或数字', 'register-invite') }
-    else if (register.password.length < 6) fail('密码至少 6 位', 'register-password')
+    else if (register.password.length < 10 || new TextEncoder().encode(register.password).length > 72) fail('密码至少 10 位，且不能超过72字节', 'register-password')
     else if (register.password !== register.confirm) fail('两次密码不一致', 'register-confirm')
   } else {
     if (!isEmail(reset.email)) fail('请输入有效邮箱', 'reset-email')
     else if (!reset.code.trim()) fail('请输入邮箱验证码', 'reset-code')
-    else if (reset.password.length < 6) fail('新密码至少 6 位', 'reset-password')
+    else if (reset.password.length < 10 || new TextEncoder().encode(reset.password).length > 72) fail('新密码至少 10 位，且不能超过72字节', 'reset-password')
     else if (reset.password !== reset.confirm) fail('两次密码不一致', 'reset-confirm')
   }
   if (error.value) return
@@ -380,7 +379,7 @@ async function submit() {
                     <template v-else>
                     <div class="new-password-group form-reveal" style="--field-index: 4">
                       <div class="auth-field-pair">
-                        <AuthPasswordInput id="register-password" v-model="register.password" label="设置密码" placeholder="至少 6 位" :minlength="6" :invalid="invalidField === 'register-password'" describedby="register-password-hint" />
+                        <AuthPasswordInput id="register-password" v-model="register.password" label="设置密码" placeholder="至少 10 位" :minlength="10" :invalid="invalidField === 'register-password'" describedby="register-password-hint" />
                         <AuthPasswordInput id="register-confirm" v-model="register.confirm" label="确认密码" placeholder="再次输入密码" :minlength="6" :invalid="invalidField === 'register-confirm'" describedby="register-password-hint" />
                       </div>
                       <div id="register-password-hint" class="password-hint" aria-live="polite">
@@ -415,7 +414,7 @@ async function submit() {
                     </template>
                     <div v-else class="new-password-group form-reveal" style="--field-index: 3">
                       <div class="auth-field-pair">
-                        <AuthPasswordInput id="reset-password" v-model="reset.password" label="新密码" placeholder="至少 6 位" :minlength="6" :invalid="invalidField === 'reset-password'" describedby="reset-password-hint" />
+                        <AuthPasswordInput id="reset-password" v-model="reset.password" label="新密码" placeholder="至少 10 位" :minlength="10" :invalid="invalidField === 'reset-password'" describedby="reset-password-hint" />
                         <AuthPasswordInput id="reset-confirm" v-model="reset.confirm" label="确认新密码" placeholder="再次输入密码" :minlength="6" :invalid="invalidField === 'reset-confirm'" describedby="reset-password-hint" />
                       </div>
                       <div id="reset-password-hint" class="password-hint" aria-live="polite">

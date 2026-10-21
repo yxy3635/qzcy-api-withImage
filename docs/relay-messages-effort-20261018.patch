@@ -1,0 +1,54 @@
+--- a/backend/src/main/java/com/qzcy/backend/service/impl/RelayDispatchServiceImpl.java
++++ b/backend/src/main/java/com/qzcy/backend/service/impl/RelayDispatchServiceImpl.java
+@@ -837,9 +837,16 @@
+         if (body == null) {
+             return "";
+         }
++        if ("disabled".equals(body.path("thinking").path("type").asText())
++                || (body.path("enable_thinking").isBoolean() && !body.path("enable_thinking").asBoolean())) {
++            return "none";
++        }
+         String effort = firstThinkingText(body.path("reasoning"), "effort", "level");
+         if (effort.isBlank()) {
+             effort = body.path("reasoning_effort").asText("");
++        }
++        if (effort.isBlank()) {
++            effort = firstThinkingText(body.path("output_config"), "effort");
+         }
+         if (effort.isBlank()) {
+             effort = firstThinkingText(body.path("thinking"), "effort", "level");
+@@ -855,6 +862,14 @@
+             JsonNode budget = thinking.path("budget_tokens");
+             if (budget.isNumber() && budget.asInt() > 0) {
+                 effort = "budget:" + budget.asInt();
++            }
++        }
++        if (effort.isBlank()) {
++            String type = body.path("thinking").path("type").asText("");
++            if ("enabled".equals(type) || "adaptive".equals(type)) {
++                effort = type;
++            } else if (body.path("enable_thinking").isBoolean() && body.path("enable_thinking").asBoolean()) {
++                effort = "enabled";
+             }
+         }
+         return effort == null ? "" : effort.trim();
+--- a/backend/src/test/java/com/qzcy/backend/service/impl/RelayDispatchServiceImplTest.java
++++ b/backend/src/test/java/com/qzcy/backend/service/impl/RelayDispatchServiceImplTest.java
+@@ -185,6 +185,17 @@
+         assertEquals("high", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", responsesBody));
+         assertEquals("medium", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", chatBody));
+         assertEquals("budget:4096", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", thinkingBody));
++        ObjectNode harnessBody = (ObjectNode) OBJECT_MAPPER.readTree("""
++                {"model":"deepseek-v4.1-flash","thinking":{"type":"enabled"},"output_config":{"effort":"max"}}
++                """);
++        assertEquals("max", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", harnessBody));
++        harnessBody.withObject("/thinking").put("type", "disabled");
++        assertEquals("none", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", harnessBody));
++        harnessBody.withObject("/thinking").put("type", "adaptive");
++        harnessBody.remove("output_config");
++        assertEquals("adaptive", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", harnessBody));
++        harnessBody.put("enable_thinking", false);
++        assertEquals("none", ReflectionTestUtils.invokeMethod(service, "extractThinkingEffort", harnessBody));
+     }
+ 
+     @Test

@@ -99,6 +99,75 @@ class RelayCompressionTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"gzip", "zstd", "mixed"})
+    void multipleLiveStreamsReleaseDecodeSlotAndKeepBodiesIsolated(String encodings) throws Exception {
+        // One decoding slot must support many already-running SSE responses.
+        // Start the next request after the previous one reaches its streaming writer,
+        // so legitimate simultaneous decoding overload is separate from slot leakage.
+        service.update(new RelayCompressionConfigDto(true, true, 32));
+        int count = 6;
+        var entered = new java.util.concurrent.CountDownLatch[count];
+        for (int i = 0; i < count; i++) entered[i] = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var bodies = new java.util.concurrent.ConcurrentHashMap<Integer, String>();
+        when(dispatch.dispatchStream(any())).thenAnswer(call -> {
+            RelayDispatchRequest request = call.getArgument(0);
+            int id = request.body().path("test_id").asInt(-1);
+            assertTrue(id >= 0 && id < count);
+            assertEquals(0, service.status().reservedMb(), "slot released before upstream request");
+            assertNull(bodies.putIfAbsent(id, request.body().toString()));
+            return new RelayStreamDispatchResult(200, "text/event-stream", output -> {
+                assertEquals(0, service.status().activeRequests(), "SSE must not retain decoding lease");
+                entered[id].countDown();
+                try {
+                    assertTrue(release.await(10, java.util.concurrent.TimeUnit.SECONDS));
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(ex);
+                }
+                output.write(("data: " + request.body().path("input").asText() + "\n\n")
+                        .getBytes(StandardCharsets.UTF_8));
+            });
+        });
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(count);
+        var futures = new java.util.ArrayList<java.util.concurrent.Future<?>>();
+        try {
+            for (int i = 0; i < count; i++) {
+                int id = i;
+                String encoding = encodings.equals("mixed") ? (i % 2 == 0 ? "gzip" : "zstd") : encodings;
+                String input = "对话-" + id + "-" + "上下文".repeat(40000);
+                var raw = mapper.createObjectNode().put("model", "test").put("stream", true)
+                        .put("test_id", id).put("input", input);
+                byte[] compressed = compress(mapper.writeValueAsBytes(raw), encoding);
+                futures.add(pool.submit(() -> {
+                    mvc.perform(post("/api/v1/responses").contentType("application/json")
+                                    .header("Content-Encoding", encoding).content(compressed))
+                            .andExpect(status().isOk())
+                            .andExpect(result -> assertTrue(java.util.Arrays.equals(
+                                    ("data: " + input + "\n\n").getBytes(StandardCharsets.UTF_8),
+                                    result.getResponse().getContentAsByteArray()), "response bytes isolated per conversation"));
+                    assertEquals(raw, mapper.readTree(bodies.get(id)));
+                    return null;
+                }));
+                assertTrue(entered[i].await(5, java.util.concurrent.TimeUnit.SECONDS),
+                        "next request must enter SSE while earlier responses remain open");
+            }
+            assertEquals(count, bodies.size());
+            assertTrue(futures.stream().noneMatch(java.util.concurrent.Future::isDone));
+            assertEquals(0, service.status().reservedMb());
+            assertEquals(0, service.status().activeRequests());
+            release.countDown();
+            for (var future : futures) future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            verify(dispatch, times(count)).dispatchStream(any());
+            assertEquals(0, service.status().reservedMb());
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+            assertTrue(pool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS));
+        }
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"gzip", "zstd"})
     void corruptTruncatedAndOversizedBodiesNeverReachUpstream(String encoding) throws Exception {
         byte[] compressed = compress("{\"model\":\"test\"}".getBytes(), encoding);

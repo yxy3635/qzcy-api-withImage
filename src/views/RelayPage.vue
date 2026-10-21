@@ -8,6 +8,7 @@ import { paymentApi } from '@/api/paymentApi'
 import { userApi } from '@/api/userApi'
 import { useToast } from '@/composables/useToast'
 import { useSidebarPreference } from '@/composables/useSidebarPreference'
+import { useEmailCodeCooldown } from '@/composables/useEmailCodeCooldown'
 import { clearPendingRecharge, isBackForwardNavigation, pendingRechargeOrderId, rememberPendingRecharge } from '@/utils/pendingRecharge'
 import RequestLoader from '@/components/RequestLoader.vue'
 import RelayModal from '@/components/RelayModal.vue'
@@ -18,6 +19,8 @@ import RelayTrendChart from '@/components/relay/RelayTrendChart.vue'
 import RelayModelDistribution from '@/components/relay/RelayModelDistribution.vue'
 import RelayRecentCalls from '@/components/relay/RelayRecentCalls.vue'
 import RelayOrdersPanel from '@/components/relay/RelayOrdersPanel.vue'
+import RelayCompactionBadge from '@/components/relay/RelayCompactionBadge.vue'
+import { isCompactionRequest } from '@/utils/relayRequestKind'
 import { groupCallableModels } from '@/utils/relayGroupModels'
 import RelayModelSelect from '@/components/relay/RelayModelSelect.vue'
 import { relayModelOptions } from '@/utils/relayModelOptions'
@@ -164,6 +167,12 @@ const keyForm = reactive({
 })
 const keyFormError = ref('')
 const profileEmail = ref(auth.userInfo?.email || '')
+const profilePassword = ref('')
+const currentEmailCode = ref('')
+const newEmailCode = ref('')
+const emailChanged = computed(() => profileEmail.value.trim().toLowerCase() !== (auth.userInfo?.email || '').toLowerCase())
+const { secondsLeft: currentEmailCooldown, start: startCurrentEmailCooldown } = useEmailCodeCooldown()
+const { secondsLeft: newEmailCooldown, start: startNewEmailCooldown } = useEmailCodeCooldown()
 const oldPassword = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
@@ -228,6 +237,7 @@ const errorLogs = computed<ErrorRequestLog[]>(() => overview.value?.errorLogs ||
     channelName: item.channelName,
     groupNames: item.groupNames,
     endpoint: item.endpoint,
+    contextCompaction: item.contextCompaction,
     requestUrl: '',
     model: item.model,
     modelType: item.modelType,
@@ -806,6 +816,7 @@ function exportUsageCsv() {
     '分组',
     '模型',
     '请求端点',
+    '请求用途',
     '类型',
     '输入 Token',
     '输出 Token',
@@ -830,6 +841,7 @@ function exportUsageCsv() {
     log.groupNames || '',
     log.model || '',
     log.endpoint || '',
+    isCompactionRequest(log.endpoint, log.contextCompaction) ? '压缩' : '普通请求',
     log.modelType || '',
     log.promptTokens || 0,
     log.completionTokens || 0,
@@ -1633,7 +1645,14 @@ async function saveRelayProfile() {
   }
   profileSaving.value = 'profile'
   try {
-    const { data } = await userApi.updateProfile(email)
+    const changed = emailChanged.value
+    const { data } = await userApi.updateProfile(email, profilePassword.value, currentEmailCode.value, newEmailCode.value)
+    if (changed) {
+      auth.logout()
+      toast.success('邮箱已修改，所有登录已失效，请重新登录')
+      await router.replace('/login')
+      return
+    }
     auth.userInfo = data.data
     auth.persist()
     profileEmail.value = data.data.email || ''
@@ -1650,8 +1669,8 @@ async function changeRelayPassword() {
   profileError.value = ''
   if (!oldPassword.value) {
     profileError.value = '请输入当前密码'
-  } else if (newPassword.value.length < 6) {
-    profileError.value = '新密码至少需要 6 位'
+  } else if (newPassword.value.length < 10 || new TextEncoder().encode(newPassword.value).length > 72) {
+    profileError.value = '新密码至少需要 10 位，且不能超过72字节'
   } else if (newPassword.value !== confirmPassword.value) {
     profileError.value = '两次输入的新密码不一致'
   }
@@ -1665,13 +1684,29 @@ async function changeRelayPassword() {
     oldPassword.value = ''
     newPassword.value = ''
     confirmPassword.value = ''
-    toast.success('登录密码已更新')
+    auth.logout()
+    toast.success('密码已修改，所有登录已失效，请重新登录')
+    await router.replace('/login')
   } catch (err) {
     profileError.value = err instanceof Error ? err.message : '密码修改失败'
     toast.error(profileError.value)
   } finally {
     profileSaving.value = ''
   }
+}
+
+async function sendRelayEmailCode(target: 'current' | 'new') {
+  profileError.value = ''
+  profileSaving.value = 'profile'
+  try {
+    await userApi.sendEmailChangeCode(profileEmail.value, target === 'current' ? 'change_email_current' : 'change_email_new')
+    if (target === 'current') startCurrentEmailCooldown()
+    else startNewEmailCooldown()
+    toast.success('验证码已发送，请检查对应邮箱')
+  } catch (err) {
+    profileError.value = err instanceof Error ? err.message : '发送失败'
+    toast.error(profileError.value)
+  } finally { profileSaving.value = '' }
 }
 
 function statusText(status: string) {
@@ -2238,6 +2273,7 @@ onMounted(async () => {
                         <span class="h-2 w-2 shrink-0 rounded-full" :class="logFailed(log) ? 'bg-rose-500 shadow-[0_0_0_4px_rgba(244,63,94,0.10)]' : 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]'"></span>
                         <p class="truncate text-sm font-black text-slate-900" :title="log.model">{{ log.model || '-' }}</p>
                         <span class="shrink-0 rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-black uppercase text-blue-600">{{ log.modelType || '-' }}</span>
+                        <RelayCompactionBadge :endpoint="log.endpoint" :context-compaction="log.contextCompaction" />
                         <span v-if="log.thinkingEffort" class="shrink-0 rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-black text-violet-700">思考 {{ log.thinkingEffort }}</span>
                       </div>
                       <p class="mt-1 truncate pl-4 font-mono text-[11px] font-semibold text-slate-400" :title="`${log.tokenName || '-'} · ${log.endpoint || '-'}`">{{ log.tokenName || '-' }} · {{ log.endpoint || '-' }}</p>
@@ -2285,7 +2321,7 @@ onMounted(async () => {
                     <div class="grid gap-4 text-xs font-semibold text-slate-600 md:grid-cols-2 xl:grid-cols-4">
                       <div><p class="font-black text-slate-400">思考强度</p><p class="mt-1.5 text-slate-700">{{ log.thinkingEffort || '-' }}</p></div>
                       <div><p class="font-black text-slate-400">渠道 / 分组</p><p class="mt-1.5 break-all text-slate-700">{{ log.channelName || '-' }} · {{ log.groupNames || '-' }}</p></div>
-                      <div><p class="font-black text-slate-400">请求端点</p><p class="mt-1.5 break-all font-mono text-slate-700">{{ log.endpoint || '-' }}</p></div>
+                      <div><p class="font-black text-slate-400">请求端点</p><div class="mt-1.5 flex flex-wrap items-center gap-1.5"><p class="break-all font-mono text-slate-700">{{ log.endpoint || '-' }}</p><RelayCompactionBadge :endpoint="log.endpoint" :context-compaction="log.contextCompaction" /></div></div>
                       <div><p class="font-black text-slate-400">缓存明细</p><p class="mt-1.5 text-slate-700">读取 {{ compact(log.cachedTokens || 0) }} · {{ cacheWriteDetail(log) }}</p></div>
                       <div><p class="font-black text-slate-400">首字延迟</p><p class="mt-1.5 text-slate-700">{{ firstTokenLabel(log) }}<span v-if="!Number(log.firstTokenMs || 0)" class="text-slate-400">（非流式未记录）</span></p></div>
                       <div><p class="font-black text-slate-400">输出吞吐量</p><p class="mt-1.5 text-slate-700">{{ throughputLabel(log) }}<span v-if="!tokensPerSecond(log)" class="text-slate-400">（暂无数据）</span></p></div>
@@ -2661,6 +2697,21 @@ onMounted(async () => {
                     <svg viewBox="0 0 24 24" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M4 6h16v12H4V6zm0 2 8 6 8-6" /></svg>
                     <input v-model="profileEmail" class="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3.5 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100" type="email" placeholder="name@example.com" @keyup.enter="saveRelayProfile" />
                   </label>
+                  <div v-if="emailChanged" class="space-y-3 rounded-xl bg-slate-50 p-4">
+                    <p class="text-xs text-slate-600">修改邮箱需要验证登录密码和新旧邮箱。完成后请重新登录。</p>
+                    <input v-model="profilePassword" class="input rounded-xl" type="password" autocomplete="current-password" aria-label="修改邮箱时验证登录密码" placeholder="当前登录密码" />
+                    <div v-if="auth.userInfo?.email" class="space-y-2">
+                      <p class="break-all text-xs text-slate-600">原邮箱：{{ auth.userInfo.email }}</p>
+                      <div class="flex gap-2">
+                        <input v-model="currentEmailCode" class="input min-w-0 rounded-xl" inputmode="numeric" maxlength="6" autocomplete="one-time-code" aria-label="原邮箱验证码" placeholder="原邮箱验证码" />
+                        <button type="button" class="shrink-0 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold disabled:opacity-50" :disabled="Boolean(profileSaving) || currentEmailCooldown > 0" @click="sendRelayEmailCode('current')">{{ currentEmailCooldown > 0 ? `${currentEmailCooldown}秒后重试` : '发送到原邮箱' }}</button>
+                      </div>
+                    </div>
+                    <div class="flex gap-2">
+                      <input v-model="newEmailCode" class="input min-w-0 rounded-xl" inputmode="numeric" maxlength="6" autocomplete="one-time-code" aria-label="新邮箱验证码" placeholder="新邮箱验证码" />
+                      <button type="button" class="shrink-0 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold disabled:opacity-50" :disabled="Boolean(profileSaving) || newEmailCooldown > 0" @click="sendRelayEmailCode('new')">{{ newEmailCooldown > 0 ? `${newEmailCooldown}秒后重试` : '发送到新邮箱' }}</button>
+                    </div>
+                  </div>
                   <button type="button" class="h-12 rounded-xl bg-emerald-600 px-6 text-xs font-black text-white shadow-sm shadow-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="Boolean(profileSaving)" @click="saveRelayProfile">保存邮箱</button>
                 </div>
               </article>
@@ -2686,7 +2737,7 @@ onMounted(async () => {
                   <label class="block">
                     <span class="text-[11px] font-black text-slate-600">新密码</span>
                     <div class="relative mt-2">
-                      <input v-model="newPassword" :type="pwdVisible.next ? 'text' : 'password'" class="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 pr-11 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100" autocomplete="new-password" placeholder="至少 6 位" />
+                      <input v-model="newPassword" :type="pwdVisible.next ? 'text' : 'password'" class="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 pr-11 text-sm font-semibold outline-none transition focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100" autocomplete="new-password" placeholder="至少 10 位" />
                       <button type="button" class="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" :aria-label="pwdVisible.next ? '隐藏密码' : '显示密码'" @click="pwdVisible.next = !pwdVisible.next">
                         <svg v-if="pwdVisible.next" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7c2.1 0 3.9.7 5.4 1.7M22 12s-3.5 7-10 7c-2.1 0-3.9-.7-5.4-1.7M3 3l18 18" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></svg>
                         <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
@@ -2938,6 +2989,7 @@ onMounted(async () => {
                     <span class="rounded-lg bg-white px-2.5 py-1 text-xs font-black text-slate-600">{{ log.status || 'failed' }}</span>
                     <span v-if="log.errorType" class="rounded-lg bg-white px-2.5 py-1 text-xs font-black text-rose-600">{{ log.errorType }}</span>
                     <span class="rounded-lg bg-white px-2.5 py-1 text-xs font-black text-slate-600">{{ log.modelType || '-' }}</span>
+                    <RelayCompactionBadge v-if="log.source === 'relay'" :endpoint="log.endpoint" :context-compaction="log.contextCompaction" />
                   </div>
                   <p class="mt-3 break-all text-sm font-black text-slate-950">{{ log.model || '-' }}</p>
                   <p class="mt-1 break-all text-xs font-semibold text-slate-500">{{ log.requestUrl || log.endpoint || '-' }}</p>

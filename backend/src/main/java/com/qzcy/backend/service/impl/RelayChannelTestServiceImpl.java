@@ -17,6 +17,8 @@ import com.qzcy.backend.mapper.RelayChannelProviderMapper;
 import com.qzcy.backend.mapper.RelayModelMapper;
 import com.qzcy.backend.service.RelayChannelTestService;
 import com.qzcy.backend.service.RelayProviderScheduler;
+import com.qzcy.backend.service.RelayPromptRuleService;
+import com.qzcy.backend.util.RelayHttpProtocol;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,6 +53,7 @@ public class RelayChannelTestServiceImpl implements RelayChannelTestService {
     private final RelayModelMapper modelMapper;
     private final RelayProviderScheduler providerScheduler;
     private final ObjectMapper objectMapper;
+    private final RelayPromptRuleService promptRuleService;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(CONNECT_TIMEOUT)
@@ -165,7 +168,8 @@ public class RelayChannelTestServiceImpl implements RelayChannelTestService {
         } else {
             body.put("stream", false);
         }
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
+        promptRuleService.apply(body, anthropic ? "/v1/messages" : "/v1/chat/completions");
+        HttpRequest.Builder builder = RelayHttpProtocol.requestBuilder(URI.create(url))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
@@ -177,7 +181,15 @@ public class RelayChannelTestServiceImpl implements RelayChannelTestService {
             builder.header("Authorization", "Bearer " + provider.getApiKey());
         }
         HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-        JsonNode responseBody = objectMapper.readTree(response.body());
+        JsonNode responseBody;
+        try {
+            responseBody = objectMapper.readTree(response.body());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new IllegalStateException("HTTP " + response.statusCode() + ": 上游返回非 JSON 响应，请检查上游服务与 HTTP 协议兼容性");
+        }
+        if (responseBody == null) {
+            throw new IllegalStateException("HTTP " + response.statusCode() + ": 上游返回空响应");
+        }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IllegalStateException("HTTP " + response.statusCode() + ": " + truncate(errorDetail(responseBody, response.body())));
         }

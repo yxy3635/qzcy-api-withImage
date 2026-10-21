@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import AppConfirmDialog from '@/components/AppConfirmDialog.vue'
 import Pagination from '@/components/Pagination.vue'
 import RequestLoader from '@/components/RequestLoader.vue'
+import RelayCompactionBadge from '@/components/relay/RelayCompactionBadge.vue'
 import { adminApi } from '@/api/adminApi'
 import { useToast } from '@/composables/useToast'
 import type { RelayUserOverview, Role, UserInfo } from '@/types'
@@ -126,8 +127,8 @@ async function saveUser(user: UserInfo) {
     toast.warning(error.value)
     return
   }
-  if (draft.password && draft.password.length < 6) {
-    error.value = '新密码至少 6 位'
+  if (draft.password && (draft.password.length < 10 || new TextEncoder().encode(draft.password).length > 72)) {
+    error.value = '新密码至少 10 位，且不能超过72字节'
     toast.warning(error.value)
     return
   }
@@ -599,7 +600,7 @@ onMounted(load)
                     <tbody class="divide-y divide-slate-100 font-semibold">
                       <tr v-for="log in logs.slice(0, 8)" :key="log.id">
                         <td class="py-3">{{ log.tokenName || '-' }}</td>
-                        <td>{{ log.model }}</td>
+                        <td><div class="flex flex-wrap items-center gap-1.5"><span>{{ log.model }}</span><RelayCompactionBadge :endpoint="log.endpoint" :context-compaction="log.contextCompaction" /></div></td>
                         <td>{{ compact(log.totalTokens) }}</td>
                         <td class="font-black text-emerald-600">{{ money(log.cost) }}</td>
                         <td>{{ ((log.durationMs || 0) / 1000).toFixed(2) }}s</td>

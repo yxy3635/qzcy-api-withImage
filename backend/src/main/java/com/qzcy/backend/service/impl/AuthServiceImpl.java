@@ -15,6 +15,7 @@ import com.qzcy.backend.service.PaymentConfigService;
 import com.qzcy.backend.service.ReferralService;
 import com.qzcy.backend.service.RegistrationConfigService;
 import com.qzcy.backend.util.JwtUtil;
+import com.qzcy.backend.util.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -38,9 +39,7 @@ public class AuthServiceImpl implements AuthService {
         if (!username.matches("^[A-Za-z0-9]{3,20}$")) {
             throw new BusinessException(400, "用户名只能包含英文和数字，长度3-20位");
         }
-        if (dto.getPassword() == null || dto.getPassword().length() < 6) {
-            throw new BusinessException(400, "密码至少6位");
-        }
+        PasswordPolicy.requireNewPassword(dto.getPassword());
         String email = normalizeEmail(dto.getEmail());
         Long count = userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getUsername, username));
         if (count > 0) {
@@ -69,7 +68,8 @@ public class AuthServiceImpl implements AuthService {
     public LoginResponse login(LoginDto dto) {
         String account = dto.getAccount() != null ? dto.getAccount() : dto.getUsername();
         account = account == null ? "" : account.trim();
-        if (account.isEmpty() || dto.getPassword() == null || dto.getPassword().isEmpty()) {
+        if (account.isEmpty() || account.length() > 254 || dto.getPassword() == null || dto.getPassword().isEmpty()
+                || dto.getPassword().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
             throw new BusinessException(401, "账号或密码错误");
         }
         LambdaQueryWrapper<User> query = new LambdaQueryWrapper<>();
@@ -91,16 +91,16 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void resetPassword(ForgotPasswordDto dto) {
         String email = normalizeEmail(dto.getEmail());
-        if (dto.getNewPassword() == null || dto.getNewPassword().length() < 6) {
-            throw new BusinessException(400, "新密码至少6位");
-        }
+        PasswordPolicy.requireNewPassword(dto.getNewPassword());
+        emailCodeService.verify(email, "forgot_password", dto.getCode());
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getEmail, email));
         if (user == null) {
-            throw new BusinessException(404, "邮箱对应用户不存在");
+            throw new BusinessException(400, "邮箱验证码无效或已过期");
         }
-        emailCodeService.verify(email, "forgot_password", dto.getCode());
-        user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
-        userMapper.updateById(user);
+        if (userMapper.changePasswordSecurely(user.getId(), user.getPassword(), user.getEmail(),
+                passwordEncoder.encode(dto.getNewPassword())) != 1) {
+            throw new BusinessException(409, "账号资料已变化，请重新获取验证码");
+        }
     }
 
     private AuthUser toAuthUser(User user) {

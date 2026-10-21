@@ -5,8 +5,11 @@ export const userApi = {
   balance() {
     return http.get<ApiResponse<number>>('/user/balance')
   },
-  updateProfile(email: string) {
-    return http.put<ApiResponse<UserInfo>>('/user/profile', { email })
+  updateProfile(email: string, oldPassword: string, currentEmailCode: string, newEmailCode: string) {
+    return http.put<ApiResponse<UserInfo>>('/user/profile', { email, oldPassword, currentEmailCode, newEmailCode })
+  },
+  sendEmailChangeCode(email: string, scene: 'change_email_current' | 'change_email_new') {
+    return http.post<ApiResponse<Record<string, unknown>>>('/user/email-code', { email, scene })
   },
   changePassword(oldPassword: string, newPassword: string) {
     return http.post<ApiResponse<void>>('/user/password', { oldPassword, newPassword })

@@ -1,0 +1,234 @@
+{
+  "model": "deepseek-v4.1-flash",
+  "endpoint": "https://image.qzcy3.top/api/v1",
+  "zcode_original_body_replays": [
+    {
+      "attempt": 1,
+      "status": 200,
+      "seconds": 4.609,
+      "first_event_seconds": 3.843,
+      "events": {
+        "response.created": 1,
+        "response.in_progress": 1,
+        "response.output_item.added": 2,
+        "response.reasoning_summary_part.added": 1,
+        "response.reasoning_summary_text.delta": 114,
+        "response.content_part.added": 1,
+        "response.output_text.delta": 72,
+        "response.reasoning_summary_text.done": 1,
+        "response.reasoning_summary_part.done": 1,
+        "response.output_item.done": 2,
+        "response.output_text.done": 1,
+        "response.content_part.done": 1,
+        "response.completed": 1
+      },
+      "reasoning_chars": 479,
+      "text_chars": 137,
+      "completed": true,
+      "usage": {
+        "input_tokens": 23503,
+        "input_tokens_details": {
+          "cached_tokens": 23296
+        },
+        "output_tokens": 187,
+        "output_tokens_details": {
+          "reasoning_tokens": 114
+        },
+        "total_tokens": 23690
+      }
+    },
+    {
+      "attempt": 2,
+      "status": 200,
+      "seconds": 6.031,
+      "first_event_seconds": 4.297,
+      "events": {
+        "response.created": 1,
+        "response.in_progress": 1,
+        "response.output_item.added": 3,
+        "response.reasoning_summary_part.added": 1,
+        "response.reasoning_summary_text.delta": 193,
+        "response.content_part.added": 1,
+        "response.output_text.delta": 16,
+        "response.function_call_arguments.delta": 51,
+        "response.reasoning_summary_text.done": 1,
+        "response.reasoning_summary_part.done": 1,
+        "response.output_item.done": 3,
+        "response.output_text.done": 1,
+        "response.content_part.done": 1,
+        "response.function_call_arguments.done": 1,
+        "response.completed": 1
+      },
+      "reasoning_chars": 879,
+      "text_chars": 28,
+      "completed": true,
+      "usage": {
+        "input_tokens": 23503,
+        "input_tokens_details": {
+          "cached_tokens": 23296
+        },
+        "output_tokens": 296,
+        "output_tokens_details": {
+          "reasoning_tokens": 193
+        },
+        "total_tokens": 23799
+      }
+    }
+  ],
+  "zcode_same_sdk_explicit_proxy": [
+    {
+      "runtime": "v24.19.0",
+      "sdk": "@ai-sdk/openai@3.0.65",
+      "seconds": 6.243,
+      "counts": {
+        "stream-start": 1,
+        "response-metadata": 1,
+        "reasoning-start": 1,
+        "reasoning-delta": 72,
+        "text-start": 1,
+        "text-delta": 48,
+        "reasoning-end": 1,
+        "text-end": 1,
+        "finish": 1
+      },
+      "reasoningChars": 298,
+      "textChars": 91,
+      "usage": {
+        "inputTokens": {
+          "total": 23503,
+          "noCache": 207,
+          "cacheRead": 23296
+        },
+        "outputTokens": {
+          "total": 121,
+          "text": 49,
+          "reasoning": 72
+        },
+        "raw": {
+          "input_tokens": 23503,
+          "input_tokens_details": {
+            "cached_tokens": 23296
+          },
+          "output_tokens": 121,
+          "output_tokens_details": {
+            "reasoning_tokens": 72
+          }
+        }
+      },
+      "finishReason": {
+        "unified": "stop"
+      }
+    }
+  ],
+  "dsh_snapshot": {
+    "messages": 35,
+    "messages_with_reasoning": 29,
+    "reasoning_chars": 66901,
+    "latest": [
+      {
+        "seq": 259,
+        "local_time": "2026-10-18T01:06:30.921000",
+        "block_types": [
+          "reasoning",
+          "tool-call"
+        ],
+        "chars": {
+          "reasoning": 1270,
+          "tool-call": 0
+        },
+        "usage": {
+          "inputTokens": 1715,
+          "outputTokens": 368,
+          "cacheReadTokens": 44928,
+          "cacheWriteTokens": 0,
+          "totalTokens": 47011
+        }
+      },
+      {
+        "seq": 265,
+        "local_time": "2026-10-18T01:06:44.151000",
+        "block_types": [
+          "reasoning",
+          "tool-call"
+        ],
+        "chars": {
+          "reasoning": 4882,
+          "tool-call": 0
+        },
+        "usage": {
+          "inputTokens": 986,
+          "outputTokens": 1271,
+          "cacheReadTokens": 46592,
+          "cacheWriteTokens": 0,
+          "totalTokens": 48849
+        }
+      },
+      {
+        "seq": 271,
+        "local_time": "2026-10-18T01:06:58.894000",
+        "block_types": [
+          "tool-call"
+        ],
+        "chars": {
+          "tool-call": 0
+        },
+        "usage": {
+          "inputTokens": 669,
+          "outputTokens": 103,
+          "cacheReadTokens": 47488,
+          "cacheWriteTokens": 0,
+          "totalTokens": 48260
+        }
+      },
+      {
+        "seq": 277,
+        "local_time": "2026-10-18T01:07:10.460000",
+        "block_types": [
+          "reasoning",
+          "tool-call",
+          "tool-call"
+        ],
+        "chars": {
+          "reasoning": 4353,
+          "tool-call": 0
+        },
+        "usage": {
+          "inputTokens": 937,
+          "outputTokens": 1266,
+          "cacheReadTokens": 48128,
+          "cacheWriteTokens": 0,
+          "totalTokens": 50331
+        }
+      },
+      {
+        "seq": 285,
+        "local_time": "2026-10-18T01:07:24.313000",
+        "block_types": [
+          "reasoning",
+          "tool-call"
+        ],
+        "chars": {
+          "reasoning": 7418,
+          "tool-call": 0
+        },
+        "usage": {
+          "inputTokens": 808,
+          "outputTokens": 1939,
+          "cacheReadTokens": 49024,
+          "cacheWriteTokens": 0,
+          "totalTokens": 51771
+        }
+      }
+    ]
+  },
+  "validation": {
+    "RelayDispatchServiceImplTest": 19,
+    "RelayBillingCompatibilityTest": 61,
+    "RelayClaudeCacheBillingTest": 12
+  },
+  "limitations": [
+    "ZCode GUI after restart has not been verified",
+    "No server request ID correlation for screenshot request",
+    "Historical cache-zero cause not established"
+  ]
+}

@@ -27,7 +27,8 @@ public class MailDeliveryServiceImpl implements MailDeliveryService {
             return;
         }
         boolean passwordReset = "forgot_password".equals(scene);
-        String action = passwordReset ? "找回密码" : "注册账号";
+        String action = passwordReset ? "找回密码"
+                : scene.startsWith("change_email_") ? "修改绑定邮箱" : "注册账号";
         String content = "<p style=\"margin:0;color:#475569;font-size:15px;line-height:1.8;\">"
                 + "你正在进行" + escape(action) + "验证。请在 10 分钟内使用下方验证码，切勿将验证码透露给他人。"
                 + "</p>"

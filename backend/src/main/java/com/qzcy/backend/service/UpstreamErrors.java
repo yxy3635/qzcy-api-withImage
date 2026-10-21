@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Set;
 
 /** Public upstream errors are rebuilt from an allowlist; raw responses stay in admin logs. */
 public final class UpstreamErrors {
@@ -44,8 +45,12 @@ public final class UpstreamErrors {
         return body.hasNonNull("error") || body.path("response").hasNonNull("error")
                 || "error".equals(body.path("type").asText())
                 || "response.failed".equals(body.path("type").asText())
+                || "response.incomplete".equals(body.path("type").asText())
                 || "failed".equals(body.path("status").asText())
+                || "incomplete".equals(body.path("status").asText())
                 || "error".equals(body.path("status").asText())
+                || "failed".equals(body.path("response").path("status").asText())
+                || "incomplete".equals(body.path("response").path("status").asText())
                 || (body.path("code").isInt() && body.path("code").asInt() >= 400)
                 || (body.path("success").isBoolean() && !body.path("success").asBoolean());
     }
@@ -88,6 +93,48 @@ public final class UpstreamErrors {
         return result;
     }
 
+    /** Preserve generated output on failed responses, but never copy diagnostic fields. */
+    public static ObjectNode publicFailure(ObjectMapper mapper, int status, String path, JsonNode raw) {
+        ObjectNode safe = body(mapper, status, path, raw);
+        if (raw != null && raw.isObject()) {
+            for (String key : new String[]{"output", "content", "choices", "usage"}) {
+                if (raw.hasNonNull(key)) safe.set(key, stripDiagnostics(raw.get(key)));
+                else if (raw.path("response").hasNonNull(key)) safe.set(key, stripDiagnostics(raw.path("response").get(key)));
+            }
+        }
+        return safe;
+    }
+
+    private static final Set<String> PRIVATE_FIELDS = Set.of("headers", "upstream", "upstream_url",
+            "upstream_id", "provider", "provider_id", "provider_name", "base_url", "api_base_url",
+            "request_url", "api_key", "authorization", "x-api-key");
+
+    public static JsonNode stripDiagnostics(JsonNode raw) {
+        if (raw == null) return null;
+        JsonNode clean = raw.deepCopy();
+        if (clean.isObject()) {
+            ObjectNode obj = (ObjectNode) clean;
+            var keys = new java.util.ArrayList<String>();
+            obj.fieldNames().forEachRemaining(keys::add);
+            for (String key : keys) {
+                if (PRIVATE_FIELDS.contains(key.toLowerCase(Locale.ROOT))) obj.remove(key);
+                else if ("error".equals(key) && obj.hasNonNull(key)) {
+                    int code = status(502, obj);
+                    ObjectNode safeError = obj.objectNode();
+                    safeError.put("type", type(code)).put("code", code).put("message", message(code));
+                    obj.set(key, safeError);
+                // Tool inputs and JSON schemas are generated/user content, not gateway metadata.
+                } else if (!Set.of("input", "arguments", "parameters", "schema").contains(key)) {
+                    obj.set(key, stripDiagnostics(obj.get(key)));
+                }
+            }
+        } else if (clean.isArray()) {
+            var array = (com.fasterxml.jackson.databind.node.ArrayNode) clean;
+            for (int i = 0; i < array.size(); i++) array.set(i, stripDiagnostics(array.get(i)));
+        }
+        return clean;
+    }
+
     /** Buffer one SSE event so errors split across network/UTF-8 chunks cannot leak. */
     public static final class SseOutput extends OutputStream {
         private final OutputStream output;
@@ -95,6 +142,7 @@ public final class UpstreamErrors {
         private final String path;
         private final ByteArrayOutputStream event = new ByteArrayOutputStream();
         private boolean lineEmpty = true;
+        private boolean downstreamFailed;
 
         public SseOutput(OutputStream output, ObjectMapper mapper, String path) {
             this.output = output;
@@ -126,6 +174,28 @@ public final class UpstreamErrors {
             if (event.size() > 0) emit();
         }
 
+        public boolean downstreamFailed() { return downstreamFailed; }
+
+        /** Only forward an interrupted event if its JSON is complete and can be inspected. */
+        public void finishInterrupted() throws IOException {
+            if (event.size() == 0) return;
+            String raw = event.toString(StandardCharsets.UTF_8);
+            StringBuilder data = new StringBuilder();
+            for (String line : raw.split("\\R")) {
+                if (line.startsWith("data:")) data.append(line.substring(5).stripLeading()).append('\n');
+            }
+            try {
+                if (mapper.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                        .readTree(data.toString()) != null) {
+                    if (!raw.endsWith("\n")) write('\n');
+                    write('\n');
+                    return;
+                }
+            } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) { }
+            event.reset();
+            lineEmpty = true;
+        }
+
         private void emit() throws IOException {
             String raw = event.toString(StandardCharsets.UTF_8);
             StringBuilder data = new StringBuilder();
@@ -135,20 +205,28 @@ public final class UpstreamErrors {
                 if (line.startsWith("event:")) eventType = line.substring(6).trim();
             }
             JsonNode json = null;
-            try { json = mapper.readTree(data.isEmpty() ? raw : data.toString()); } catch (Exception ignored) { }
-            if (isError(json) || "error".equals(eventType) || "response.failed".equals(eventType)) {
-                ObjectNode safe = body(mapper, 502, path, json);
-                if (data.isEmpty() && eventType.isEmpty()) {
-                    output.write(safe.toString().getBytes(StandardCharsets.UTF_8));
-                    event.reset();
-                    output.flush();
-                    return;
-                }
+            try {
+                json = mapper.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                        .readTree(data.isEmpty() ? raw : data.toString());
+            } catch (Exception ignored) { }
+            String jsonType = json == null ? "" : json.path("type").asText();
+            // Account limits and session headers belong to the provider, not the API user.
+            if (eventType.startsWith("codex.") || jsonType.startsWith("codex.")) {
+                event.reset();
+                return;
+            }
+            if (isError(json) || "error".equals(eventType) || "response.failed".equals(eventType)
+                    || "response.incomplete".equals(eventType)
+                    || (!eventType.isEmpty() && !eventType.matches("[A-Za-z0-9_.-]{1,100}"))
+                    || (json == null && !data.isEmpty() && !"[DONE]".equals(data.toString().trim()))
+                    || (json == null && data.isEmpty() && eventType.isEmpty() && !raw.isBlank()
+                        && !raw.stripLeading().startsWith(":"))) {
+                ObjectNode safe = publicFailure(mapper, 502, path, json);
                 String kind = json == null ? eventType : json.path("type").asText(eventType);
                 if (path != null && path.startsWith("/v1/responses")) {
                     ObjectNode error = (ObjectNode) safe.path("error");
                     error.put("code", error.path("type").asText());
-                    if (!"response.failed".equals(kind)) {
+                    if (!"response.failed".equals(kind) && !"response.incomplete".equals(kind)) {
                         safe.put("code", error.path("code").asText());
                         safe.put("message", error.path("message").asText());
                         safe.putNull("param");
@@ -156,22 +234,43 @@ public final class UpstreamErrors {
                         kind = "error";
                     }
                 }
-                if ("response.failed".equals(kind)) {
+                if ("response.failed".equals(kind) || "response.incomplete".equals(kind)) {
                     ObjectNode response = mapper.createObjectNode();
+                    JsonNode rawResponse = json == null ? null : json.path("response");
+                    if (rawResponse != null) {
+                        for (String key : new String[]{"output", "usage"}) {
+                            if (rawResponse.hasNonNull(key)) response.set(key, stripDiagnostics(rawResponse.get(key)));
+                        }
+                    }
                     response.put("object", "response");
-                    response.put("status", "failed");
+                    response.put("status", "response.incomplete".equals(kind) ? "incomplete" : "failed");
                     response.set("error", safe.remove("error"));
                     safe.set("response", response);
                 }
-                if ("error".equals(kind) || "response.failed".equals(kind)) safe.put("type", kind);
+                if ("error".equals(kind) || "response.failed".equals(kind) || "response.incomplete".equals(kind)) safe.put("type", kind);
                 if (json != null && json.path("sequence_number").isNumber()) safe.set("sequence_number", json.get("sequence_number"));
-                String label = "response.failed".equals(kind) ? "response.failed" : "error";
-                output.write(("event: " + label + "\ndata: " + safe + "\n\n").getBytes(StandardCharsets.UTF_8));
+                String label = "response.failed".equals(kind) || "response.incomplete".equals(kind) ? kind : "error";
+                send(("event: " + label + "\ndata: " + safe + "\n\n").getBytes(StandardCharsets.UTF_8));
             } else {
-                output.write(event.toByteArray());
+                JsonNode clean = stripDiagnostics(json);
+                if (json != null && !json.equals(clean)) {
+                    String label = eventType.isBlank() ? "" : "event: " + eventType + "\n";
+                    send((label + "data: " + clean + "\n\n").getBytes(StandardCharsets.UTF_8));
+                } else if (data.isEmpty()) {
+                    send(":\n\n".getBytes(StandardCharsets.UTF_8));
+                } else send(event.toByteArray());
             }
             event.reset();
-            output.flush();
+        }
+
+        private void send(byte[] bytes) throws IOException {
+            try {
+                output.write(bytes);
+                output.flush();
+            } catch (IOException ex) {
+                downstreamFailed = true;
+                throw ex;
+            }
         }
     }
 }
